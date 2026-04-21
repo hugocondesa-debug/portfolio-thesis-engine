@@ -68,11 +68,11 @@ sudo systemctl enable --now pte-streamlit
 
 ## Status
 
-**Phase 0** — Foundations (in progress)
-- Repo structure, schemas, storage layer, LLM orchestrator, guardrails framework, CLI, DevOps
+**Phase 0 — Foundations** ✅ complete (2026-04-21)
+- Repo scaffolding, 8 Pydantic schemas with YAML roundtrip, 5-layer storage (YAML + DuckDB + SQLite + Chroma + filesystem + in-memory doubles) with atomic writes and ticker normalisation, LLM orchestrator (Anthropic + OpenAI embeddings + cost tracking + retry + router + structured outputs), FMP market-data provider, guardrails framework, `pte` CLI (setup / health-check / smoke-test), Streamlit UI stub, DevOps (idempotent provisioning, backup, systemd units), 324 tests at 93 % coverage, ruff + mypy strict clean.
 
-**Phase 1** — Portfolio System MVP (next)
-- Parser of forecast outputs, Dashboard, Scenario tuner, Ficha viewer
+**Phase 1 — Portfolio System MVP** (next)
+- Parser of forecast outputs, dashboard, scenario tuner, ficha viewer, real extraction/valuation engines plugged into the Phase 0 schemas.
 
 ## License
 
