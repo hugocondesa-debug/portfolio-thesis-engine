@@ -1,0 +1,23 @@
+[Unit]
+Description=Portfolio Thesis Engine — Daily Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=portfolio
+Group=portfolio
+WorkingDirectory=/home/portfolio/workspace/portfolio-thesis-engine
+Environment="PATH=/home/portfolio/.local/bin:/usr/bin:/bin"
+Environment="PTE_REPO_ROOT=/home/portfolio/workspace/portfolio-thesis-engine"
+Environment="PTE_BACKUP_LOG=/home/portfolio/backup.log"
+ExecStart=/home/portfolio/workspace/portfolio-thesis-engine/scripts/backup.sh
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/portfolio/workspace/portfolio-thesis-engine/backup /home/portfolio/backup.log
+
+[Install]
+WantedBy=multi-user.target

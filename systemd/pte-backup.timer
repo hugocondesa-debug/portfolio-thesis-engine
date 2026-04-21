@@ -1,0 +1,11 @@
+[Unit]
+Description=Portfolio Thesis Engine — Daily Backup Timer
+Requires=pte-backup.service
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=pte-backup.service
+
+[Install]
+WantedBy=timers.target

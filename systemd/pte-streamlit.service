@@ -1,0 +1,24 @@
+[Unit]
+Description=Portfolio Thesis Engine — Streamlit UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=portfolio
+Group=portfolio
+WorkingDirectory=/home/portfolio/workspace/portfolio-thesis-engine
+Environment="PATH=/home/portfolio/.local/bin:/usr/bin:/bin"
+EnvironmentFile=/home/portfolio/workspace/portfolio-thesis-engine/.env
+ExecStart=/home/portfolio/.local/bin/uv run streamlit run src/portfolio_thesis_engine/ui/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+Restart=on-failure
+RestartSec=10
+
+# Hardening — within what a userland Streamlit process needs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/portfolio/workspace/portfolio-thesis-engine/data /home/portfolio/workspace/portfolio-thesis-engine/backup
+
+[Install]
+WantedBy=multi-user.target
