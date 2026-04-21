@@ -114,14 +114,14 @@ def _section_result(ticker: str = "TST", fp: str = "FY2024") -> SectionExtractio
 
 
 class TestLoadModulesForProfile:
-    def test_p1_loads_modules_a_and_b(self, _cost_tracker: CostTracker) -> None:
+    def test_p1_loads_modules_a_b_c(self, _cost_tracker: CostTracker) -> None:
         coord = ExtractionCoordinator(
             profile=Profile.P1_INDUSTRIAL,
             llm=MagicMock(),
             cost_tracker=_cost_tracker,
         )
         ids = [m.module_id for m in coord.modules]
-        assert ids == ["A", "B"]
+        assert ids == ["A", "B", "C"]
 
     def test_unsupported_profile_raises(self, _cost_tracker: CostTracker) -> None:
         with pytest.raises(NotImplementedError, match="Phase 1"):
@@ -240,7 +240,7 @@ class TestEndToEndP1:
         b_mods = [a for a in result.adjustments if a.module.startswith("B.2")]
         assert any("goodwill_impairment" in a.module for a in b_mods)
 
-        assert result.modules_run == ["A", "B"]
+        assert result.modules_run == ["A", "B", "C"]
 
 
 # ======================================================================

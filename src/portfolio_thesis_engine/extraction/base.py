@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from portfolio_thesis_engine.schemas.common import FiscalPeriod
-from portfolio_thesis_engine.schemas.company import ModuleAdjustment
+from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, ModuleAdjustment
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
 from portfolio_thesis_engine.section_extractor.base import StructuredSection
 
@@ -103,8 +103,12 @@ class ExtractionModule(ABC):
 class ExtractionResult:
     """Output of :meth:`ExtractionCoordinator.extract`.
 
-    Sprint 6 carries the adjustments + logs; Sprint 7 extends this with
-    :class:`CanonicalCompanyState` once :mod:`analysis` lands.
+    Sprint 7 adds :attr:`canonical_state`: the fully-typed, immutable
+    :class:`CanonicalCompanyState` built from the reclassified sections,
+    the module adjustments, and the derived analysis. It stays optional
+    so the coordinator's low-level ``extract`` (no identity supplied) can
+    still return a result without it — callers building a canonical
+    state use :meth:`ExtractionCoordinator.extract_canonical` instead.
     """
 
     ticker: str
@@ -114,3 +118,4 @@ class ExtractionResult:
     decision_log: list[str]
     estimates_log: list[str]
     modules_run: list[str]
+    canonical_state: CanonicalCompanyState | None = None
