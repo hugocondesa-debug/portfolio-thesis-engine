@@ -1,11 +1,11 @@
-"""P1 Industrial archetype extractor — Passes 1 + 2.
+"""P1 Industrial archetype extractor — Passes 1, 2 and 3.
 
 Pass 1 (TOC identification): one LLM call locates section boundaries.
 Pass 2 (per-section parsing): one LLM call per parseable section,
 dispatched via the :data:`SECTION_TOOLS` table and parallelised
 with :func:`asyncio.gather` bounded by ``max_concurrent``.
-
-Pass 3 (validation) lands in Sprint 4.
+Pass 3 (validation): Python-side checks for core sections, fiscal
+period consistency, currency consistency, and IS / BS / CF arithmetic.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from portfolio_thesis_engine.section_extractor.tools import (
     REPORT_SECTIONS_TOOL_NAME,
     SECTION_TOOLS,
 )
+from portfolio_thesis_engine.section_extractor.validator import ExtractionValidator
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import CostLimitExceededError
 
@@ -67,10 +68,11 @@ class P1IndustrialExtractor(SectionExtractor):
         self.max_tokens_toc = max_tokens_toc
         self.max_tokens_parse = max_tokens_parse
         self.max_concurrent = max_concurrent
+        self._validator = ExtractionValidator()
 
     # ------------------------------------------------------------------
     async def extract(self, document: IngestedDocument) -> ExtractionResult:
-        """Run Pass 1 → Pass 2. Pass 3 (validation) lands Sprint 4."""
+        """Run Pass 1 → Pass 2 → Pass 3 and return the final result."""
         content = document.source_path.read_text(encoding="utf-8")
         identified, primary_period = await self._identify_sections(content, ticker=document.ticker)
 
@@ -97,12 +99,19 @@ class P1IndustrialExtractor(SectionExtractor):
                 "unknown",
             )
         )
-        return ExtractionResult(
+        result = ExtractionResult(
             doc_id=document.doc_id,
             ticker=document.ticker,
             fiscal_period=fiscal_period,
             sections=sections,
         )
+
+        # Pass 3: validation. Issues + overall_status roll up here; no
+        # LLM calls, so no cost-cap check needed.
+        issues = self._validator.validate(result)
+        result.issues = issues
+        result.overall_status = ExtractionValidator.overall_status(issues)
+        return result
 
     # ------------------------------------------------------------------
     # Pass 1
