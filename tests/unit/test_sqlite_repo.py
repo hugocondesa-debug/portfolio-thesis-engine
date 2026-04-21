@@ -87,25 +87,19 @@ class TestTickerNormalisation:
     """MetadataRepository stores and queries tickers in canonical
     (hyphenated) form regardless of how the caller typed them."""
 
-    def test_add_company_stores_normalised_ticker(
-        self, repo: MetadataRepository
-    ) -> None:
+    def test_add_company_stores_normalised_ticker(self, repo: MetadataRepository) -> None:
         repo.add_company("TEST.L", "Dotted", "P1", "GBP", "LON")
         # Queryable via either form
         assert repo.get_company("TEST.L").ticker == "TEST-L"
         assert repo.get_company("TEST-L").ticker == "TEST-L"
 
-    def test_link_company_to_cluster_with_dotted_ticker(
-        self, repo: MetadataRepository
-    ) -> None:
+    def test_link_company_to_cluster_with_dotted_ticker(self, repo: MetadataRepository) -> None:
         repo.add_company("TEST.L", "Dotted", "P1", "GBP", "LON")
         repo.add_cluster("uk_specialists", "UK Specialists")
         repo.link_company_to_cluster("TEST.L", "uk_specialists")
         assert repo.list_companies_in_cluster("uk_specialists") == ["TEST-L"]
 
-    def test_add_peer_with_dotted_tickers(
-        self, repo: MetadataRepository
-    ) -> None:
+    def test_add_peer_with_dotted_tickers(self, repo: MetadataRepository) -> None:
         repo.add_company("TEST.L", "Dotted", "P1", "GBP", "LON")
         repo.add_peer("TEST.L", "PEER.AS", "A")
         peers = repo.list_peers("TEST.L")

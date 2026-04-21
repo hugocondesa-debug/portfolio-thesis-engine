@@ -493,9 +493,7 @@ class TestYAMLRepositoryTickerNormalisation:
         assert repo.exists("ACME.L") is False
         assert repo.exists("ACME-L") is False
 
-    def test_exists_with_both_formats(
-        self, tmp_path: Path, sample_position: Position
-    ) -> None:
+    def test_exists_with_both_formats(self, tmp_path: Path, sample_position: Position) -> None:
         sample_position.ticker = "ACME.L"
         repo = PositionRepository(base_path=tmp_path)
         assert repo.exists("ACME.L") is False
@@ -565,9 +563,7 @@ class TestVersionedRepositoryTickerNormalisation:
     ) -> None:
         state = sample_company_state.model_copy(
             update={
-                "identity": sample_company_state.identity.model_copy(
-                    update={"ticker": "ACME.L"}
-                )
+                "identity": sample_company_state.identity.model_copy(update={"ticker": "ACME.L"})
             }
         )
         repo = CompanyStateRepository(base_path=tmp_path)

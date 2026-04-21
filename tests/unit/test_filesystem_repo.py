@@ -89,9 +89,7 @@ class TestTickerNormalisation:
         repo.delete("TEST.L", "filings", "doc.pdf")
         assert repo.exists("TEST-L", "filings", "doc.pdf") is False
 
-    def test_list_documents_with_dotted_ticker(
-        self, repo: DocumentRepository
-    ) -> None:
+    def test_list_documents_with_dotted_ticker(self, repo: DocumentRepository) -> None:
         repo.store("TEST.L", "filings", "a.pdf", b"x")
         repo.store("TEST.L", "filings", "b.pdf", b"x")
         assert len(repo.list_documents("TEST.L")) == 2
