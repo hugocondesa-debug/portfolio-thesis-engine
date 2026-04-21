@@ -55,7 +55,15 @@ from portfolio_thesis_engine.section_extractor.tools import (
 )
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
 from portfolio_thesis_engine.storage.sqlite_repo import MetadataRepository
-from portfolio_thesis_engine.storage.yaml_repo import CompanyStateRepository
+from portfolio_thesis_engine.storage.yaml_repo import (
+    CompanyStateRepository,
+    ValuationRepository,
+)
+from portfolio_thesis_engine.valuation import (
+    FCFFDCFEngine,
+    ScenarioComposer,
+    ValuationComposer,
+)
 
 _FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "euroeyes"
 
@@ -384,8 +392,17 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
         cost_tracker=cost_tracker,
     )
     fmp, yf = _fake_providers()
+    # Add a get_quote mock to FMP for the valuation market snapshot.
+    fmp.get_quote = AsyncMock(
+        return_value={
+            "price": 12.30,
+            "sharesOutstanding": 200_000_000,
+            "marketCap": 2_460_000_000,
+        }
+    )
     cross_check_gate = CrossCheckGate(fmp, yf, log_dir=data_dir / "logs" / "cross_check")
     state_repo = CompanyStateRepository(base_path=data_dir / "yamls" / "companies")
+    valuation_repo = ValuationRepository(base_path=data_dir / "yamls" / "companies")
 
     pipeline = PipelineCoordinator(
         document_repo=doc_repo,
@@ -395,11 +412,16 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
         extraction_coordinator=extraction_coordinator,
         state_repo=state_repo,
         runs_log_dir=data_dir / "logs" / "runs",
+        valuation_composer=ValuationComposer(),
+        scenario_composer=ScenarioComposer(dcf_engine=FCFFDCFEngine(n_years=5)),
+        valuation_repo=valuation_repo,
+        market_data_provider=fmp,
     )
     return {
         "pipeline": pipeline,
         "wacc_path": wacc_path,
         "state_repo": state_repo,
+        "valuation_repo": valuation_repo,
         "data_dir": data_dir,
     }
 
@@ -417,11 +439,12 @@ class TestPhase1E2E:
         pipeline: PipelineCoordinator = _setup["pipeline"]  # type: ignore[assignment]
         wacc_path: Path = _setup["wacc_path"]  # type: ignore[assignment]
         state_repo: CompanyStateRepository = _setup["state_repo"]  # type: ignore[assignment]
+        valuation_repo: ValuationRepository = _setup["valuation_repo"]  # type: ignore[assignment]
 
         outcome = await pipeline.process("1846.HK", wacc_path=wacc_path)
 
-        # All seven stages executed (including guardrails).
-        assert len(outcome.stages) == 7
+        # All nine stages executed (Sprint 8's 7 + Sprint 9's 2 valuation stages).
+        assert len(outcome.stages) == 9
         assert outcome.success is True
         # Overall is PASS or WARN — never FAIL for the calibrated fixture.
         overall = outcome.overall_guardrail_status
@@ -442,13 +465,27 @@ class TestPhase1E2E:
         assert outcome.cross_check_report is not None
         assert outcome.cross_check_report.blocking is False
 
+        # Valuation snapshot produced, persisted, and carries 3 scenarios.
+        assert outcome.valuation_snapshot is not None
+        snap = outcome.valuation_snapshot
+        assert len(snap.scenarios) == 3
+        labels = [sc.label for sc in snap.scenarios]
+        assert labels == ["bear", "base", "bull"]
+        assert snap.weighted.expected_value > 0
+        assert snap.weighted.fair_value_range_low <= snap.weighted.expected_value
+        assert snap.weighted.fair_value_range_high >= snap.weighted.expected_value
+
+        persisted_snap = valuation_repo.get("1846.HK")
+        assert persisted_snap is not None
+        assert persisted_snap.snapshot_id == snap.snapshot_id
+
         # Run log written and parseable.
         assert outcome.log_path is not None
         assert outcome.log_path.exists()
         log_lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
         assert any('"type": "run_header"' in ln for ln in log_lines)
         stage_lines = [ln for ln in log_lines if '"type": "stage"' in ln]
-        assert len(stage_lines) == 7
+        assert len(stage_lines) == 9
         guardrail_lines = [ln for ln in log_lines if '"type": "guardrail"' in ln]
         # 8 default guardrails (4 A.* + 4 V.*)
         assert len(guardrail_lines) == 8

@@ -13,6 +13,12 @@ Stages run in order:
 5. **EXTRACT_CANONICAL** — run :class:`ExtractionCoordinator.extract_canonical`.
 6. **PERSIST** — save the canonical state via :class:`CompanyStateRepository`.
 7. **GUARDRAILS** — run Group A + V guardrails.
+8. **VALUATE** — compose three scenarios + DCF per scenario + equity
+   bridge + IRR, then the final :class:`ValuationSnapshot`. Skipped
+   if :attr:`PipelineCoordinator.valuation_repo` is ``None`` (Phase 1
+   pre-Sprint-9 layout).
+9. **PERSIST_VALUATION** — save the snapshot via
+   :class:`ValuationRepository`.
 
 Flags:
 
@@ -47,8 +53,14 @@ from portfolio_thesis_engine.guardrails.checks import default_guardrails
 from portfolio_thesis_engine.guardrails.results import AggregatedResults, ResultAggregator
 from portfolio_thesis_engine.guardrails.runner import GuardrailRunner
 from portfolio_thesis_engine.ingestion.wacc_parser import parse_wacc_inputs
+from portfolio_thesis_engine.market_data.base import (
+    MarketDataError,
+    MarketDataProvider,
+    TickerNotFoundError,
+)
 from portfolio_thesis_engine.schemas.common import Currency, GuardrailStatus, Profile
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, CompanyIdentity
+from portfolio_thesis_engine.schemas.valuation import MarketSnapshot, ValuationSnapshot
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
 from portfolio_thesis_engine.section_extractor.base import (
     ExtractionResult as SectionExtractionResult,
@@ -61,7 +73,12 @@ from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import PTEError
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
 from portfolio_thesis_engine.storage.sqlite_repo import CompanyRow, MetadataRepository
-from portfolio_thesis_engine.storage.yaml_repo import CompanyStateRepository
+from portfolio_thesis_engine.storage.yaml_repo import (
+    CompanyStateRepository,
+    ValuationRepository,
+)
+from portfolio_thesis_engine.valuation.composer import ValuationComposer
+from portfolio_thesis_engine.valuation.scenarios import ScenarioComposer
 
 _COST_OVERRIDE_CAP_USD = 10_000.0
 
@@ -74,6 +91,8 @@ class PipelineStage(StrEnum):
     EXTRACT_CANONICAL = "extract_canonical"
     PERSIST = "persist"
     GUARDRAILS = "guardrails"
+    VALUATE = "valuate"
+    PERSIST_VALUATION = "persist_valuation"
 
 
 class PipelineError(PTEError):
@@ -109,6 +128,7 @@ class PipelineOutcome:
     cross_check_report: CrossCheckReport | None = None
     canonical_state: CanonicalCompanyState | None = None
     guardrails: AggregatedResults | None = None
+    valuation_snapshot: ValuationSnapshot | None = None
     log_path: Path | None = None
 
     @property
@@ -240,6 +260,11 @@ class PipelineCoordinator:
         extraction_coordinator: ExtractionCoordinator,
         state_repo: CompanyStateRepository,
         runs_log_dir: Path | None = None,
+        *,
+        valuation_composer: ValuationComposer | None = None,
+        scenario_composer: ScenarioComposer | None = None,
+        valuation_repo: ValuationRepository | None = None,
+        market_data_provider: MarketDataProvider | None = None,
     ) -> None:
         self.document_repo = document_repo
         self.metadata_repo = metadata_repo
@@ -248,6 +273,14 @@ class PipelineCoordinator:
         self.extraction_coordinator = extraction_coordinator
         self.state_repo = state_repo
         self.runs_log_dir = runs_log_dir or (settings.data_dir / "logs" / "runs")
+        # Valuation wiring — optional so tests that don't care about
+        # Sprint 9 can skip plumbing a full market-data stack. When any
+        # of (composer, scenarios, repo, market_data) is missing, the
+        # pipeline SKIPs the VALUATE + PERSIST_VALUATION stages.
+        self.valuation_composer = valuation_composer
+        self.scenario_composer = scenario_composer
+        self.valuation_repo = valuation_repo
+        self.market_data_provider = market_data_provider
 
     # ------------------------------------------------------------------
     async def process(
@@ -327,6 +360,17 @@ class PipelineCoordinator:
                     outcome=outcome,
                 )
                 outcome.guardrails = agg
+
+                # Stage 8 — valuation (SKIP when wiring isn't provided).
+                snapshot = await self._stage_valuate(
+                    canonical=canonical,
+                    wacc_inputs=wacc_inputs,
+                    outcome=outcome,
+                )
+                outcome.valuation_snapshot = snapshot
+
+                # Stage 9 — persist valuation
+                self._stage_persist_valuation(snapshot, outcome)
 
                 outcome.success = agg.overall not in (GuardrailStatus.FAIL,)
             except PipelineError:
@@ -604,6 +648,141 @@ class PipelineCoordinator:
             )
         )
         return agg
+
+    # ------------------------------------------------------------------
+    async def _stage_valuate(
+        self,
+        canonical: CanonicalCompanyState,
+        wacc_inputs: WACCInputs,
+        outcome: PipelineOutcome,
+    ) -> ValuationSnapshot | None:
+        t0 = perf_counter()
+        if (
+            self.valuation_composer is None
+            or self.scenario_composer is None
+            or self.market_data_provider is None
+        ):
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.VALUATE,
+                    status="skip",
+                    duration_ms=_ms_since(t0),
+                    message=(
+                        "Valuation wiring not provided — "
+                        "pass valuation_composer, scenario_composer, and "
+                        "market_data_provider to enable the DCF stage."
+                    ),
+                )
+            )
+            return None
+
+        market = await self._fetch_market_snapshot(
+            canonical=canonical,
+            wacc_inputs=wacc_inputs,
+        )
+        scenarios = self.scenario_composer.compose(
+            wacc_inputs=wacc_inputs,
+            canonical_state=canonical,
+        )
+        snapshot = self.valuation_composer.compose(
+            canonical_state=canonical,
+            scenarios=scenarios,
+            market=market,
+        )
+        outcome.stages.append(
+            StageOutcome(
+                stage=PipelineStage.VALUATE,
+                status="ok",
+                duration_ms=_ms_since(t0),
+                message=(
+                    f"E[V]={snapshot.weighted.expected_value} "
+                    f"range=[{snapshot.weighted.fair_value_range_low}, "
+                    f"{snapshot.weighted.fair_value_range_high}] "
+                    f"upside={snapshot.weighted.upside_pct:.2f}% "
+                    f"across {len(snapshot.scenarios)} scenarios"
+                ),
+                data={
+                    "expected_value": str(snapshot.weighted.expected_value),
+                    "fair_value_low": str(snapshot.weighted.fair_value_range_low),
+                    "fair_value_high": str(snapshot.weighted.fair_value_range_high),
+                    "upside_pct": str(snapshot.weighted.upside_pct),
+                    "scenarios": [sc.label for sc in snapshot.scenarios],
+                },
+            )
+        )
+        return snapshot
+
+    # ------------------------------------------------------------------
+    def _stage_persist_valuation(
+        self,
+        snapshot: ValuationSnapshot | None,
+        outcome: PipelineOutcome,
+    ) -> None:
+        t0 = perf_counter()
+        if snapshot is None or self.valuation_repo is None:
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.PERSIST_VALUATION,
+                    status="skip",
+                    duration_ms=_ms_since(t0),
+                    message="No valuation snapshot to persist.",
+                )
+            )
+            return
+        self.valuation_repo.save(snapshot)
+        outcome.stages.append(
+            StageOutcome(
+                stage=PipelineStage.PERSIST_VALUATION,
+                status="ok",
+                duration_ms=_ms_since(t0),
+                message=f"valuation snapshot saved (id={snapshot.snapshot_id}).",
+                data={"snapshot_id": snapshot.snapshot_id},
+            )
+        )
+
+    # ------------------------------------------------------------------
+    async def _fetch_market_snapshot(
+        self,
+        canonical: CanonicalCompanyState,
+        wacc_inputs: WACCInputs,
+    ) -> MarketSnapshot:
+        """Fetch current price + shares via the market data provider.
+
+        Falls back to the WACC-file ``current_price`` when the provider
+        is unavailable (logs an estimate note on the snapshot).
+        """
+        assert self.market_data_provider is not None
+        price = wacc_inputs.current_price
+        price_date = wacc_inputs.valuation_date
+        shares = canonical.identity.shares_outstanding
+        market_cap: Decimal | None = None
+        try:
+            quote = await self.market_data_provider.get_quote(wacc_inputs.ticker)
+            if isinstance(quote, dict):
+                p = _to_decimal(quote.get("price"))
+                if p is not None and p > 0:
+                    price = p
+                s = _to_decimal(quote.get("sharesOutstanding"))
+                if s is not None and s > 0:
+                    shares = s
+                mc = _to_decimal(quote.get("marketCap"))
+                if mc is not None and mc > 0:
+                    market_cap = mc
+        except (MarketDataError, TickerNotFoundError):
+            # Provider hiccup — fall through with WACC-file price.
+            pass
+        if market_cap is None and shares is not None:
+            market_cap = price * shares
+
+        return MarketSnapshot(
+            price=price,
+            price_date=price_date,
+            shares_outstanding=shares,
+            market_cap=market_cap,
+            cost_of_equity=wacc_inputs.cost_of_equity,
+            wacc=wacc_inputs.wacc,
+            currency=canonical.identity.reporting_currency,
+        )
 
     # ------------------------------------------------------------------
     def _persist_run_log(self, outcome: PipelineOutcome) -> Path | None:
