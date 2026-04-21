@@ -70,6 +70,12 @@ Percentage = Annotated[
 ]
 BasisPoints = Annotated[int, Field(description="Basis points, e.g. 250 = 2.5%")]
 
+# ISO date string (YYYY-MM-DD). Kept as ``str`` with a regex pattern
+# rather than :class:`datetime.date` so YAML round-trip behaves
+# predictably (PyYAML would otherwise auto-parse bare dates).
+ISODate = Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+Ticker = Annotated[str, Field(min_length=1, max_length=20)]
+
 
 class MoneyWithCurrency(ImmutableSchema):
     """Monetary value with explicit currency. Immutable."""
