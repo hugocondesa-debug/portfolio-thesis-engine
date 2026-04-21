@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     llm_max_cost_per_company_usd: float = 15.0
     llm_max_tokens_per_request: int = 200_000
 
+    # Optional JSON override for model pricing (USD per 1M tokens).
+    # Shape: {"model-id": {"input": "3.00", "output": "15.00"}, ...}
+    # When unset, providers use hard-coded defaults.
+    llm_pricing_json: str | None = None
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "console"] = "console"
 
