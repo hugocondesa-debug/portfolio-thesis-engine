@@ -1,4 +1,4 @@
-"""Unit tests for ``pte process``."""
+"""Unit tests for ``pte process`` (Phase 1.5)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from portfolio_thesis_engine.cli.app import app
 from portfolio_thesis_engine.guardrails.results import AggregatedResults
 from portfolio_thesis_engine.pipeline.coordinator import (
     CrossCheckBlocked,
+    ExtractionValidationBlocked,
     PipelineError,
     PipelineOutcome,
     PipelineStage,
@@ -23,7 +24,10 @@ from portfolio_thesis_engine.schemas.common import GuardrailStatus
 runner = CliRunner()
 
 
-def _outcome(success: bool = True, overall: GuardrailStatus = GuardrailStatus.PASS) -> PipelineOutcome:
+def _outcome(
+    success: bool = True,
+    overall: GuardrailStatus = GuardrailStatus.PASS,
+) -> PipelineOutcome:
     now = datetime.now(UTC)
     return PipelineOutcome(
         ticker="1846.HK",
@@ -55,7 +59,7 @@ def _isolated_data(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 @pytest.fixture(autouse=True)
 def _stub_build_coordinator(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """Replace ``_build_coordinator`` in the CLI so we never touch the
-    real Anthropic / FMP / yfinance constructors during CLI tests."""
+    real FMP / yfinance / LLM constructors during CLI tests."""
     from portfolio_thesis_engine.cli import process_cmd
 
     fake_coord = MagicMock()
@@ -64,15 +68,25 @@ def _stub_build_coordinator(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 
 @pytest.fixture
-def _fake_wacc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _fake_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
+    """Stub both resolver helpers so the CLI tests don't need real
+    DocumentRepository lookups or ~/data_inputs files."""
     wacc = tmp_path / "wacc_inputs.md"
     wacc.write_text("stub", encoding="utf-8")
+    extraction = tmp_path / "raw_extraction.yaml"
+    extraction.write_text("stub", encoding="utf-8")
 
-    # Replace _resolve_wacc_path to return our stub.
     from portfolio_thesis_engine.cli import process_cmd
 
-    monkeypatch.setattr(process_cmd, "_resolve_wacc_path", lambda ticker, explicit: wacc)
-    return wacc
+    monkeypatch.setattr(
+        process_cmd, "_resolve_wacc_path", lambda ticker, explicit: wacc
+    )
+    monkeypatch.setattr(
+        process_cmd,
+        "_resolve_extraction_path",
+        lambda ticker, explicit: extraction,
+    )
+    return {"wacc": wacc, "extraction": extraction}
 
 
 # ======================================================================
@@ -84,7 +98,7 @@ class TestProcessCLIHappy:
     def test_exit_zero_on_pass(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(return_value=_outcome())
         result = runner.invoke(app, ["process", "1846.HK"])
@@ -92,7 +106,7 @@ class TestProcessCLIHappy:
         assert "1846.HK" in result.output
         assert "Guardrails" in result.output
 
-    def test_explicit_wacc_path_used(
+    def test_explicit_wacc_and_extraction_paths_used(
         self,
         _stub_build_coordinator: MagicMock,
         tmp_path: Path,
@@ -102,19 +116,36 @@ class TestProcessCLIHappy:
 
         wacc = tmp_path / "wacc.md"
         wacc.write_text("stub", encoding="utf-8")
-        # Un-stub resolver so the real code path runs with --wacc-path
+        extraction = tmp_path / "extraction.yaml"
+        extraction.write_text("stub", encoding="utf-8")
+        # Un-stub resolvers so the real path-validation code runs.
         monkeypatch.setattr(
             process_cmd, "_resolve_wacc_path", process_cmd._resolve_wacc_path
         )
+        monkeypatch.setattr(
+            process_cmd,
+            "_resolve_extraction_path",
+            process_cmd._resolve_extraction_path,
+        )
         _stub_build_coordinator.process = AsyncMock(return_value=_outcome())
 
-        result = runner.invoke(app, ["process", "1846.HK", "--wacc-path", str(wacc)])
+        result = runner.invoke(
+            app,
+            [
+                "process",
+                "1846.HK",
+                "--wacc-path",
+                str(wacc),
+                "--extraction-path",
+                str(extraction),
+            ],
+        )
         assert result.exit_code == 0, result.output
 
     def test_force_flag_accepted(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(return_value=_outcome())
         result = runner.invoke(app, ["process", "1846.HK", "--force"])
@@ -125,7 +156,7 @@ class TestProcessCLIHappy:
     def test_skip_cross_check_flag_accepted(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(return_value=_outcome())
         result = runner.invoke(app, ["process", "1846.HK", "--skip-cross-check"])
@@ -136,7 +167,7 @@ class TestProcessCLIHappy:
     def test_force_cost_override_flag_accepted(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(return_value=_outcome())
         result = runner.invoke(app, ["process", "1846.HK", "--force-cost-override"])
@@ -154,7 +185,7 @@ class TestProcessCLIExit:
     def test_cross_check_blocked_exit_1(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(
             side_effect=CrossCheckBlocked("overall=FAIL")
@@ -163,10 +194,22 @@ class TestProcessCLIExit:
         assert result.exit_code == 1
         assert "Cross-check blocked" in result.output
 
+    def test_extraction_validation_blocked_exit_1(
+        self,
+        _stub_build_coordinator: MagicMock,
+        _fake_paths: dict[str, Path],
+    ) -> None:
+        _stub_build_coordinator.process = AsyncMock(
+            side_effect=ExtractionValidationBlocked("S.BS FAIL")
+        )
+        result = runner.invoke(app, ["process", "1846.HK"])
+        assert result.exit_code == 1
+        assert "Extraction validation blocked" in result.output
+
     def test_pipeline_error_exit_2(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(
             side_effect=PipelineError("no documents ingested")
@@ -178,7 +221,7 @@ class TestProcessCLIExit:
     def test_guardrail_fail_exit_2(
         self,
         _stub_build_coordinator: MagicMock,
-        _fake_wacc: Path,
+        _fake_paths: dict[str, Path],
     ) -> None:
         _stub_build_coordinator.process = AsyncMock(
             return_value=_outcome(success=False, overall=GuardrailStatus.FAIL)
@@ -187,7 +230,7 @@ class TestProcessCLIExit:
         assert result.exit_code == 2
 
     def test_missing_wacc_exits(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Don't use _fake_wacc: let the real resolver try and fail.
+        # Don't use _fake_paths: let the real resolver try and fail.
         from portfolio_thesis_engine.cli import process_cmd
 
         monkeypatch.setattr(
@@ -213,3 +256,4 @@ class TestProcessCLIHelp:
         assert "--skip-cross-check" in result.output
         assert "--force-cost-override" in result.output
         assert "--wacc-path" in result.output
+        assert "--extraction-path" in result.output

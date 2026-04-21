@@ -14,6 +14,7 @@ from portfolio_thesis_engine.extraction.base import (
     parse_fiscal_period,
 )
 from portfolio_thesis_engine.extraction.module_a_taxes import ModuleATaxes
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import StructuredSection
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Profile
 from portfolio_thesis_engine.schemas.wacc import (
@@ -22,7 +23,6 @@ from portfolio_thesis_engine.schemas.wacc import (
     ScenarioDriversManual,
     WACCInputs,
 )
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
 
 # ======================================================================
 # Fixtures

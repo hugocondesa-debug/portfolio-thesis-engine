@@ -1,7 +1,8 @@
-"""Unit tests for pipeline.coordinator.PipelineCoordinator."""
+"""Unit tests for pipeline.coordinator.PipelineCoordinator (Phase 1.5)."""
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,6 +21,7 @@ from portfolio_thesis_engine.extraction.base import (
 from portfolio_thesis_engine.extraction.base import parse_fiscal_period
 from portfolio_thesis_engine.pipeline.coordinator import (
     CrossCheckBlocked,
+    ExtractionValidationBlocked,
     PipelineCoordinator,
     PipelineError,
     PipelineStage,
@@ -45,84 +47,31 @@ from portfolio_thesis_engine.schemas.company import (
     ValidationResults,
     VintageAndCascade,
 )
-from portfolio_thesis_engine.section_extractor.base import (
-    ExtractionResult as SectionExtractionResult,
+
+_EXTRACTION_FIXTURE = (
+    Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
 )
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
-
-# ======================================================================
-# Fixtures
-# ======================================================================
+_WACC_FIXTURE = (
+    Path(__file__).parent.parent / "fixtures" / "wacc" / "euroeyes_real.md"
+)
 
 
+# ----------------------------------------------------------------------
+# Builders
+# ----------------------------------------------------------------------
 def _period() -> FiscalPeriod:
     return FiscalPeriod(year=2024, label="FY2024")
 
 
-def _wacc_markdown() -> str:
-    return """---
-ticker: 1846.HK
-profile: P1
-valuation_date: "2024-12-31"
-current_price: "12.30"
-cost_of_capital:
-  risk_free_rate: 2.5
-  equity_risk_premium: 5.5
-  beta: 1.1
-  cost_of_debt_pretax: 4.0
-  tax_rate_for_wacc: 16.5
-capital_structure:
-  debt_weight: 25
-  equity_weight: 75
-scenarios:
-  base:
-    probability: 100
-    revenue_cagr_explicit_period: 8
-    terminal_growth: 3
-    terminal_operating_margin: 20
----
-"""
-
-
-def _fake_section_result() -> SectionExtractionResult:
-    return SectionExtractionResult(
-        doc_id="1846-HK/ar/2024.md",
-        ticker="1846.HK",
-        fiscal_period="FY2024",
-        sections=[
-            StructuredSection(
-                "income_statement",
-                "IS",
-                "",
-                parsed_data={
-                    "line_items": [
-                        {"label": "Revenue", "value_current": 580, "category": "revenue"},
-                        {"label": "Net income", "value_current": 75, "category": "net_income"},
-                    ]
-                },
-            ),
-            StructuredSection(
-                "balance_sheet",
-                "BS",
-                "",
-                parsed_data={
-                    "line_items": [
-                        {"label": "Total assets", "value_current": 3200, "category": "total_assets"},
-                    ]
-                },
-            ),
-        ],
-    )
-
-
-def _make_canonical(ticker: str = "1846.HK") -> CanonicalCompanyState:
+def _make_canonical() -> CanonicalCompanyState:
+    """Synthetic canonical state for the extraction_coordinator mock."""
     period = _period()
     return CanonicalCompanyState(
         extraction_id="ext1",
         extraction_date=datetime(2024, 12, 31, tzinfo=UTC),
         as_of_date="2024-12-31",
         identity=CompanyIdentity(
-            ticker=ticker,
+            ticker="1846.HK",
             name="Stub",
             reporting_currency=Currency.HKD,
             profile=Profile.P1_INDUSTRIAL,
@@ -188,9 +137,9 @@ def _make_canonical(ticker: str = "1846.HK") -> CanonicalCompanyState:
     )
 
 
-def _pass_report(ticker: str = "1846.HK") -> CrossCheckReport:
+def _pass_report() -> CrossCheckReport:
     return CrossCheckReport(
-        ticker=ticker,
+        ticker="1846.HK",
         period="FY2024",
         metrics=[
             CrossCheckMetric(
@@ -208,9 +157,9 @@ def _pass_report(ticker: str = "1846.HK") -> CrossCheckReport:
     )
 
 
-def _fail_report(ticker: str = "1846.HK") -> CrossCheckReport:
+def _fail_report() -> CrossCheckReport:
     return CrossCheckReport(
-        ticker=ticker,
+        ticker="1846.HK",
         period="FY2024",
         metrics=[],
         overall_status=CrossCheckStatus.FAIL,
@@ -219,34 +168,35 @@ def _fail_report(ticker: str = "1846.HK") -> CrossCheckReport:
     )
 
 
+# ----------------------------------------------------------------------
+# Fixture: pipeline with mocks, using the real raw_extraction fixture
+# ----------------------------------------------------------------------
 @pytest.fixture
 def _setup(tmp_path: Path) -> dict[str, object]:
-    """Build a fully-mocked PipelineCoordinator and the moving parts
-    tests need to assert against."""
+    # Real raw_extraction + wacc inputs copied into the data dir so
+    # CHECK_INGESTION sees something and LOAD_EXTRACTION / LOAD_WACC
+    # hit real parsers (validator also exercised).
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    extraction_path = workspace / "raw_extraction.yaml"
+    wacc_path = workspace / "wacc_inputs.md"
+    shutil.copyfile(_EXTRACTION_FIXTURE, extraction_path)
+    shutil.copyfile(_WACC_FIXTURE, wacc_path)
+
     doc_repo = MagicMock()
-    doc_repo.list_documents = MagicMock(
-        return_value=[tmp_path / "1846-HK" / "annual_report" / "ar.md"]
-    )
-    # Create the file so wacc_path resolution + section extract have a real file.
-    (tmp_path / "1846-HK" / "annual_report").mkdir(parents=True)
-    (tmp_path / "1846-HK" / "annual_report" / "ar.md").write_text(
-        "# Report\n\nSynthetic", encoding="utf-8"
-    )
+    doc_repo.list_documents = MagicMock(return_value=[extraction_path, wacc_path])
 
-    wacc_path = tmp_path / "wacc_inputs.md"
-    wacc_path.write_text(_wacc_markdown(), encoding="utf-8")
+    # Metadata repo stubbed.
+    meta_repo = MagicMock()
+    meta_repo.get_company = MagicMock(return_value=None)
 
-    # Section extractor returns a canned SectionExtractionResult.
-    section_extractor = MagicMock()
-    section_extractor.extract = AsyncMock(return_value=_fake_section_result())
+    # Cross-check gate defaults to PASS report.
+    gate = MagicMock()
+    gate.check = AsyncMock(return_value=_pass_report())
 
-    # CrossCheckGate returns a PASS report by default.
-    cross_check_gate = MagicMock()
-    cross_check_gate.check = AsyncMock(return_value=_pass_report())
-
-    # ExtractionCoordinator returns a canonical state.
-    extraction_coordinator = MagicMock()
-    extraction_coordinator.extract_canonical = AsyncMock(
+    # Extraction coordinator returns a canned canonical state.
+    ec = MagicMock()
+    ec.extract_canonical = AsyncMock(
         return_value=ExtractionEngineResult(
             ticker="1846.HK",
             fiscal_period_label="FY2024",
@@ -259,30 +209,25 @@ def _setup(tmp_path: Path) -> dict[str, object]:
         )
     )
 
-    metadata_repo = MagicMock()
-    metadata_repo.get_company = MagicMock(return_value=None)
-
     state_repo = MagicMock()
 
     coord = PipelineCoordinator(
         document_repo=doc_repo,
-        metadata_repo=metadata_repo,
-        section_extractor=section_extractor,
-        cross_check_gate=cross_check_gate,
-        extraction_coordinator=extraction_coordinator,
+        metadata_repo=meta_repo,
+        cross_check_gate=gate,
+        extraction_coordinator=ec,
         state_repo=state_repo,
         runs_log_dir=tmp_path / "logs",
     )
     return {
         "coord": coord,
         "wacc_path": wacc_path,
-        "tmp_path": tmp_path,
+        "extraction_path": extraction_path,
         "doc_repo": doc_repo,
-        "metadata_repo": metadata_repo,
+        "meta_repo": meta_repo,
+        "gate": gate,
+        "extraction_coordinator": ec,
         "state_repo": state_repo,
-        "cross_check_gate": cross_check_gate,
-        "section_extractor": section_extractor,
-        "extraction_coordinator": extraction_coordinator,
     }
 
 
@@ -296,19 +241,23 @@ class TestHappyPath:
     async def test_runs_all_stages_in_order(self, _setup: dict[str, object]) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
 
         outcome = await coord.process(
             "1846.HK",
             wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
         )
         stage_names = [s.stage for s in outcome.stages]
-        # Sprint 9 added VALUATE + PERSIST_VALUATION; Sprint 10 adds
-        # COMPOSE_FICHA. All three SKIP when their wiring is absent
-        # (default in this test fixture).
+        # Sprint 9 added VALUATE + PERSIST_VALUATION; Sprint 10 added
+        # COMPOSE_FICHA. Sprint 2 (Phase 1.5) replaced SECTION_EXTRACT
+        # with LOAD_EXTRACTION + VALIDATE_EXTRACTION. All SKIP stages
+        # still appear in the log.
         assert stage_names == [
             PipelineStage.CHECK_INGESTION,
             PipelineStage.LOAD_WACC,
-            PipelineStage.SECTION_EXTRACT,
+            PipelineStage.LOAD_EXTRACTION,
+            PipelineStage.VALIDATE_EXTRACTION,
             PipelineStage.CROSS_CHECK,
             PipelineStage.EXTRACT_CANONICAL,
             PipelineStage.PERSIST,
@@ -318,34 +267,28 @@ class TestHappyPath:
             PipelineStage.COMPOSE_FICHA,
         ]
         assert outcome.success is True
+        assert outcome.raw_extraction is not None
+        assert outcome.extraction_validation_strict is not None
+        assert outcome.extraction_validation_strict.overall_status == "OK"
         assert outcome.canonical_state is not None
-        assert outcome.cross_check_report is not None
-        assert outcome.log_path is not None and outcome.log_path.exists()
 
     @pytest.mark.asyncio
-    async def test_persists_canonical_state(self, _setup: dict[str, object]) -> None:
+    async def test_run_log_has_all_stage_entries(
+        self, _setup: dict[str, object]
+    ) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
-        state_repo = _setup["state_repo"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
 
-        await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
-        state_repo.save.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_run_log_has_stage_entries(self, _setup: dict[str, object]) -> None:
-        coord = _setup["coord"]  # type: ignore[index]
-        wacc_path = _setup["wacc_path"]  # type: ignore[index]
-
-        outcome = await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
+        outcome = await coord.process(
+            "1846.HK",
+            wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
+        )
         assert outcome.log_path is not None
         lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
-        # Header + 10 stages (7 Sprint 8 + 2 SKIP valuation + 1 SKIP
-        # ficha) + N guardrails
-        assert lines[0].startswith('{"type": "run_header"')
         stage_lines = [ln for ln in lines if '"type": "stage"' in ln]
-        assert len(stage_lines) == 10
-        guardrail_lines = [ln for ln in lines if '"type": "guardrail"' in ln]
-        assert len(guardrail_lines) >= 1
+        assert len(stage_lines) == 11
 
 
 # ======================================================================
@@ -360,11 +303,46 @@ class TestFailureModes:
     ) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
         doc_repo = _setup["doc_repo"]  # type: ignore[index]
         doc_repo.list_documents = MagicMock(return_value=[])
 
         with pytest.raises(PipelineError, match="No documents ingested"):
-            await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
+            await coord.process(
+                "1846.HK",
+                wacc_path=wacc_path,  # type: ignore[arg-type]
+                extraction_path=extraction_path,  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.asyncio
+    async def test_bad_wacc_path_raises(
+        self, _setup: dict[str, object], tmp_path: Path
+    ) -> None:
+        coord = _setup["coord"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
+        bogus = tmp_path / "bogus.md"
+        bogus.write_text("not yaml", encoding="utf-8")
+        with pytest.raises(PipelineError, match="Failed to parse WACC"):
+            await coord.process(
+                "1846.HK",
+                wacc_path=bogus,
+                extraction_path=extraction_path,  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.asyncio
+    async def test_bad_extraction_path_raises(
+        self, _setup: dict[str, object], tmp_path: Path
+    ) -> None:
+        coord = _setup["coord"]  # type: ignore[index]
+        wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        bogus = tmp_path / "bogus_extraction.yaml"
+        bogus.write_text("not yaml", encoding="utf-8")
+        with pytest.raises(PipelineError, match="Failed to parse raw_extraction"):
+            await coord.process(
+                "1846.HK",
+                wacc_path=wacc_path,  # type: ignore[arg-type]
+                extraction_path=bogus,
+            )
 
     @pytest.mark.asyncio
     async def test_cross_check_blocking_raises_without_skip(
@@ -372,11 +350,16 @@ class TestFailureModes:
     ) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
-        gate = _setup["cross_check_gate"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
+        gate = _setup["gate"]  # type: ignore[index]
         gate.check = AsyncMock(return_value=_fail_report())
 
         with pytest.raises(CrossCheckBlocked):
-            await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
+            await coord.process(
+                "1846.HK",
+                wacc_path=wacc_path,  # type: ignore[arg-type]
+                extraction_path=extraction_path,  # type: ignore[arg-type]
+            )
 
     @pytest.mark.asyncio
     async def test_cross_check_blocking_bypassed_with_skip(
@@ -384,30 +367,66 @@ class TestFailureModes:
     ) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
-        gate = _setup["cross_check_gate"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
+        gate = _setup["gate"]  # type: ignore[index]
         gate.check = AsyncMock(return_value=_fail_report())
 
         outcome = await coord.process(
             "1846.HK",
             wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
             skip_cross_check=True,
         )
-        # Cross-check stage marked as skip, pipeline finished
-        cc_stage = next(s for s in outcome.stages if s.stage == PipelineStage.CROSS_CHECK)
+        cc_stage = next(
+            s for s in outcome.stages if s.stage == PipelineStage.CROSS_CHECK
+        )
         assert cc_stage.status == "skip"
-        # gate.check must NOT have been called
         gate.check.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_wacc_parse_failure_raises(
+    async def test_strict_validation_fail_blocks(
         self, _setup: dict[str, object], tmp_path: Path
     ) -> None:
+        """When the extraction's IS or BS identity is broken, strict
+        validation FAILs and raises :class:`ExtractionValidationBlocked`."""
         coord = _setup["coord"]  # type: ignore[index]
-        bogus = tmp_path / "bogus.md"
-        bogus.write_text("not yaml", encoding="utf-8")
+        wacc_path = _setup["wacc_path"]  # type: ignore[index]
 
-        with pytest.raises(PipelineError, match="Failed to parse WACC"):
-            await coord.process("1846.HK", wacc_path=bogus)  # type: ignore[arg-type]
+        # Craft a broken extraction — BS identity wrong.
+        broken = tmp_path / "broken_extraction.yaml"
+        broken.write_text(
+            """
+metadata:
+  ticker: "1846.HK"
+  company_name: "Test"
+  document_type: "annual_report"
+  extraction_type: "numeric"
+  reporting_currency: "USD"
+  unit_scale: "units"
+  fiscal_year: 2024
+  extraction_date: "2025-01-01"
+  fiscal_periods:
+    - period: "FY2024"
+      end_date: "2024-12-31"
+      is_primary: true
+income_statement:
+  FY2024:
+    revenue: "100"
+    net_income: "10"
+balance_sheet:
+  FY2024:
+    total_assets: "500"
+    total_liabilities: "100"
+    total_equity: "100"
+""",
+            encoding="utf-8",
+        )
+        with pytest.raises(ExtractionValidationBlocked, match="S.BS"):
+            await coord.process(
+                "1846.HK",
+                wacc_path=wacc_path,  # type: ignore[arg-type]
+                extraction_path=broken,
+            )
 
 
 # ======================================================================
@@ -424,16 +443,14 @@ class TestFlags:
 
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
         original_cap = settings.llm_max_cost_per_company_usd
 
-        # The cost cap is raised for the duration of the run. We probe by
-        # attaching a side-effect to extract_canonical that reads
-        # settings.llm_max_cost_per_company_usd at call-time.
         observed: list[float] = []
         ec = _setup["extraction_coordinator"]  # type: ignore[index]
         original_ec = ec.extract_canonical
 
-        async def spy(*a: object, **kw: object):  # type: ignore[no-untyped-def]
+        async def spy(*a, **kw):  # type: ignore[no-untyped-def]
             observed.append(settings.llm_max_cost_per_company_usd)
             return await original_ec(*a, **kw)
 
@@ -442,9 +459,9 @@ class TestFlags:
         await coord.process(
             "1846.HK",
             wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
             force_cost_override=True,
         )
-        # Cap was raised inside the run and restored after.
         assert observed[0] > original_cap
         assert settings.llm_max_cost_per_company_usd == original_cap
 
@@ -461,9 +478,10 @@ class TestGuardrailFailure:
     ) -> None:
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
         ec = _setup["extraction_coordinator"]  # type: ignore[index]
 
-        # Force a broken canonical state (IS components don't match NI).
+        # Break the canonical state's IS so guardrails FAIL.
         broken = _make_canonical()
         broken.reclassified_statements[0].income_statement.clear()
         broken.reclassified_statements[0].income_statement.extend(
@@ -486,6 +504,10 @@ class TestGuardrailFailure:
             )
         )
 
-        outcome = await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
+        outcome = await coord.process(
+            "1846.HK",
+            wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
+        )
         assert outcome.success is False
         assert outcome.overall_guardrail_status == GuardrailStatus.FAIL

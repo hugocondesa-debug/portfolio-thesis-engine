@@ -14,6 +14,10 @@ from portfolio_thesis_engine.extraction.base import (
     parse_fiscal_period,
 )
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
+    SectionExtractionResult,
+    StructuredSection,
+)
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Profile
 from portfolio_thesis_engine.schemas.company import ModuleAdjustment
@@ -23,10 +27,6 @@ from portfolio_thesis_engine.schemas.wacc import (
     ScenarioDriversManual,
     WACCInputs,
 )
-from portfolio_thesis_engine.section_extractor.base import (
-    ExtractionResult as SectionExtractionResult,
-)
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import CostLimitExceededError
 

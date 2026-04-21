@@ -1,25 +1,33 @@
-"""PipelineCoordinator — run the full Phase 1 pipeline for one ticker.
+"""PipelineCoordinator — run the full Phase 1.5 pipeline for one ticker.
 
 Stages run in order:
 
 1. **CHECK_INGESTION** — documents must exist in the
-   :class:`DocumentRepository` for the ticker.
+   :class:`DocumentRepository` for the ticker (e.g., ``wacc_inputs.md``
+   + ``raw_extraction.yaml``).
 2. **LOAD_WACC** — parse ``wacc_inputs.md`` → :class:`WACCInputs`.
-3. **SECTION_EXTRACT** — run the section extractor on each ingested
-   markdown report and merge the sections.
-4. **CROSS_CHECK** — run :class:`CrossCheckGate` over the extracted
+3. **LOAD_EXTRACTION** — parse ``raw_extraction.yaml`` → normalised
+   :class:`RawExtraction`. Replaces Phase 1's LLM-driven section
+   extractor; extraction now happens outside the app via Claude.ai.
+4. **VALIDATE_EXTRACTION** — run :class:`ExtractionValidator` strict +
+   warn + completeness. A strict FAIL raises
+   :class:`ExtractionValidationBlocked`; warn + completeness are
+   reported on the run log but don't halt.
+5. **CROSS_CHECK** — run :class:`CrossCheckGate` over the extracted
    top-level values (revenue, NI, assets, etc.). FAIL blocks the
    pipeline unless ``skip_cross_check=True``.
-5. **EXTRACT_CANONICAL** — run :class:`ExtractionCoordinator.extract_canonical`.
-6. **PERSIST** — save the canonical state via :class:`CompanyStateRepository`.
-7. **GUARDRAILS** — run Group A + V guardrails.
-8. **VALUATE** — compose three scenarios + DCF per scenario + equity
+6. **EXTRACT_CANONICAL** — run :class:`ExtractionCoordinator.extract_canonical`.
+   Currently fed via a Sprint-2 adapter that synthesises
+   :class:`SectionExtractionResult` from :class:`RawExtraction`;
+   Sprint 3 removes the adapter and consumes :class:`RawExtraction`
+   directly.
+7. **PERSIST** — save the canonical state via :class:`CompanyStateRepository`.
+8. **GUARDRAILS** — run Group A + V guardrails.
+9. **VALUATE** — compose three scenarios + DCF per scenario + equity
    bridge + IRR, then the final :class:`ValuationSnapshot`. Skipped
-   if :attr:`PipelineCoordinator.valuation_repo` is ``None`` (Phase 1
-   pre-Sprint-9 layout).
-9. **PERSIST_VALUATION** — save the snapshot via
-   :class:`ValuationRepository`.
-10. **COMPOSE_FICHA** — aggregate view (:class:`Ficha`) built from the
+   if :attr:`PipelineCoordinator.valuation_repo` is ``None``.
+10. **PERSIST_VALUATION** — save the snapshot via :class:`ValuationRepository`.
+11. **COMPOSE_FICHA** — aggregate view (:class:`Ficha`) built from the
     canonical state + valuation snapshot and persisted via
     :class:`CompanyRepository`. Skipped when ``ficha_composer`` +
     ``company_repo`` aren't both injected.
@@ -53,10 +61,20 @@ from typing import Any
 from portfolio_thesis_engine.cross_check.base import CrossCheckReport, CrossCheckStatus
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
+    SectionExtractionResult,
+    StructuredSection,
+    adapt_raw_extraction,
+)
 from portfolio_thesis_engine.ficha.composer import FichaComposer
 from portfolio_thesis_engine.guardrails.checks import default_guardrails
 from portfolio_thesis_engine.guardrails.results import AggregatedResults, ResultAggregator
 from portfolio_thesis_engine.guardrails.runner import GuardrailRunner
+from portfolio_thesis_engine.ingestion.raw_extraction_parser import parse_raw_extraction
+from portfolio_thesis_engine.ingestion.raw_extraction_validator import (
+    ExtractionValidator,
+    ValidationReport,
+)
 from portfolio_thesis_engine.ingestion.wacc_parser import parse_wacc_inputs
 from portfolio_thesis_engine.market_data.base import (
     MarketDataError,
@@ -66,15 +84,9 @@ from portfolio_thesis_engine.market_data.base import (
 from portfolio_thesis_engine.schemas.common import Currency, GuardrailStatus, Profile
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, CompanyIdentity
 from portfolio_thesis_engine.schemas.ficha import Ficha
+from portfolio_thesis_engine.schemas.raw_extraction import RawExtraction
 from portfolio_thesis_engine.schemas.valuation import MarketSnapshot, ValuationSnapshot
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
-from portfolio_thesis_engine.section_extractor.base import (
-    ExtractionResult as SectionExtractionResult,
-)
-from portfolio_thesis_engine.section_extractor.base import (
-    SectionExtractor,
-    StructuredSection,
-)
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import PTEError
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
@@ -93,7 +105,8 @@ _COST_OVERRIDE_CAP_USD = 10_000.0
 class PipelineStage(StrEnum):
     CHECK_INGESTION = "check_ingestion"
     LOAD_WACC = "load_wacc"
-    SECTION_EXTRACT = "section_extract"
+    LOAD_EXTRACTION = "load_extraction"
+    VALIDATE_EXTRACTION = "validate_extraction"
     CROSS_CHECK = "cross_check"
     EXTRACT_CANONICAL = "extract_canonical"
     PERSIST = "persist"
@@ -111,6 +124,12 @@ class PipelineError(PTEError):
 class CrossCheckBlocked(PipelineError):
     """Raised when the cross-check gate returns a blocking verdict and
     ``skip_cross_check`` is False."""
+
+
+class ExtractionValidationBlocked(PipelineError):
+    """Raised when :meth:`ExtractionValidator.validate_strict` returns
+    a FAIL verdict. Pipeline halts so the operator can fix the raw
+    extraction before retrying (analogous to cross-check blocking)."""
 
 
 @dataclass
@@ -133,6 +152,10 @@ class PipelineOutcome:
     finished_at: datetime
     success: bool
     stages: list[StageOutcome]
+    raw_extraction: RawExtraction | None = None
+    extraction_validation_strict: ValidationReport | None = None
+    extraction_validation_warn: ValidationReport | None = None
+    extraction_validation_completeness: ValidationReport | None = None
     cross_check_report: CrossCheckReport | None = None
     canonical_state: CanonicalCompanyState | None = None
     guardrails: AggregatedResults | None = None
@@ -264,12 +287,12 @@ class PipelineCoordinator:
         self,
         document_repo: DocumentRepository,
         metadata_repo: MetadataRepository,
-        section_extractor: SectionExtractor,
         cross_check_gate: CrossCheckGate,
         extraction_coordinator: ExtractionCoordinator,
         state_repo: CompanyStateRepository,
         runs_log_dir: Path | None = None,
         *,
+        extraction_validator: ExtractionValidator | None = None,
         valuation_composer: ValuationComposer | None = None,
         scenario_composer: ScenarioComposer | None = None,
         valuation_repo: ValuationRepository | None = None,
@@ -279,11 +302,13 @@ class PipelineCoordinator:
     ) -> None:
         self.document_repo = document_repo
         self.metadata_repo = metadata_repo
-        self.section_extractor = section_extractor
         self.cross_check_gate = cross_check_gate
         self.extraction_coordinator = extraction_coordinator
         self.state_repo = state_repo
         self.runs_log_dir = runs_log_dir or (settings.data_dir / "logs" / "runs")
+        # Phase 1.5: validator is always-on (block on strict FAIL).
+        # Defaulted for convenience so existing tests can skip plumbing.
+        self.extraction_validator = extraction_validator or ExtractionValidator()
         # Valuation wiring — optional so tests that don't care about
         # Sprint 9 can skip plumbing a full market-data stack. When any
         # of (composer, scenarios, repo, market_data) is missing, the
@@ -302,6 +327,7 @@ class PipelineCoordinator:
         ticker: str,
         *,
         wacc_path: Path,
+        extraction_path: Path,
         force: bool = False,
         skip_cross_check: bool = False,
         force_cost_override: bool = False,
@@ -310,7 +336,9 @@ class PipelineCoordinator:
 
         Raises :class:`PipelineError` when a stage fails in a way the
         caller should surface directly (missing documents, unparseable
-        WACC). Cross-check FAIL raises :class:`CrossCheckBlocked` when
+        WACC, unparseable raw extraction). Raises
+        :class:`ExtractionValidationBlocked` when strict validation
+        FAILs. Cross-check FAIL raises :class:`CrossCheckBlocked` when
         ``skip_cross_check=False``.
         """
         started = datetime.now(UTC)
@@ -330,20 +358,28 @@ class PipelineCoordinator:
         with cap_ctx:
             try:
                 # Stage 1 — ingestion check
-                docs = self._stage_check_ingestion(ticker, outcome, force=force)
+                self._stage_check_ingestion(ticker, outcome, force=force)
 
                 # Stage 2 — WACC
                 wacc_inputs = self._stage_load_wacc(wacc_path, outcome)
 
-                # Stage 3 — section extraction (merged across docs)
-                section_result = await self._stage_section_extract(
-                    ticker=ticker,
-                    docs=[d for d in docs if d.suffix.lower() == ".md"
-                          and d.name != "wacc_inputs.md"],
+                # Stage 3 — load raw_extraction.yaml (parse + normalise units)
+                raw_extraction = self._stage_load_extraction(extraction_path, outcome)
+                outcome.raw_extraction = raw_extraction
+
+                # Stage 4 — validate the extraction (strict / warn / completeness).
+                # Strict FAIL blocks; warn + completeness surfaced in the log.
+                self._stage_validate_extraction(
+                    raw_extraction=raw_extraction,
+                    wacc_inputs=wacc_inputs,
                     outcome=outcome,
                 )
 
-                # Stage 4 — cross-check
+                # From here on the modules still consume the Phase-1
+                # SectionExtractionResult shape — Sprint 3 rips the adapter.
+                section_result = adapt_raw_extraction(raw_extraction)
+
+                # Stage 5 — cross-check
                 cross_check_report = await self._stage_cross_check(
                     ticker=ticker,
                     section_result=section_result,
@@ -352,7 +388,7 @@ class PipelineCoordinator:
                 )
                 outcome.cross_check_report = cross_check_report
 
-                # Stage 5 — extract canonical
+                # Stage 6 — extract canonical
                 company_row = self.metadata_repo.get_company(ticker)
                 identity = _identity_from(company_row, wacc_inputs, section_result)
                 canonical = await self._stage_extract_canonical(
@@ -474,64 +510,113 @@ class PipelineCoordinator:
         )
         return wacc_inputs
 
-    async def _stage_section_extract(
-        self,
-        ticker: str,
-        docs: list[Path],
-        outcome: PipelineOutcome,
-    ) -> SectionExtractionResult:
+    def _stage_load_extraction(
+        self, extraction_path: Path, outcome: PipelineOutcome
+    ) -> RawExtraction:
+        """Parse ``raw_extraction.yaml`` + normalise unit scale.
+
+        :class:`IngestionError` from the parser is wrapped as
+        :class:`PipelineError` so the CLI treats extraction-file
+        problems the same way as ingestion / WACC-parse problems.
+        """
         t0 = perf_counter()
-        if not docs:
+        try:
+            raw = parse_raw_extraction(extraction_path)
+        except Exception as e:
             outcome.stages.append(
                 StageOutcome(
-                    stage=PipelineStage.SECTION_EXTRACT,
+                    stage=PipelineStage.LOAD_EXTRACTION,
                     status="fail",
                     duration_ms=_ms_since(t0),
-                    message="No markdown reports ingested (only wacc_inputs.md?).",
+                    message=f"Failed to parse {extraction_path}: {e}",
                 )
             )
             raise PipelineError(
-                f"No markdown reports ingested for {ticker!r} beyond the WACC file."
-            )
+                f"Failed to parse raw_extraction at {extraction_path}: {e}"
+            ) from e
 
-        merged_sections: list[StructuredSection] = []
-        primary_period = ""
-        doc_id = ""
-        for doc_path in docs:
-            from portfolio_thesis_engine.ingestion.base import IngestedDocument
-
-            ingested = IngestedDocument(
-                doc_id=f"{ticker}/{doc_path.parent.name}/{doc_path.name}",
-                ticker=ticker,
-                doc_type=doc_path.parent.name,
-                source_path=doc_path,
-                report_date=None,
-                content_hash="",
-                ingested_at=datetime.now(UTC),
-                mode="bulk_markdown",
-            )
-            sub = await self.section_extractor.extract(ingested)
-            merged_sections.extend(sub.sections)
-            if not primary_period and sub.fiscal_period:
-                primary_period = sub.fiscal_period
-                doc_id = ingested.doc_id
-
-        section_result = SectionExtractionResult(
-            doc_id=doc_id or f"{ticker}/merged",
-            ticker=ticker,
-            fiscal_period=primary_period or "FY?",
-            sections=merged_sections,
-        )
         outcome.stages.append(
             StageOutcome(
-                stage=PipelineStage.SECTION_EXTRACT,
+                stage=PipelineStage.LOAD_EXTRACTION,
                 status="ok",
                 duration_ms=_ms_since(t0),
-                message=f"{len(merged_sections)} sections extracted from {len(docs)} doc(s).",
-                data={"sections": len(merged_sections), "documents": len(docs)},
+                message=(
+                    f"Loaded + normalised {raw.metadata.document_type.value} for "
+                    f"{raw.metadata.ticker} "
+                    f"({len(raw.metadata.fiscal_periods)} fiscal period(s))."
+                ),
+                data={
+                    "document_type": raw.metadata.document_type.value,
+                    "extraction_type": raw.metadata.extraction_type.value,
+                    "fiscal_periods": [
+                        fp.period for fp in raw.metadata.fiscal_periods
+                    ],
+                    "source_file_sha256": raw.metadata.source_file_sha256,
+                },
             )
         )
-        return section_result
+        return raw
+
+    def _stage_validate_extraction(
+        self,
+        raw_extraction: RawExtraction,
+        wacc_inputs: WACCInputs,
+        outcome: PipelineOutcome,
+    ) -> None:
+        """Run strict + warn + completeness. Strict FAIL blocks the run.
+
+        Warn + completeness reports are stored on the outcome and
+        rendered via the per-run JSONL log; they don't halt the
+        pipeline.
+        """
+        t0 = perf_counter()
+        validator = self.extraction_validator
+        strict = validator.validate_strict(raw_extraction)
+        warn = validator.validate_warn(raw_extraction)
+        profile = Profile(wacc_inputs.profile)
+        completeness = validator.validate_completeness(raw_extraction, profile)
+
+        outcome.extraction_validation_strict = strict
+        outcome.extraction_validation_warn = warn
+        outcome.extraction_validation_completeness = completeness
+
+        strict_status = strict.overall_status
+        warn_status = warn.overall_status
+        comp_status = completeness.overall_status
+
+        stage_status: str = "ok"
+        if strict_status == "FAIL":
+            stage_status = "fail"
+        elif "WARN" in (warn_status, comp_status):
+            stage_status = "ok"  # warns don't flip the stage
+
+        outcome.stages.append(
+            StageOutcome(
+                stage=PipelineStage.VALIDATE_EXTRACTION,
+                status=stage_status,
+                duration_ms=_ms_since(t0),
+                message=(
+                    f"strict={strict_status} warn={warn_status} "
+                    f"completeness={comp_status} "
+                    f"(strict FAIL blocks, warn + completeness surface only)."
+                ),
+                data={
+                    "strict": strict_status,
+                    "warn": warn_status,
+                    "completeness": comp_status,
+                    "strict_fail_checks": [r.check_id for r in strict.fails],
+                    "warn_checks": [r.check_id for r in warn.warns],
+                    "completeness_fail_checks": [r.check_id for r in completeness.fails],
+                },
+            )
+        )
+
+        if strict_status == "FAIL":
+            fail_ids = ", ".join(r.check_id for r in strict.fails)
+            raise ExtractionValidationBlocked(
+                f"Extraction strict validation FAILed on: {fail_ids}. "
+                f"Fix the raw_extraction.yaml and retry."
+            )
 
     async def _stage_cross_check(
         self,

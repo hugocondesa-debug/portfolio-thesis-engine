@@ -22,6 +22,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from portfolio_thesis_engine.extraction import ExtractionCoordinator
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
+    SectionExtractionResult,
+    StructuredSection,
+)
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Currency, Profile
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, CompanyIdentity
@@ -31,10 +35,6 @@ from portfolio_thesis_engine.schemas.wacc import (
     ScenarioDriversManual,
     WACCInputs,
 )
-from portfolio_thesis_engine.section_extractor.base import (
-    ExtractionResult as SectionExtractionResult,
-)
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
 
 # ======================================================================
 # EuroEyes synthetic data (mirrors tests/fixtures/euroeyes/*, HKD m)

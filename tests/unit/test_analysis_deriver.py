@@ -12,6 +12,7 @@ from portfolio_thesis_engine.extraction.base import (
     ExtractionContext,
     parse_fiscal_period,
 )
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import StructuredSection
 from portfolio_thesis_engine.schemas.common import Profile
 from portfolio_thesis_engine.schemas.company import ModuleAdjustment
 from portfolio_thesis_engine.schemas.wacc import (
@@ -20,7 +21,6 @@ from portfolio_thesis_engine.schemas.wacc import (
     ScenarioDriversManual,
     WACCInputs,
 )
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
 
 
 @pytest.fixture

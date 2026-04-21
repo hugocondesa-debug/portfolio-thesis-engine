@@ -36,10 +36,19 @@ def _split_files(files_arg: str) -> list[Path]:
 def ingest(
     ticker: str = typer.Option(..., "--ticker", "-t", help="Target ticker (e.g. 1846.HK)."),
     files: str = typer.Option(
-        ...,
+        "",
         "--files",
         "-f",
         help="Comma-separated list of file paths to ingest.",
+    ),
+    extraction: str = typer.Option(
+        "",
+        "--extraction",
+        "-e",
+        help=(
+            "Shortcut: path to raw_extraction.yaml. Added to --files "
+            "automatically and stored under doc_type='raw_extraction'."
+        ),
     ),
     mode: str = typer.Option(
         "bulk_markdown",
@@ -53,12 +62,22 @@ def ingest(
         help="Company profile to register (P1/P2/…). Default P1.",
     ),
 ) -> None:
-    """Ingest one or more document files under ``ticker``."""
+    """Ingest one or more document files under ``ticker``.
+
+    Phase 1.5: ``--extraction <path>`` is a convenience for the
+    analyst workflow — pass it alongside (or instead of) ``--files``
+    and the raw_extraction.yaml is registered with the ingestion
+    coordinator. Downstream ``pte process`` picks it up automatically.
+    """
     console.print(f"[bold]Ingesting {ticker}[/bold] via mode [cyan]{mode}[/cyan]\n")
 
-    paths = _split_files(files)
+    paths = _split_files(files) if files else []
+    if extraction:
+        paths.append(Path(extraction).expanduser())
     if not paths:
-        console.print("[red]No files provided after parsing --files.[/red]")
+        console.print(
+            "[red]No files provided. Pass --files and/or --extraction.[/red]"
+        )
         raise typer.Exit(code=1)
 
     doc_repo = DocumentRepository()

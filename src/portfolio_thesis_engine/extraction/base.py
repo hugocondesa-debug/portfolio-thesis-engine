@@ -19,10 +19,10 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import StructuredSection
 from portfolio_thesis_engine.schemas.common import FiscalPeriod
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, ModuleAdjustment
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
-from portfolio_thesis_engine.section_extractor.base import StructuredSection
 
 # ----------------------------------------------------------------------
 # Helpers

@@ -24,6 +24,9 @@ from portfolio_thesis_engine.extraction.base import (
 from portfolio_thesis_engine.extraction.module_a_taxes import ModuleATaxes
 from portfolio_thesis_engine.extraction.module_b_provisions import ModuleBProvisions
 from portfolio_thesis_engine.extraction.module_c_leases import ModuleCLeases
+from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
+    SectionExtractionResult,
+)
 from portfolio_thesis_engine.llm.anthropic_provider import AnthropicProvider
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Profile
@@ -42,9 +45,6 @@ from portfolio_thesis_engine.schemas.company import (
     VintageAndCascade,
 )
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
-from portfolio_thesis_engine.section_extractor.base import (
-    ExtractionResult as SectionExtractionResult,
-)
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import CostLimitExceededError
 
