@@ -56,8 +56,26 @@ def _mock_llm_response(
 
 
 def _mock_llm(response: LLMResponse) -> MagicMock:
+    """Route Pass 1 (TOC) calls to ``response``; Pass 2 calls get an empty
+    structured_output so these Sprint 2 tests stay focused on Pass 1
+    semantics (Pass 2 has its own suite in Sprint 3)."""
     llm = MagicMock()
-    llm.complete = AsyncMock(return_value=response)
+    empty_pass2 = LLMResponse(
+        content="",
+        structured_output=None,
+        input_tokens=0,
+        output_tokens=0,
+        cost_usd=Decimal("0"),
+        model_used="claude-sonnet-4-6",
+    )
+
+    async def complete(request):
+        tool_names = [t["name"] for t in (request.tools or [])]
+        if REPORT_SECTIONS_TOOL_NAME in tool_names:
+            return response
+        return empty_pass2
+
+    llm.complete = AsyncMock(side_effect=complete)
     return llm
 
 
