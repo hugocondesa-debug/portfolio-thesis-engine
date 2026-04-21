@@ -82,10 +82,13 @@ class TestParseWACCInputs:
         w = parse_wacc_inputs(f)
         assert w.valuation_date == "2025-03-31"
 
-    def test_missing_frontmatter_raises(self, tmp_path: Path) -> None:
+    def test_prose_without_frontmatter_routes_to_markdown(self, tmp_path: Path) -> None:
+        """Sprint 11: files without ``---`` route to the markdown
+        parser. Plain prose still fails, but now with a markdown-parser
+        error message rather than a "frontmatter delimiter" one."""
         f = tmp_path / "wacc_inputs.md"
         f.write_text("Just prose, no frontmatter delimiter.\n")
-        with pytest.raises(IngestionError, match="frontmatter delimiter"):
+        with pytest.raises(IngestionError, match="Ticker"):
             parse_wacc_inputs(f)
 
     def test_unclosed_frontmatter_raises(self, tmp_path: Path) -> None:

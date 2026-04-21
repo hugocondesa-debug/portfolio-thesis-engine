@@ -29,7 +29,14 @@ _PROB_SUM_TOLERANCE = Decimal("0.5")
 
 
 class CostOfCapitalInputs(BaseSchema):
-    """CAPM + cost-of-debt inputs (percentages, e.g. 3.5 = 3.5%)."""
+    """CAPM + cost-of-debt inputs (percentages, e.g. 3.5 = 3.5%).
+
+    ``size_premium`` is optional and defaults to ``None`` so existing
+    YAML-frontmatter files continue to parse unchanged. When present,
+    it's added to the CAPM cost-of-equity: ``rf + β·ERP + size_premium``.
+    Small-cap analysts will set this; the P1 industrial default is to
+    leave it off.
+    """
 
     risk_free_rate: Percentage
     equity_risk_premium: Percentage
@@ -39,6 +46,7 @@ class CostOfCapitalInputs(BaseSchema):
         Decimal,
         Field(ge=0, le=100, description="Marginal tax rate for WACC, %"),
     ]
+    size_premium: Percentage | None = None
 
 
 class CapitalStructure(BaseSchema):
@@ -98,9 +106,12 @@ class WACCInputs(BaseSchema):
     # instance already.
     @property
     def cost_of_equity(self) -> Decimal:
-        """CAPM: Rf + β × ERP, in percent."""
+        """CAPM: Rf + β × ERP (+ size_premium when declared), in percent."""
         coc = self.cost_of_capital
-        return coc.risk_free_rate + coc.beta * coc.equity_risk_premium
+        base = coc.risk_free_rate + coc.beta * coc.equity_risk_premium
+        if coc.size_premium is not None:
+            return base + coc.size_premium
+        return base
 
     @property
     def wacc(self) -> Decimal:

@@ -1,6 +1,16 @@
-"""Parser: ``wacc_inputs.md`` (YAML frontmatter) → :class:`WACCInputs`.
+"""Parser: ``wacc_inputs.md`` → :class:`WACCInputs`.
 
-Expected file layout::
+Supports two on-disk formats, auto-detected by the first non-blank
+line of the file:
+
+1. **YAML frontmatter** (starts with ``---``): parsed here by
+   :func:`_split_frontmatter` + :func:`WACCInputs.model_validate`.
+2. **Structured markdown** (anything else): delegated to
+   :func:`wacc_markdown_parser.parse_wacc_markdown`. See that module's
+   docstring for the expected shape — markdown tables + H2/H3
+   sections. Hugo's production workflow produces this format.
+
+YAML frontmatter layout::
 
     ---
     ticker: 1846.HK
@@ -17,31 +27,15 @@ Expected file layout::
       debt_weight: 30
       equity_weight: 70
     scenarios:
-      bear:
-        probability: 25
-        revenue_cagr_explicit_period: 3
-        terminal_growth: 2
-        terminal_operating_margin: 15
-      base:
-        probability: 50
-        revenue_cagr_explicit_period: 8
-        terminal_growth: 2.5
-        terminal_operating_margin: 18
-      bull:
-        probability: 25
-        revenue_cagr_explicit_period: 12
-        terminal_growth: 3
-        terminal_operating_margin: 22
-    explicit_period_years: 10
-    notes: |
-      Free-form analyst notes here.
+      bear: { probability: 25, revenue_cagr_explicit_period: 3, ... }
+      base: { probability: 50, ... }
+      bull: { probability: 25, ... }
     ---
 
     # Optional free-form markdown below — ignored by the parser.
 
-The frontmatter block is a YAML mapping delimited by lines of exactly
-``---``. The parser rejects files whose frontmatter is missing or
-malformed.
+Both formats produce the same :class:`WACCInputs` object; the rest of
+the pipeline is format-agnostic.
 """
 
 from __future__ import annotations
@@ -53,6 +47,7 @@ from typing import Any
 import yaml
 
 from portfolio_thesis_engine.ingestion.base import IngestionError
+from portfolio_thesis_engine.ingestion.wacc_markdown_parser import parse_wacc_markdown
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
 
 _DELIM = "---"
@@ -107,15 +102,33 @@ def _split_frontmatter(content: str) -> dict[str, object]:
 def parse_wacc_inputs(path: Path) -> WACCInputs:
     """Read ``path`` and return a validated :class:`WACCInputs`.
 
-    Raises :class:`IngestionError` on I/O or frontmatter errors;
-    re-raises :class:`pydantic.ValidationError` unchanged when the
-    frontmatter is well-formed YAML but violates the schema — callers
-    can surface a rich message to the user.
+    Detects the on-disk format from the first non-blank line:
+
+    - ``---`` → YAML frontmatter (this module).
+    - anything else → structured markdown
+      (:func:`wacc_markdown_parser.parse_wacc_markdown`).
+
+    Raises :class:`IngestionError` on I/O or format errors; re-raises
+    :class:`pydantic.ValidationError` unchanged when the fields are
+    well-formed but violate the schema — callers can surface a rich
+    message to the user.
     """
     try:
         content = path.read_text(encoding="utf-8")
     except (FileNotFoundError, UnicodeDecodeError, OSError) as e:
         raise IngestionError(f"Cannot read {path}: {e}") from e
 
-    data = _split_frontmatter(content)
-    return WACCInputs.model_validate(_stringify_dates(data))
+    if _looks_like_frontmatter(content):
+        data = _split_frontmatter(content)
+        return WACCInputs.model_validate(_stringify_dates(data))
+    return parse_wacc_markdown(content)
+
+
+def _looks_like_frontmatter(content: str) -> bool:
+    """Return True when the file's first non-blank line is ``---``."""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped == _DELIM
+    return False
