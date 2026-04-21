@@ -20,7 +20,7 @@ from typing import Any
 import duckdb
 
 from portfolio_thesis_engine.shared.config import settings
-from portfolio_thesis_engine.storage.base import StorageError
+from portfolio_thesis_engine.storage.base import StorageError, normalise_ticker
 
 _SCHEMA_SQL = [
     """
@@ -193,7 +193,14 @@ class DuckDBRepository:
     ) -> None:
         if not rows:
             return
-        prepared = [{**(defaults or {}), **row} if defaults else row for row in rows]
+        prepared: list[dict[str, Any]] = []
+        for row in rows:
+            merged = {**(defaults or {}), **row} if defaults else dict(row)
+            # Normalise the ticker at ingestion so WHERE-clauses downstream
+            # are agnostic to caller's dot/hyphen preference.
+            if "ticker" in merged and isinstance(merged["ticker"], str):
+                merged["ticker"] = normalise_ticker(merged["ticker"])
+            prepared.append(merged)
         try:
             with self.connect() as conn:
                 conn.executemany(sql, prepared)

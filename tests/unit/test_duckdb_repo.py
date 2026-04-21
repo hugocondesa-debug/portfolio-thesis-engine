@@ -155,3 +155,60 @@ class TestQueryErrors:
     def test_malformed_sql_raises_storage_error(self, repo: DuckDBRepository) -> None:
         with pytest.raises(StorageError):
             repo.query("SELECT * FROM no_such_table_ever")
+
+
+class TestTickerNormalisation:
+    """Typed inserts normalise the ``ticker`` column so downstream SQL
+    can filter deterministically regardless of how the caller typed it."""
+
+    def test_insert_prices_normalises_ticker(self, repo: DuckDBRepository) -> None:
+        repo.insert_prices(
+            [
+                {
+                    "ticker": "TEST.L",
+                    "date": date(2025, 1, 15),
+                    "open": None,
+                    "high": None,
+                    "low": None,
+                    "close": Decimal("100.00"),
+                    "volume": None,
+                    "currency": "GBP",
+                    "source": "FMP",
+                }
+            ]
+        )
+        stored = repo.query("SELECT ticker FROM prices_eod")
+        assert stored == [{"ticker": "TEST-L"}]
+
+    def test_insert_peer_metrics_normalises_ticker(self, repo: DuckDBRepository) -> None:
+        repo.insert_peer_metrics(
+            [
+                {
+                    "ticker": "PEER.AS",
+                    "period_label": "FY2024",
+                    "metric": "revenue",
+                    "value": Decimal("100"),
+                    "unit": "EUR_m",
+                    "is_adjusted": False,
+                    "extracted_at": datetime(2025, 1, 1),
+                }
+            ]
+        )
+        stored = repo.query("SELECT ticker FROM peer_metrics_history")
+        assert stored == [{"ticker": "PEER-AS"}]
+
+    def test_insert_betas_normalises_ticker(self, repo: DuckDBRepository) -> None:
+        repo.insert_betas(
+            [
+                {
+                    "ticker": "ACME.L",
+                    "factor_id": "ftse_250",
+                    "window_months": 24,
+                    "as_of_date": date(2025, 1, 15),
+                    "beta": Decimal("1.1"),
+                    "r_squared": Decimal("0.8"),
+                }
+            ]
+        )
+        stored = repo.query("SELECT ticker FROM computed_betas")
+        assert stored == [{"ticker": "ACME-L"}]

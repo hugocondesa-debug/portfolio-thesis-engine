@@ -19,6 +19,7 @@ from portfolio_thesis_engine.storage.base import (
     StorageError,
     UnitOfWork,
     VersionedRepository,
+    normalise_ticker,
 )
 from portfolio_thesis_engine.storage.yaml_repo import (
     CompanyRepository,
@@ -416,3 +417,175 @@ class TestVersionedSaveAtomicity:
         # The previously-current snapshot is still current, readable, and
         # equal to the original — corruption did not leak.
         assert repo.get_current("ACME") == sample_valuation_snapshot
+
+
+# ============================================================
+# Ticker normalisation — explicit contract tests
+#
+# Every ticker-keyed repository must honour the storage.base contract:
+# callers may pass either the dotted form (``TEST.L``) or the hyphenated
+# form (``TEST-L``); both resolve to the same on-disk/in-DB entity. The
+# transform is idempotent. These tests guard against the asymmetric
+# save/get bug that would otherwise leave files orphaned on disk.
+# ============================================================
+
+
+class TestNormaliseTickerHelper:
+    def test_converts_dot_to_hyphen(self) -> None:
+        assert normalise_ticker("TEST.L") == "TEST-L"
+        assert normalise_ticker("ASML.AS") == "ASML-AS"
+        assert normalise_ticker("BRK.B") == "BRK-B"
+
+    def test_already_hyphenated_is_unchanged(self) -> None:
+        assert normalise_ticker("TEST-L") == "TEST-L"
+        assert normalise_ticker("BRK-B") == "BRK-B"
+
+    def test_no_dot_no_hyphen_is_unchanged(self) -> None:
+        assert normalise_ticker("AAPL") == "AAPL"
+
+    def test_idempotent(self) -> None:
+        """normalise_ticker(normalise_ticker(x)) == normalise_ticker(x)."""
+        for ticker in ("TEST.L", "TEST-L", "BRK.B", "9988.HK", "AAPL"):
+            once = normalise_ticker(ticker)
+            twice = normalise_ticker(once)
+            assert once == twice, f"not idempotent for {ticker!r}"
+
+    def test_both_forms_normalise_to_same(self) -> None:
+        """The regression Hugo flagged: ``TEST.L`` and ``TEST-L`` must
+        collapse to one canonical key."""
+        assert normalise_ticker("TEST-L") == normalise_ticker("TEST.L") == "TEST-L"
+
+
+class TestYAMLRepositoryTickerNormalisation:
+    """Symmetric CRUD across dotted / hyphenated ticker forms for the
+    simple (non-versioned) ticker-keyed repositories."""
+
+    def test_save_get_roundtrip_with_dotted_ticker(
+        self, tmp_path: Path, sample_position: Position
+    ) -> None:
+        sample_position.ticker = "ACME.L"
+        repo = PositionRepository(base_path=tmp_path)
+        repo.save(sample_position)
+        loaded = repo.get("ACME.L")
+        assert loaded is not None
+        assert loaded == sample_position
+
+    def test_save_get_roundtrip_with_normalized_ticker(
+        self, tmp_path: Path, sample_position: Position
+    ) -> None:
+        """save with the dotted form, get with the hyphenated form still works."""
+        sample_position.ticker = "ACME.L"
+        repo = PositionRepository(base_path=tmp_path)
+        repo.save(sample_position)
+        loaded = repo.get("ACME-L")
+        assert loaded is not None
+        assert loaded == sample_position
+
+    def test_delete_with_dotted_ticker_removes_file(
+        self, tmp_path: Path, sample_position: Position
+    ) -> None:
+        sample_position.ticker = "ACME.L"
+        repo = PositionRepository(base_path=tmp_path)
+        repo.save(sample_position)
+        assert (tmp_path / "ACME-L.yaml").exists()
+        repo.delete("ACME.L")
+        assert not (tmp_path / "ACME-L.yaml").exists()
+        assert repo.exists("ACME.L") is False
+        assert repo.exists("ACME-L") is False
+
+    def test_exists_with_both_formats(
+        self, tmp_path: Path, sample_position: Position
+    ) -> None:
+        sample_position.ticker = "ACME.L"
+        repo = PositionRepository(base_path=tmp_path)
+        assert repo.exists("ACME.L") is False
+        assert repo.exists("ACME-L") is False
+        repo.save(sample_position)
+        assert repo.exists("ACME.L") is True
+        assert repo.exists("ACME-L") is True
+
+    def test_company_repository_hugo_smoke_scenario(
+        self, tmp_path: Path, sample_ficha: Ficha
+    ) -> None:
+        """The exact sequence Hugo ran manually that previously failed:
+        save(ficha with ticker='TEST.L') → get('TEST.L') must return the ficha."""
+        dotted = sample_ficha.model_copy(
+            update={
+                "ticker": "TEST.L",
+                "identity": sample_ficha.identity.model_copy(update={"ticker": "TEST.L"}),
+            }
+        )
+        repo = CompanyRepository(base_path=tmp_path)
+        repo.save(dotted)
+        assert (tmp_path / "TEST-L" / "ficha.yaml").exists()
+        assert repo.get("TEST.L") == dotted
+        assert repo.get("TEST-L") == dotted
+        assert repo.exists("TEST.L") is True
+
+
+class TestVersionedRepositoryTickerNormalisation:
+    """Same symmetric-CRUD contract applied to versioned repositories —
+    every public method (save / get / get_current / get_version /
+    list_versions / exists / delete / set_current) must tolerate both
+    ticker forms."""
+
+    def test_valuation_save_and_all_lookups_with_dotted_ticker(
+        self, tmp_path: Path, sample_valuation_snapshot: ValuationSnapshot
+    ) -> None:
+        snap = sample_valuation_snapshot.model_copy(update={"ticker": "ACME.L"})
+        repo = ValuationRepository(base_path=tmp_path)
+        repo.save(snap)
+
+        # Every ticker-keyed method must resolve via either form.
+        for form in ("ACME.L", "ACME-L"):
+            assert repo.get(form) == snap
+            assert repo.get_current(form) == snap
+            assert repo.exists(form) is True
+            assert repo.list_versions(form) == [snap.snapshot_id]
+            assert repo.get_version(form, snap.snapshot_id) == snap
+        # set_current with the dotted form resolves the same version file.
+        repo.set_current("ACME.L", snap.snapshot_id)
+
+    def test_valuation_delete_with_dotted_ticker_removes_subdir(
+        self, tmp_path: Path, sample_valuation_snapshot: ValuationSnapshot
+    ) -> None:
+        """Previously a real bug: VersionedYAMLRepository.delete used raw
+        `base_path / key / subdir` without normalisation, so
+        delete('ACME.L') silently missed the real on-disk directory."""
+        snap = sample_valuation_snapshot.model_copy(update={"ticker": "ACME.L"})
+        repo = ValuationRepository(base_path=tmp_path)
+        repo.save(snap)
+        assert (tmp_path / "ACME-L" / "valuation").exists()
+        repo.delete("ACME.L")
+        assert not (tmp_path / "ACME-L" / "valuation").exists()
+        assert repo.exists("ACME.L") is False
+
+    def test_company_state_save_and_lookups_with_dotted_ticker(
+        self, tmp_path: Path, sample_company_state: CanonicalCompanyState
+    ) -> None:
+        state = sample_company_state.model_copy(
+            update={
+                "identity": sample_company_state.identity.model_copy(
+                    update={"ticker": "ACME.L"}
+                )
+            }
+        )
+        repo = CompanyStateRepository(base_path=tmp_path)
+        repo.save(state)
+        assert repo.get_current("ACME.L") == state
+        assert repo.get_current("ACME-L") == state
+        assert repo.exists("ACME.L") is True
+        repo.delete("ACME.L")
+        assert repo.exists("ACME.L") is False
+
+    def test_set_current_with_dotted_ticker(
+        self, tmp_path: Path, sample_valuation_snapshot: ValuationSnapshot
+    ) -> None:
+        snap_v1 = sample_valuation_snapshot.model_copy(update={"ticker": "ACME.L"})
+        repo = ValuationRepository(base_path=tmp_path)
+        repo.save(snap_v1)
+        snap_v2 = snap_v1.model_copy(update={"snapshot_id": "val_v2"})
+        repo.save(snap_v2)
+        # Now roll back via the dotted form.
+        repo.set_current("ACME.L", snap_v1.snapshot_id)
+        assert repo.get_current("ACME.L") == snap_v1

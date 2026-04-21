@@ -10,6 +10,11 @@ Tables:
 
 Uses SQLAlchemy 2.0 declarative style with typed mappings. All operations
 are scoped to a single session per call for safety.
+
+Ticker arguments are normalised per the ``storage.base`` contract —
+callers pass either ``TEST.L`` or ``TEST-L``; the stored value is always
+the hyphenated form so DB queries are consistent regardless of how the
+caller typed the ticker.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from sqlalchemy import ForeignKey, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 from portfolio_thesis_engine.shared.config import settings
-from portfolio_thesis_engine.storage.base import NotFoundError, StorageError
+from portfolio_thesis_engine.storage.base import NotFoundError, StorageError, normalise_ticker
 
 
 class _Base(DeclarativeBase):
@@ -97,11 +102,12 @@ class MetadataRepository:
         exchange: str,
         isin: str | None = None,
     ) -> None:
+        normalised = normalise_ticker(ticker)
         try:
             with Session(self.engine) as session, session.begin():
                 session.merge(
                     CompanyRow(
-                        ticker=ticker,
+                        ticker=normalised,
                         name=name,
                         profile=profile,
                         currency=currency,
@@ -110,11 +116,11 @@ class MetadataRepository:
                     )
                 )
         except Exception as e:
-            raise StorageError(f"Failed to add company {ticker}: {e}") from e
+            raise StorageError(f"Failed to add company {normalised}: {e}") from e
 
     def get_company(self, ticker: str) -> CompanyRow | None:
         with Session(self.engine) as session:
-            return session.get(CompanyRow, ticker)
+            return session.get(CompanyRow, normalise_ticker(ticker))
 
     def list_companies(self) -> list[CompanyRow]:
         with Session(self.engine) as session:
@@ -139,12 +145,13 @@ class MetadataRepository:
             session.merge(ClusterRow(cluster_id=cluster_id, name=name, description=description))
 
     def link_company_to_cluster(self, ticker: str, cluster_id: str) -> None:
+        normalised = normalise_ticker(ticker)
         with Session(self.engine) as session, session.begin():
-            if session.get(CompanyRow, ticker) is None:
-                raise NotFoundError(f"Unknown company {ticker!r}")
+            if session.get(CompanyRow, normalised) is None:
+                raise NotFoundError(f"Unknown company {normalised!r}")
             if session.get(ClusterRow, cluster_id) is None:
                 raise NotFoundError(f"Unknown cluster {cluster_id!r}")
-            session.merge(CompanyClusterRow(ticker=ticker, cluster_id=cluster_id))
+            session.merge(CompanyClusterRow(ticker=normalised, cluster_id=cluster_id))
 
     def list_companies_in_cluster(self, cluster_id: str) -> list[str]:
         with Session(self.engine) as session:
@@ -159,13 +166,15 @@ class MetadataRepository:
     # Peers
     # ------------------------------------------------------------------
     def add_peer(self, ticker: str, peer_ticker: str, extraction_level: str) -> None:
+        normalised = normalise_ticker(ticker)
+        normalised_peer = normalise_ticker(peer_ticker)
         with Session(self.engine) as session, session.begin():
-            if session.get(CompanyRow, ticker) is None:
-                raise NotFoundError(f"Unknown company {ticker!r}")
+            if session.get(CompanyRow, normalised) is None:
+                raise NotFoundError(f"Unknown company {normalised!r}")
             session.merge(
                 CompanyPeerRow(
-                    ticker=ticker,
-                    peer_ticker=peer_ticker,
+                    ticker=normalised,
+                    peer_ticker=normalised_peer,
                     extraction_level=extraction_level,
                 )
             )
@@ -174,7 +183,7 @@ class MetadataRepository:
         with Session(self.engine) as session:
             stmt = (
                 select(CompanyPeerRow)
-                .where(CompanyPeerRow.ticker == ticker)
+                .where(CompanyPeerRow.ticker == normalise_ticker(ticker))
                 .order_by(CompanyPeerRow.peer_ticker)
             )
             return list(session.scalars(stmt))

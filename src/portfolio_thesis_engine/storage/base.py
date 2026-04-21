@@ -5,6 +5,19 @@ implements either :class:`Repository` or :class:`VersionedRepository`.
 Typed exceptions are re-exported from :mod:`shared.exceptions` so callers
 can ``from portfolio_thesis_engine.storage.base import StorageError``
 without crossing layer boundaries.
+
+**Ticker normalisation contract.** Tickers routinely contain a dot
+(``ASML.AS``, ``BRK.B``, ``TEST.L``) which is awkward on POSIX filesystems
+and in SQL LIKE patterns. :func:`normalise_ticker` replaces ``.`` with
+``-``; every repository that takes a ticker — by that name or as a primary
+``key`` — normalises before touching disk or DB. Callers may therefore
+pass **either form interchangeably**::
+
+    repo.save(ficha)                 # ticker='TEST.L'
+    repo.get('TEST.L')  == ficha     # dotted form works
+    repo.get('TEST-L')  == ficha     # normalised form works too
+
+The transform is idempotent: ``normalise_ticker('TEST-L') == 'TEST-L'``.
 """
 
 from abc import ABC, abstractmethod
@@ -24,11 +37,28 @@ __all__ = [
     "UnitOfWork",
     "VersionConflictError",
     "VersionedRepository",
+    "normalise_ticker",
 ]
 
 
+def normalise_ticker(ticker: str) -> str:
+    """Canonical on-disk / on-DB form of a ticker.
+
+    Replaces every ``.`` with ``-``. Idempotent — calling it twice is the
+    same as once. Empty string passes through untouched so callers can
+    compose freely with other validation.
+    """
+    return ticker.replace(".", "-")
+
+
 class Repository[T: BaseSchema](ABC):
-    """CRUD contract for an entity type keyed by a string primary key."""
+    """CRUD contract for an entity type keyed by a string primary key.
+
+    Implementations that use ticker-based keys must normalise their key
+    argument in every public method (``get``, ``save``, ``delete``,
+    ``exists``, ``list_keys``, and versioned variants). See the
+    module-level docstring for the normalisation contract.
+    """
 
     @abstractmethod
     def get(self, key: str) -> T | None:

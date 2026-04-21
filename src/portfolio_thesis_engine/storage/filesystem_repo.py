@@ -2,11 +2,15 @@
 
 Layout convention::
 
-    {base_path}/{ticker}/{doc_type}/{filename}
+    {base_path}/{normalised_ticker}/{doc_type}/{filename}
 
 Where ``filename`` typically follows ``YYYY-MM-DD_descriptor.{ext}``. The
 repository is type-agnostic about the blob content — callers pass and
 receive ``bytes``.
+
+Tickers are normalised per the ``storage.base`` contract: callers may
+pass either dotted (``TEST.L``) or hyphenated (``TEST-L``) form; both
+resolve to the same on-disk directory.
 """
 
 from __future__ import annotations
@@ -14,12 +18,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from portfolio_thesis_engine.shared.config import settings
-from portfolio_thesis_engine.storage.base import NotFoundError, StorageError
+from portfolio_thesis_engine.storage.base import NotFoundError, StorageError, normalise_ticker
 
 
 class DocumentRepository:
     """Store and retrieve arbitrary document blobs keyed by
-    ``(ticker, doc_type, filename)``."""
+    ``(ticker, doc_type, filename)``. Ticker is normalised at every
+    public entry point."""
 
     def __init__(self, base_path: Path | None = None) -> None:
         self.base_path = base_path or (settings.data_dir / "documents")
@@ -27,7 +32,7 @@ class DocumentRepository:
 
     # ------------------------------------------------------------------
     def _path_for(self, ticker: str, doc_type: str, filename: str) -> Path:
-        return self.base_path / ticker / doc_type / filename
+        return self.base_path / normalise_ticker(ticker) / doc_type / filename
 
     # ------------------------------------------------------------------
     def store(self, ticker: str, doc_type: str, filename: str, content: bytes) -> Path:
@@ -65,9 +70,9 @@ class DocumentRepository:
         """List documents for ``ticker``, optionally scoped to ``doc_type``.
 
         Returned paths are absolute and sorted. If the directory doesn't
-        exist, returns an empty list.
+        exist, returns an empty list. Ticker is normalised before lookup.
         """
-        root = self.base_path / ticker
+        root = self.base_path / normalise_ticker(ticker)
         if doc_type is not None:
             root = root / doc_type
         if not root.exists():

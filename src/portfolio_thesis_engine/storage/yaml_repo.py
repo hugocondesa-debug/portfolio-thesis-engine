@@ -27,13 +27,11 @@ from portfolio_thesis_engine.storage.base import (
     Repository,
     StorageError,
     VersionedRepository,
+    normalise_ticker,
 )
 
-
-def _normalise_ticker(ticker: str) -> str:
-    """Replace ``.`` with ``-`` so tickers like ``ASML.AS`` become safe
-    directory names without colliding with filesystem conventions."""
-    return ticker.replace(".", "-")
+# Internal alias kept for readability at call sites.
+_normalise_ticker = normalise_ticker
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -199,7 +197,9 @@ class VersionedYAMLRepository[T: BaseSchema](VersionedRepository[T]):
             raise StorageError(f"Failed to save version {version} of {key}: {e}") from e
 
     def delete(self, key: str) -> None:
-        d = self.base_path / key / self.subdir
+        # Routes through _dir_for so the caller can pass either dotted
+        # ('TEST.L') or normalised ('TEST-L') form.
+        d = self._dir_for(key)
         if d.exists():
             shutil.rmtree(d)
 
