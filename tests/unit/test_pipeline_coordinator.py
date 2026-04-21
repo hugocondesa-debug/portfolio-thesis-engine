@@ -302,8 +302,9 @@ class TestHappyPath:
             wacc_path=wacc_path,  # type: ignore[arg-type]
         )
         stage_names = [s.stage for s in outcome.stages]
-        # Sprint 9 adds VALUATE + PERSIST_VALUATION; they SKIP when the
-        # valuation wiring isn't provided (default in this test fixture).
+        # Sprint 9 added VALUATE + PERSIST_VALUATION; Sprint 10 adds
+        # COMPOSE_FICHA. All three SKIP when their wiring is absent
+        # (default in this test fixture).
         assert stage_names == [
             PipelineStage.CHECK_INGESTION,
             PipelineStage.LOAD_WACC,
@@ -314,6 +315,7 @@ class TestHappyPath:
             PipelineStage.GUARDRAILS,
             PipelineStage.VALUATE,
             PipelineStage.PERSIST_VALUATION,
+            PipelineStage.COMPOSE_FICHA,
         ]
         assert outcome.success is True
         assert outcome.canonical_state is not None
@@ -337,10 +339,11 @@ class TestHappyPath:
         outcome = await coord.process("1846.HK", wacc_path=wacc_path)  # type: ignore[arg-type]
         assert outcome.log_path is not None
         lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
-        # Header + 9 stages (7 Sprint 8 + 2 SKIP valuation) + N guardrails
+        # Header + 10 stages (7 Sprint 8 + 2 SKIP valuation + 1 SKIP
+        # ficha) + N guardrails
         assert lines[0].startswith('{"type": "run_header"')
         stage_lines = [ln for ln in lines if '"type": "stage"' in ln]
-        assert len(stage_lines) == 9
+        assert len(stage_lines) == 10
         guardrail_lines = [ln for ln in lines if '"type": "guardrail"' in ln]
         assert len(guardrail_lines) >= 1
 

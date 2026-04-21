@@ -19,6 +19,10 @@ Stages run in order:
    pre-Sprint-9 layout).
 9. **PERSIST_VALUATION** — save the snapshot via
    :class:`ValuationRepository`.
+10. **COMPOSE_FICHA** — aggregate view (:class:`Ficha`) built from the
+    canonical state + valuation snapshot and persisted via
+    :class:`CompanyRepository`. Skipped when ``ficha_composer`` +
+    ``company_repo`` aren't both injected.
 
 Flags:
 
@@ -49,6 +53,7 @@ from typing import Any
 from portfolio_thesis_engine.cross_check.base import CrossCheckReport, CrossCheckStatus
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+from portfolio_thesis_engine.ficha.composer import FichaComposer
 from portfolio_thesis_engine.guardrails.checks import default_guardrails
 from portfolio_thesis_engine.guardrails.results import AggregatedResults, ResultAggregator
 from portfolio_thesis_engine.guardrails.runner import GuardrailRunner
@@ -60,6 +65,7 @@ from portfolio_thesis_engine.market_data.base import (
 )
 from portfolio_thesis_engine.schemas.common import Currency, GuardrailStatus, Profile
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, CompanyIdentity
+from portfolio_thesis_engine.schemas.ficha import Ficha
 from portfolio_thesis_engine.schemas.valuation import MarketSnapshot, ValuationSnapshot
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
 from portfolio_thesis_engine.section_extractor.base import (
@@ -74,6 +80,7 @@ from portfolio_thesis_engine.shared.exceptions import PTEError
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
 from portfolio_thesis_engine.storage.sqlite_repo import CompanyRow, MetadataRepository
 from portfolio_thesis_engine.storage.yaml_repo import (
+    CompanyRepository,
     CompanyStateRepository,
     ValuationRepository,
 )
@@ -93,6 +100,7 @@ class PipelineStage(StrEnum):
     GUARDRAILS = "guardrails"
     VALUATE = "valuate"
     PERSIST_VALUATION = "persist_valuation"
+    COMPOSE_FICHA = "compose_ficha"
 
 
 class PipelineError(PTEError):
@@ -129,6 +137,7 @@ class PipelineOutcome:
     canonical_state: CanonicalCompanyState | None = None
     guardrails: AggregatedResults | None = None
     valuation_snapshot: ValuationSnapshot | None = None
+    ficha: Ficha | None = None
     log_path: Path | None = None
 
     @property
@@ -265,6 +274,8 @@ class PipelineCoordinator:
         scenario_composer: ScenarioComposer | None = None,
         valuation_repo: ValuationRepository | None = None,
         market_data_provider: MarketDataProvider | None = None,
+        ficha_composer: FichaComposer | None = None,
+        company_repo: CompanyRepository | None = None,
     ) -> None:
         self.document_repo = document_repo
         self.metadata_repo = metadata_repo
@@ -281,6 +292,9 @@ class PipelineCoordinator:
         self.scenario_composer = scenario_composer
         self.valuation_repo = valuation_repo
         self.market_data_provider = market_data_provider
+        # Ficha wiring — Sprint 10. SKIPs if either is absent.
+        self.ficha_composer = ficha_composer
+        self.company_repo = company_repo
 
     # ------------------------------------------------------------------
     async def process(
@@ -371,6 +385,14 @@ class PipelineCoordinator:
 
                 # Stage 9 — persist valuation
                 self._stage_persist_valuation(snapshot, outcome)
+
+                # Stage 10 — compose ficha (SKIPs when ficha wiring absent).
+                ficha = self._stage_compose_ficha(
+                    canonical=canonical,
+                    snapshot=snapshot,
+                    outcome=outcome,
+                )
+                outcome.ficha = ficha
 
                 outcome.success = agg.overall not in (GuardrailStatus.FAIL,)
             except PipelineError:
@@ -739,6 +761,50 @@ class PipelineCoordinator:
                 data={"snapshot_id": snapshot.snapshot_id},
             )
         )
+
+    # ------------------------------------------------------------------
+    def _stage_compose_ficha(
+        self,
+        canonical: CanonicalCompanyState,
+        snapshot: ValuationSnapshot | None,
+        outcome: PipelineOutcome,
+    ) -> Ficha | None:
+        t0 = perf_counter()
+        if self.ficha_composer is None or self.company_repo is None:
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.COMPOSE_FICHA,
+                    status="skip",
+                    duration_ms=_ms_since(t0),
+                    message=(
+                        "Ficha wiring not provided — "
+                        "pass ficha_composer and company_repo to persist the aggregate view."
+                    ),
+                )
+            )
+            return None
+        ficha = self.ficha_composer.compose_and_save(
+            canonical_state=canonical,
+            valuation_snapshot=snapshot,
+            company_repo=self.company_repo,
+        )
+        outcome.stages.append(
+            StageOutcome(
+                stage=PipelineStage.COMPOSE_FICHA,
+                status="ok",
+                duration_ms=_ms_since(t0),
+                message=(
+                    f"ficha composed (age={ficha.snapshot_age_days} days, "
+                    f"stale={ficha.is_stale})."
+                ),
+                data={
+                    "ticker": ficha.ticker,
+                    "snapshot_age_days": ficha.snapshot_age_days,
+                    "is_stale": ficha.is_stale,
+                },
+            )
+        )
+        return ficha
 
     # ------------------------------------------------------------------
     async def _fetch_market_snapshot(

@@ -37,6 +37,7 @@ import pytest
 
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+from portfolio_thesis_engine.ficha import FichaComposer
 from portfolio_thesis_engine.ingestion.coordinator import IngestionCoordinator
 from portfolio_thesis_engine.llm.base import LLMResponse
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
@@ -56,6 +57,7 @@ from portfolio_thesis_engine.section_extractor.tools import (
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
 from portfolio_thesis_engine.storage.sqlite_repo import MetadataRepository
 from portfolio_thesis_engine.storage.yaml_repo import (
+    CompanyRepository,
     CompanyStateRepository,
     ValuationRepository,
 )
@@ -403,6 +405,7 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
     cross_check_gate = CrossCheckGate(fmp, yf, log_dir=data_dir / "logs" / "cross_check")
     state_repo = CompanyStateRepository(base_path=data_dir / "yamls" / "companies")
     valuation_repo = ValuationRepository(base_path=data_dir / "yamls" / "companies")
+    company_repo = CompanyRepository(base_path=data_dir / "yamls" / "companies")
 
     pipeline = PipelineCoordinator(
         document_repo=doc_repo,
@@ -416,12 +419,15 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
         scenario_composer=ScenarioComposer(dcf_engine=FCFFDCFEngine(n_years=5)),
         valuation_repo=valuation_repo,
         market_data_provider=fmp,
+        ficha_composer=FichaComposer(),
+        company_repo=company_repo,
     )
     return {
         "pipeline": pipeline,
         "wacc_path": wacc_path,
         "state_repo": state_repo,
         "valuation_repo": valuation_repo,
+        "company_repo": company_repo,
         "data_dir": data_dir,
     }
 
@@ -440,11 +446,12 @@ class TestPhase1E2E:
         wacc_path: Path = _setup["wacc_path"]  # type: ignore[assignment]
         state_repo: CompanyStateRepository = _setup["state_repo"]  # type: ignore[assignment]
         valuation_repo: ValuationRepository = _setup["valuation_repo"]  # type: ignore[assignment]
+        company_repo: CompanyRepository = _setup["company_repo"]  # type: ignore[assignment]
 
         outcome = await pipeline.process("1846.HK", wacc_path=wacc_path)
 
-        # All nine stages executed (Sprint 8's 7 + Sprint 9's 2 valuation stages).
-        assert len(outcome.stages) == 9
+        # All ten stages executed (Sprint 8's 7 + Sprint 9's 2 + Sprint 10's 1).
+        assert len(outcome.stages) == 10
         assert outcome.success is True
         # Overall is PASS or WARN — never FAIL for the calibrated fixture.
         overall = outcome.overall_guardrail_status
@@ -479,13 +486,28 @@ class TestPhase1E2E:
         assert persisted_snap is not None
         assert persisted_snap.snapshot_id == snap.snapshot_id
 
+        # Ficha composed, persisted, and references the other two artefacts.
+        assert outcome.ficha is not None
+        ficha = outcome.ficha
+        assert ficha.ticker == "1846.HK"
+        assert ficha.identity.ticker == "1846.HK"
+        assert ficha.current_extraction_id == outcome.canonical_state.extraction_id
+        assert ficha.current_valuation_snapshot_id == snap.snapshot_id
+        assert ficha.conviction is not None
+        assert ficha.snapshot_age_days == 0
+        assert ficha.is_stale is False
+
+        persisted_ficha = company_repo.get("1846.HK")
+        assert persisted_ficha is not None
+        assert persisted_ficha.ticker == "1846.HK"
+
         # Run log written and parseable.
         assert outcome.log_path is not None
         assert outcome.log_path.exists()
         log_lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
         assert any('"type": "run_header"' in ln for ln in log_lines)
         stage_lines = [ln for ln in log_lines if '"type": "stage"' in ln]
-        assert len(stage_lines) == 9
+        assert len(stage_lines) == 10
         guardrail_lines = [ln for ln in log_lines if '"type": "guardrail"' in ln]
         # 8 default guardrails (4 A.* + 4 V.*)
         assert len(guardrail_lines) == 8
