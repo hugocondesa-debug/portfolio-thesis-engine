@@ -250,6 +250,23 @@ class TestGetKeyMetrics:
             with pytest.raises(TickerNotFoundError):
                 await p.get_key_metrics("NOPE")
 
+    @pytest.mark.asyncio
+    async def test_exposes_shares_outstanding_and_market_cap(self) -> None:
+        """Cross-check gate (Phase 1 Sprint 5) relies on these being in
+        the key-metrics record."""
+        info = {
+            "symbol": "AAPL",
+            "sharesOutstanding": 15_000_000_000,
+            "marketCap": 4_000_000_000_000,
+        }
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(info=info)
+            p = YFinanceProvider()
+            data = await p.get_key_metrics("AAPL")
+        rec = data["records"][0]
+        assert rec["sharesOutstanding"] == 15_000_000_000
+        assert rec["marketCap"] == 4_000_000_000_000
+
 
 # ======================================================================
 # search_tickers

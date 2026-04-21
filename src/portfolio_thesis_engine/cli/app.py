@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from portfolio_thesis_engine.cli.cross_check_cmd import cross_check
 from portfolio_thesis_engine.cli.health_cmd import health_check
 from portfolio_thesis_engine.cli.ingest_cmd import ingest
 from portfolio_thesis_engine.cli.setup_cmd import setup
@@ -20,6 +21,7 @@ app.command("setup")(setup)
 app.command("health-check")(health_check)
 app.command("smoke-test")(smoke_test)
 app.command("ingest")(ingest)
+app.command("cross-check")(cross_check)
 
 
 if __name__ == "__main__":  # pragma: no cover

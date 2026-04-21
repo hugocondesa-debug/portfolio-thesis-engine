@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # When unset, providers use hard-coded defaults.
     llm_pricing_json: str | None = None
 
+    # Optional JSON override for the cross-check gate thresholds.
+    # Shape: {"defaults": {"PASS": "0.02", "WARN": "0.10", "sources_disagree": "0.05"},
+    #         "per_metric": {"operating_income": {"PASS": "0.05", "WARN": "0.15"}}}
+    # When unset, the gate uses hard-coded defaults in cross_check/thresholds.py.
+    cross_check_thresholds_json: str | None = None
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "console"] = "console"
 

@@ -154,6 +154,9 @@ class YFinanceProvider(MarketDataProvider):
                 "enterpriseToEbitda": info.get("enterpriseToEbitda"),
                 "dividendYield": info.get("dividendYield"),
                 "beta": info.get("beta"),
+                # Exposed for the cross-check gate (Sprint 5 Phase 1).
+                "sharesOutstanding": info.get("sharesOutstanding"),
+                "marketCap": info.get("marketCap"),
             }
             return {"records": [record]}
 
