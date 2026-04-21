@@ -118,6 +118,52 @@ class MetadataRepository:
         except Exception as e:
             raise StorageError(f"Failed to add company {normalised}: {e}") from e
 
+    def upsert_company(
+        self,
+        ticker: str,
+        profile: str | None = None,
+        name: str | None = None,
+        currency: str | None = None,
+        exchange: str | None = None,
+        isin: str | None = None,
+    ) -> None:
+        """Insert or partially update a company row.
+
+        Used by pipelines that only know the ticker (and maybe the profile)
+        at first touch — e.g. ingestion. Missing optional arguments keep
+        whatever value is already on the row; if the row is new, they get
+        conservative defaults (``name=ticker``, ``currency="?"``,
+        ``exchange="?"``) so downstream FK constraints still succeed.
+        """
+        normalised = normalise_ticker(ticker)
+        try:
+            with Session(self.engine) as session, session.begin():
+                existing = session.get(CompanyRow, normalised)
+                if existing is None:
+                    session.add(
+                        CompanyRow(
+                            ticker=normalised,
+                            name=name or ticker,
+                            profile=profile or "?",
+                            currency=currency or "?",
+                            exchange=exchange or "?",
+                            isin=isin,
+                        )
+                    )
+                    return
+                if name is not None:
+                    existing.name = name
+                if profile is not None:
+                    existing.profile = profile
+                if currency is not None:
+                    existing.currency = currency
+                if exchange is not None:
+                    existing.exchange = exchange
+                if isin is not None:
+                    existing.isin = isin
+        except Exception as e:
+            raise StorageError(f"Failed to upsert company {normalised}: {e}") from e
+
     def get_company(self, ticker: str) -> CompanyRow | None:
         with Session(self.engine) as session:
             return session.get(CompanyRow, normalise_ticker(ticker))

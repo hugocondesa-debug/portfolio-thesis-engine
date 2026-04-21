@@ -38,6 +38,74 @@ class TestCompanies:
         assert [c.ticker for c in repo.list_companies()] == ["ACME", "ZEBRA"]
 
 
+class TestUpsertCompany:
+    """Partial-info ticker registration used by ingestion pipelines."""
+
+    def test_insert_with_only_ticker(self, repo: MetadataRepository) -> None:
+        repo.upsert_company("1846.HK")
+        c = repo.get_company("1846.HK")
+        assert c is not None
+        # Normalised ticker stored as the primary key.
+        assert c.ticker == "1846-HK"
+        # Defaults fill non-null columns so FK constraints don't break.
+        assert c.name == "1846.HK"
+        assert c.profile == "?"
+        assert c.currency == "?"
+        assert c.exchange == "?"
+        assert c.isin is None
+
+    def test_insert_with_profile_keeps_default_name(
+        self, repo: MetadataRepository
+    ) -> None:
+        repo.upsert_company("1846.HK", profile="P1")
+        c = repo.get_company("1846.HK")
+        assert c.profile == "P1"
+        assert c.name == "1846.HK"
+
+    def test_update_only_changes_provided_fields(
+        self, repo: MetadataRepository
+    ) -> None:
+        repo.add_company("ACME", "Acme Industrial", "P1", "USD", "NYSE", isin="US0001")
+        # Upsert updates only the profile; other columns must be preserved.
+        repo.upsert_company("ACME", profile="P3a")
+        c = repo.get_company("ACME")
+        assert c.profile == "P3a"
+        assert c.name == "Acme Industrial"
+        assert c.currency == "USD"
+        assert c.exchange == "NYSE"
+        assert c.isin == "US0001"
+
+    def test_update_with_all_fields(self, repo: MetadataRepository) -> None:
+        repo.upsert_company("ACME", profile="P1")
+        repo.upsert_company(
+            "ACME",
+            profile="P1",
+            name="Acme Industrial plc",
+            currency="USD",
+            exchange="NYSE",
+            isin="US0001",
+        )
+        c = repo.get_company("ACME")
+        assert c.name == "Acme Industrial plc"
+        assert c.isin == "US0001"
+
+    def test_upsert_normalises_ticker(self, repo: MetadataRepository) -> None:
+        """Both dotted and hyphenated forms resolve to the same row."""
+        repo.upsert_company("1846.HK", profile="P1")
+        repo.upsert_company("1846-HK", name="EuroEyes")  # same entity, other form
+        c = repo.get_company("1846.HK")
+        assert c is not None
+        assert c.ticker == "1846-HK"
+        assert c.profile == "P1"
+        assert c.name == "EuroEyes"
+
+    def test_upsert_is_idempotent(self, repo: MetadataRepository) -> None:
+        repo.upsert_company("ACME", profile="P1")
+        repo.upsert_company("ACME", profile="P1")
+        repo.upsert_company("ACME", profile="P1")
+        assert len(repo.list_companies()) == 1
+
+
 class TestArchetypes:
     def test_add_and_get(self, repo: MetadataRepository) -> None:
         repo.add_archetype("P1", "Industrial", "Capital-heavy industrial companies")
