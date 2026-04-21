@@ -142,6 +142,24 @@ class TestYAMLRepositoryGeneric:
         assert (tmp_path / "ASML-AS.yaml").exists()
         assert repo.get("ASML-AS") is not None
 
+    def test_save_then_get_dotted_ticker_roundtrips(
+        self, tmp_path: Path, sample_position: Position
+    ) -> None:
+        """Regression guard: ``save(entity)`` + ``get(entity.ticker)`` must round-trip
+        even when the ticker contains a ``.`` (which the filesystem layer normalises to ``-``)."""
+        sample_position.ticker = "TEST.L"
+        repo = PositionRepository(base_path=tmp_path)
+        repo.save(sample_position)
+
+        hit_dotted = repo.get("TEST.L")
+        hit_normalised = repo.get("TEST-L")
+        assert hit_dotted is not None, "get('TEST.L') must find the saved entity"
+        assert hit_normalised == hit_dotted, "dotted and normalised lookups must agree"
+        assert repo.exists("TEST.L") is True
+        assert repo.exists("TEST-L") is True
+        repo.delete("TEST.L")
+        assert repo.exists("TEST.L") is False
+
     def test_corrupt_yaml_raises_storage_error(self, tmp_path: Path) -> None:
         repo = PositionRepository(base_path=tmp_path)
         (tmp_path / "BAD.yaml").write_text("not: valid: yaml: structure:")
@@ -179,6 +197,28 @@ class TestCompanyRepository:
         (tmp_path / "EMPTY").mkdir()
         assert repo.list_keys() == ["ACME"]
 
+    def test_save_then_get_dotted_ticker_roundtrips(
+        self, tmp_path: Path, sample_ficha: Ficha
+    ) -> None:
+        """Exact scenario that failed in Hugo's manual smoke test:
+        save a Ficha with ``ticker='TEST.L'`` then retrieve it via the same
+        dotted ticker. Bug was that save normalised but get did not."""
+        dotted = sample_ficha.model_copy(
+            update={
+                "ticker": "TEST.L",
+                "identity": sample_ficha.identity.model_copy(update={"ticker": "TEST.L"}),
+            }
+        )
+        repo = CompanyRepository(base_path=tmp_path)
+        repo.save(dotted)
+
+        # File lands at the normalised path
+        assert (tmp_path / "TEST-L" / "ficha.yaml").exists()
+        # Both lookup forms must resolve
+        assert repo.get("TEST.L") == dotted
+        assert repo.get("TEST-L") == dotted
+        assert repo.exists("TEST.L") is True
+
 
 class TestPeerRepository:
     def test_peer_under_parent(self, tmp_path: Path, sample_peer: Peer) -> None:
@@ -210,6 +250,20 @@ class TestMarketContextRepository:
 
 
 class TestValuationRepository:
+    def test_save_then_get_dotted_ticker_roundtrips(
+        self, tmp_path: Path, sample_valuation_snapshot: ValuationSnapshot
+    ) -> None:
+        """Versioned variant of the ticker-normalisation regression guard."""
+        snap = sample_valuation_snapshot.model_copy(update={"ticker": "BRK.B"})
+        repo = ValuationRepository(base_path=tmp_path)
+        repo.save(snap)
+
+        assert (tmp_path / "BRK-B" / "valuation" / "current").is_symlink()
+        assert repo.get_current("BRK.B") == snap
+        assert repo.get_current("BRK-B") == snap
+        assert repo.list_versions("BRK.B") == [snap.snapshot_id]
+        repo.set_current("BRK.B", snap.snapshot_id)  # must not raise
+
     def test_save_creates_version_file_and_current_symlink(
         self, tmp_path: Path, sample_valuation_snapshot: ValuationSnapshot
     ) -> None:

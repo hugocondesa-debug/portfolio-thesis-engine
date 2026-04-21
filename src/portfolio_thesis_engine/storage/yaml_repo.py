@@ -58,8 +58,11 @@ def _atomic_write_text(path: Path, content: str) -> None:
 class YAMLRepository[T: BaseSchema](Repository[T]):
     """Generic YAML-file repository.
 
-    Subclasses typically only override :meth:`_get_key` to derive the entity
-    key from its schema-specific identity field.
+    Subclasses typically override :meth:`_get_key` (to derive the entity key
+    from its schema-specific identity field) and :meth:`_normalise_key` (to
+    canonicalise caller-supplied lookup keys so that
+    ``save(entity) → get(entity.ticker)`` round-trips even when the on-disk
+    name differs from the human form — e.g. ``TEST.L`` stored as ``TEST-L``).
     """
 
     entity_class: type[T]
@@ -76,14 +79,25 @@ class YAMLRepository[T: BaseSchema](Repository[T]):
         self.base_path = base_path
         self.filename_template = filename_template
 
+    def _normalise_key(self, key: str) -> str:
+        """Canonicalise a lookup key to its on-disk form.
+
+        Default is identity. Ticker-keyed subclasses override to apply
+        :func:`_normalise_ticker` so callers can pass either ``TEST.L`` or
+        ``TEST-L`` and hit the same file.
+        """
+        return key
+
     def _path_for(self, key: str) -> Path:
-        return self.base_path / self.filename_template.format(key=key)
+        normalised = self._normalise_key(key)
+        return self.base_path / self.filename_template.format(key=normalised)
 
     def _get_key(self, entity: T) -> str:
-        """Default: use ``ticker`` attribute if present."""
+        """Default: use the ``ticker`` attribute, normalised via
+        :meth:`_normalise_key`."""
         ticker = getattr(entity, "ticker", None)
         if isinstance(ticker, str):
-            return _normalise_ticker(ticker)
+            return self._normalise_key(ticker)
         raise NotImplementedError(
             f"{type(self).__name__} must override _get_key for {type(entity).__name__}"
         )
@@ -146,8 +160,13 @@ class VersionedYAMLRepository[T: BaseSchema](VersionedRepository[T]):
     # ------------------------------------------------------------------
     # Layout helpers
     # ------------------------------------------------------------------
+    def _normalise_key(self, key: str) -> str:
+        """Canonicalise a lookup key to its on-disk form. Default identity;
+        ticker-keyed subclasses override."""
+        return key
+
     def _dir_for(self, key: str) -> Path:
-        return self.base_path / key / self.subdir
+        return self.base_path / self._normalise_key(key) / self.subdir
 
     def _version_path(self, key: str, version: str) -> Path:
         return self._dir_for(key) / f"{version}.yaml"
@@ -251,7 +270,11 @@ def _companies_root(base_path: Path | None) -> Path:
 
 
 class CompanyRepository(YAMLRepository[Ficha]):
-    """:class:`Ficha` persisted as ``companies/{ticker}/ficha.yaml``."""
+    """:class:`Ficha` persisted as ``companies/{ticker}/ficha.yaml``.
+
+    Tickers are normalised on both save and lookup, so ``repo.get("TEST.L")``
+    and ``repo.get("TEST-L")`` resolve to the same file.
+    """
 
     def __init__(self, base_path: Path | None = None) -> None:
         super().__init__(
@@ -259,6 +282,9 @@ class CompanyRepository(YAMLRepository[Ficha]):
             base_path=_companies_root(base_path),
             filename_template="{key}/ficha.yaml",
         )
+
+    def _normalise_key(self, key: str) -> str:
+        return _normalise_ticker(key)
 
     def list_keys(self) -> list[str]:
         if not self.base_path.exists():
@@ -269,7 +295,10 @@ class CompanyRepository(YAMLRepository[Ficha]):
 
 
 class PositionRepository(YAMLRepository[Position]):
-    """:class:`Position` persisted as ``portfolio/positions/{ticker}.yaml``."""
+    """:class:`Position` persisted as ``portfolio/positions/{ticker}.yaml``.
+
+    Tickers are normalised on both save and lookup.
+    """
 
     def __init__(self, base_path: Path | None = None) -> None:
         super().__init__(
@@ -277,12 +306,15 @@ class PositionRepository(YAMLRepository[Position]):
             base_path=base_path or (settings.data_dir / "yamls" / "portfolio" / "positions"),
         )
 
+    def _normalise_key(self, key: str) -> str:
+        return _normalise_ticker(key)
+
 
 class PeerRepository(YAMLRepository[Peer]):
     """:class:`Peer` persisted as ``companies/{parent}/peers/{peer}.yaml``.
 
     One instance per parent company; pass ``parent_ticker`` to the
-    constructor.
+    constructor. Both parent and peer tickers are normalised.
     """
 
     def __init__(self, parent_ticker: str, base_path: Path | None = None) -> None:
@@ -291,6 +323,9 @@ class PeerRepository(YAMLRepository[Peer]):
             entity_class=Peer,
             base_path=_companies_root(base_path) / parent / "peers",
         )
+
+    def _normalise_key(self, key: str) -> str:
+        return _normalise_ticker(key)
 
 
 class MarketContextRepository(YAMLRepository[MarketContext]):
@@ -318,7 +353,8 @@ class MarketContextRepository(YAMLRepository[MarketContext]):
 class ValuationRepository(VersionedYAMLRepository[ValuationSnapshot]):
     """Versioned :class:`ValuationSnapshot` under ``companies/{ticker}/valuation/``.
 
-    Version ID is ``snapshot.snapshot_id``.
+    Version ID is ``snapshot.snapshot_id``. Tickers are normalised on both
+    save and lookup.
     """
 
     def __init__(self, base_path: Path | None = None) -> None:
@@ -328,8 +364,11 @@ class ValuationRepository(VersionedYAMLRepository[ValuationSnapshot]):
             subdir="valuation",
         )
 
+    def _normalise_key(self, key: str) -> str:
+        return _normalise_ticker(key)
+
     def _get_key(self, entity: ValuationSnapshot) -> str:
-        return _normalise_ticker(entity.ticker)
+        return self._normalise_key(entity.ticker)
 
     def _get_version_id(self, entity: ValuationSnapshot) -> str:
         return entity.snapshot_id
@@ -339,7 +378,8 @@ class CompanyStateRepository(VersionedYAMLRepository[CanonicalCompanyState]):
     """Versioned :class:`CanonicalCompanyState` under
     ``companies/{ticker}/extraction/``.
 
-    Version ID is ``state.extraction_id``.
+    Version ID is ``state.extraction_id``. Tickers are normalised on both
+    save and lookup.
     """
 
     def __init__(self, base_path: Path | None = None) -> None:
@@ -349,8 +389,11 @@ class CompanyStateRepository(VersionedYAMLRepository[CanonicalCompanyState]):
             subdir="extraction",
         )
 
+    def _normalise_key(self, key: str) -> str:
+        return _normalise_ticker(key)
+
     def _get_key(self, entity: CanonicalCompanyState) -> str:
-        return _normalise_ticker(entity.identity.ticker)
+        return self._normalise_key(entity.identity.ticker)
 
     def _get_version_id(self, entity: CanonicalCompanyState) -> str:
         return entity.extraction_id
