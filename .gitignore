@@ -1,0 +1,51 @@
+# Secrets (CRITICAL)
+.env
+.env.local
+.env.production
+*.pem
+*.key
+!*.key.example
+
+# Data (never commit)
+data/
+!data/.gitkeep
+backup/
+*.duckdb
+*.sqlite
+*.sqlite3
+chromadb/
+documents/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Streamlit
+.streamlit/secrets.toml
