@@ -1,33 +1,47 @@
-ticker: "1846.HK"
-company_name: "EuroEyes Medical Group"
-reporting_currency: "HKD"
-unit_scale: "millions"
-extraction_date: "2025-04-15"
-source: "Annual Report 2024 (filed 2025-03-28) + Interim Report H1 2025 (filed 2025-08-15)"
-extractor: "Claude.ai + human validation"
-
-fiscal_periods:
-  - period: "FY2024"
-    end_date: "2024-12-31"
-    is_primary: true
-  - period: "H1 2025"
-    end_date: "2025-06-30"
-    is_primary: false
+metadata:
+  ticker: "1846.HK"
+  company_name: "EuroEyes Medical Group"
+  document_type: "annual_report"
+  extraction_type: "numeric"
+  reporting_currency: "HKD"
+  unit_scale: "millions"
+  fiscal_year: 2024
+  extraction_date: "2025-04-15"
+  extractor: "Claude.ai + human validation"
+  source_file_sha256: "abc123def456"
+  extraction_version: 1
+  extraction_notes: "FY2024 AR + H1 2025 Interim, realistic synthetic values for Phase 1.5 tests."
+  fiscal_periods:
+    - period: "FY2024"
+      end_date: "2024-12-31"
+      is_primary: true
+      period_type: "FY"
+    - period: "H1 2025"
+      end_date: "2025-06-30"
+      is_primary: false
+      period_type: "H1"
 
 income_statement:
   FY2024:
+    # Identity: 580 + (-290) + (-95) + (-65) + (-20) = 110 ✓
     revenue: "580.0"
     cost_of_sales: "-290.0"
     gross_profit: "290.0"
     selling_marketing: "-95.0"
     general_administrative: "-65.0"
     depreciation_amortization: "-20.0"
+    operating_expenses_total: "-180.0"
     operating_income: "110.0"
     finance_income: "4.0"
     finance_expenses: "-18.0"
     income_before_tax: "96.0"
     income_tax: "-21.0"
     net_income: "75.0"
+    net_income_parent: "75.0"
+    eps_basic: "0.375"
+    eps_diluted: "0.370"
+    shares_basic_weighted_avg: "200.0"
+    shares_diluted_weighted_avg: "202.7"
   "H1 2025":
     revenue: "310.0"
     cost_of_sales: "-152.0"
@@ -41,9 +55,14 @@ income_statement:
     income_before_tax: "54.7"
     income_tax: "-12.0"
     net_income: "42.7"
+    net_income_parent: "42.7"
+    shares_basic_weighted_avg: "200.0"
+    shares_diluted_weighted_avg: "202.5"
 
 balance_sheet:
   FY2024:
+    # Identity: total_assets == total_liabilities + total_equity
+    # 3200 == 1300 + 1900 ✓
     cash_and_equivalents: "450.0"
     accounts_receivable: "120.0"
     inventory: "80.0"
@@ -52,18 +71,24 @@ balance_sheet:
     rou_assets: "380.0"
     goodwill: "600.0"
     intangibles_other: "420.0"
+    investments: "0.0"
     non_current_assets_other: "200.0"
     total_non_current_assets: "2550.0"
     total_assets: "3200.0"
     accounts_payable: "95.0"
+    short_term_debt: "150.0"
     lease_liabilities_current: "60.0"
-    current_debt: "150.0"
     total_current_liabilities: "305.0"
     long_term_debt: "580.0"
     lease_liabilities_noncurrent: "310.0"
     non_current_liabilities_other: "105.0"
     total_non_current_liabilities: "995.0"
     total_liabilities: "1300.0"
+    share_capital: "500.0"
+    retained_earnings: "1300.0"
+    other_reserves: "100.0"
+    total_equity_parent: "1900.0"
+    non_controlling_interests: "0.0"
     total_equity: "1900.0"
   "H1 2025":
     cash_and_equivalents: "485.0"
@@ -74,28 +99,42 @@ balance_sheet:
     rou_assets: "395.0"
     goodwill: "600.0"
     intangibles_other: "410.0"
+    investments: "0.0"
     non_current_assets_other: "203.0"
     total_non_current_assets: "2568.0"
     total_assets: "3270.0"
     accounts_payable: "98.0"
+    short_term_debt: "150.0"
     lease_liabilities_current: "62.0"
-    current_debt: "150.0"
     total_current_liabilities: "310.0"
     long_term_debt: "560.0"
     lease_liabilities_noncurrent: "325.0"
     non_current_liabilities_other: "108.0"
     total_non_current_liabilities: "993.0"
     total_liabilities: "1303.0"
+    share_capital: "500.0"
+    retained_earnings: "1367.0"
+    other_reserves: "100.0"
+    total_equity_parent: "1967.0"
+    non_controlling_interests: "0.0"
     total_equity: "1967.0"
 
 cash_flow:
   FY2024:
+    # CFO (135) + CFI (-75) + CFF (-45) + FX (0) = 15 ≈ net_change ✓
+    net_income_cf: "75.0"
+    depreciation_amortization_cf: "20.0"
+    working_capital_changes: "-10.0"
+    operating_cash_flow_other: "50.0"
     operating_cash_flow: "135.0"
     capex: "-75.0"
     investing_cash_flow: "-75.0"
     dividends_paid: "-25.0"
     debt_issuance: "35.0"
+    debt_repayment: "-5.0"
+    financing_other: "-50.0"
     financing_cash_flow: "-45.0"
+    fx_effect: "0.0"
     net_change_in_cash: "15.0"
 
 notes:
@@ -124,7 +163,7 @@ notes:
     lease_liabilities_opening: "350.0"
     lease_liabilities_closing: "370.0"
     lease_interest_expense: "15.0"
-    lease_principal_payments: "40.0"
+    lease_principal_payments: "35.0"
   provisions:
     - description: "Warranty provisions"
       amount: "8.0"
@@ -132,12 +171,80 @@ notes:
     - description: "Legal and regulatory"
       amount: "5.0"
       classification: "operating"
+  goodwill:
+    opening: "620.0"
+    additions: "0.0"
+    impairment: "-20.0"
+    closing: "600.0"
+    by_cgu:
+      "Greater China": "420.0"
+      "Germany": "180.0"
+  intangibles:
+    opening: "410.0"
+    additions: "25.0"
+    amortization: "-15.0"
+    impairment: "0.0"
+    closing: "420.0"
+    by_type:
+      "Software": "150.0"
+      "Customer relationships": "200.0"
+      "Brand": "70.0"
+  ppe:
+    opening_gross: "1520.0"
+    additions: "75.0"
+    disposals: "-10.0"
+    transfers: "0.0"
+    closing_gross: "1585.0"
+    accumulated_depreciation: "-635.0"
+  inventory:
+    raw_materials: "15.0"
+    wip: "10.0"
+    finished_goods: "60.0"
+    provisions: "-5.0"
+    total: "80.0"
+  trade_receivables:
+    "FY2024": "120.0"
+    "H1 2025": "135.0"
+  trade_payables:
+    "FY2024": "95.0"
+    "H1 2025": "98.0"
+  employee_benefits:
+    headcount: "850"
+    avg_compensation: "0.45"
+    total_compensation: "382.5"
+    pension_expense: "8.0"
+    sbc_expense: "6.5"
+  financial_instruments:
+    credit_risk: "Concentrated in HK + German medical-insurance payers; 30-day DSO average."
+    liquidity_risk: "HKD 450M cash + undrawn HKD 200M revolver covers 18 months of operating cash burn."
+    market_risk: "FX: HKD reporting vs EUR operations at 65/35 mix."
+  commitments_contingencies:
+    capital_commitments: "42.0"
+    operating_lease_future: "0.0"
+    guarantees_provided: "0.0"
+    contingent_liabilities: "3.0"
+  share_based_compensation:
+    stock_options_granted: "0.5"
+    stock_options_exercised: "0.2"
+    stock_options_outstanding: "2.8"
+    rsus_granted: "1.0"
+    rsus_vested: "0.8"
+    rsus_outstanding: "3.2"
+    expense: "6.5"
+  subsequent_events:
+    - description: "Announced HKD 80M debt refinancing at 4.25% (replacing 4.50% facility)"
+      date: "2025-03-14"
+      impact: "material_positive"
 
 segments:
   by_geography:
     FY2024:
-      "Greater China": "420.0"
-      "Germany / Europe": "160.0"
+      "Greater China":
+        revenue: "420.0"
+        operating_income: "85.0"
+      "Germany / Europe":
+        revenue: "160.0"
+        operating_income: "25.0"
 
 historical:
   revenue_by_year:
@@ -152,3 +259,23 @@ historical:
     "2022": "52.0"
     "2023": "60.0"
     "2024": "75.0"
+  total_assets_by_year:
+    "2022": "2900.0"
+    "2023": "3050.0"
+    "2024": "3200.0"
+  total_equity_by_year:
+    "2022": "1600.0"
+    "2023": "1780.0"
+    "2024": "1900.0"
+
+operational_kpis:
+  metrics:
+    patient_visits_thousands:
+      "FY2024": "285"
+      "H1 2025": "152"
+    clinics_total:
+      "FY2024": "38"
+      "H1 2025": "40"
+    avg_revenue_per_visit_hkd:
+      "FY2024": "2035"
+      "H1 2025": "2040"
