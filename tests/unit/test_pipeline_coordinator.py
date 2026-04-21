@@ -161,7 +161,7 @@ def _make_canonical(ticker: str = "1846.HK") -> CanonicalCompanyState:
             nopat_bridge_by_period=[
                 NOPATBridge(
                     period=period,
-                    ebita=Decimal("10"),
+                    ebitda=Decimal("10"),
                     operating_taxes=Decimal("0"),
                     nopat=Decimal("10"),
                     financial_income=Decimal("0"),

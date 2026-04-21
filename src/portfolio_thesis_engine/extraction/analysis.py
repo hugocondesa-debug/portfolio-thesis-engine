@@ -141,17 +141,28 @@ class AnalysisDeriver:
         )
 
         operating_income = _sum_by_category(lines, "operating_income")
-        amortisation = _sum_by_category(lines, "d_and_a")
-        # Approximation for Phase 1: EBITA ≈ Operating Income + |amortisation|.
-        # When D&A is broken out separately below operating income we add
-        # it back; when it's already inside operating_income the parser
-        # doesn't emit a separate d_and_a line and EBITA == operating_income.
-        ebita = operating_income + abs(amortisation) if amortisation else operating_income
+        depreciation_amortisation = _sum_by_category(lines, "d_and_a")
+        # Phase 1: the IS parser aggregates depreciation + amortisation
+        # into the ``d_and_a`` category, so EBITDA is always computable
+        # but EBITA (Op Income + |amortisation only|) is NOT — leave it
+        # ``None``. Downstream NOPAT anchors off EBITDA when EBITA is
+        # absent; Phase 2 can split the categories and populate both.
+        ebitda = (
+            operating_income + abs(depreciation_amortisation)
+            if depreciation_amortisation
+            else operating_income
+        )
+        ebita: Decimal | None = None
 
-        # Operating taxes — Module A.1 holds the rate.
+        # Operating taxes — Module A.1 holds the rate. Anchor off EBITA
+        # when it's populated (more accurate — keeps depreciation inside
+        # the tax base); otherwise fall back to EBITDA.
+        anchor = ebita if ebita is not None else ebitda
         op_rate = self._operating_tax_rate_pct(context)
-        operating_taxes = (ebita * op_rate / Decimal("100")) if op_rate is not None else Decimal("0")
-        nopat = ebita - operating_taxes
+        operating_taxes = (
+            (anchor * op_rate / Decimal("100")) if op_rate is not None else Decimal("0")
+        )
+        nopat = anchor - operating_taxes
 
         financial_income = _sum_by_category(lines, "finance_income")
         financial_expense = _sum_by_category(lines, "finance_expense")
@@ -169,6 +180,7 @@ class AnalysisDeriver:
 
         return NOPATBridge(
             period=period,
+            ebitda=ebitda,
             ebita=ebita,
             operating_taxes=operating_taxes,
             nopat=nopat,
@@ -208,9 +220,9 @@ class AnalysisDeriver:
         )
 
         revenue = _sum_by_category(is_lines, "revenue")
-        d_and_a = _sum_by_category(is_lines, "d_and_a")
         capex = _sum_by_category(cf_lines, "capex")
-        ebitda = bridge.ebita + abs(d_and_a) if d_and_a else bridge.ebita
+        # EBITDA already includes D&A — read it off the bridge directly.
+        ebitda = bridge.ebitda
 
         hundred = Decimal("100")
         roic = _safe_div(bridge.nopat * hundred, ic.invested_capital)

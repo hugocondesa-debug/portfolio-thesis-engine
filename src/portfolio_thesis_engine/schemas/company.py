@@ -123,10 +123,19 @@ class InvestedCapital(BaseSchema):
 
 
 class NOPATBridge(BaseSchema):
-    """EBITA → NOPAT → NI bridge."""
+    """EBITDA / EBITA → NOPAT → NI bridge.
+
+    :attr:`ebitda` is always populated (operating income + absolute value
+    of combined D&A). :attr:`ebita` is optional and only meaningful when
+    the section parser has split depreciation from amortisation; the
+    Phase 1 P1 parser aggregates both under the ``d_and_a`` category, so
+    ``ebita`` stays ``None`` in Phase 1 runs. NOPAT and operating taxes
+    anchor off :attr:`ebita` when present, otherwise off :attr:`ebitda`.
+    """
 
     period: FiscalPeriod
-    ebita: Money
+    ebitda: Money
+    ebita: Money | None = None
     operating_taxes: Money
     nopat: Money
     financial_income: Money

@@ -263,8 +263,9 @@ class TestEuroEyesEndToEnd:
 
         # NOPAT bridge
         bridge = state.analysis.nopat_bridge_by_period[0]
-        # EBITA = 110 + 20 (D&A) = 130
-        assert bridge.ebita == Decimal("130.0")
+        # EBITDA = 110 + 20 (D&A) = 130; EBITA stays None (parser aggregates).
+        assert bridge.ebitda == Decimal("130.0")
+        assert bridge.ebita is None
         # Reported NI matches fixture
         assert bridge.reported_net_income == Decimal("75.0")
 

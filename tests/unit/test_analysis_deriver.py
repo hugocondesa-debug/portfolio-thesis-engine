@@ -164,16 +164,19 @@ class TestInvestedCapital:
 
 
 class TestNOPATBridge:
-    def test_ebita_is_op_income_plus_da(self, _wacc: WACCInputs) -> None:
+    def test_ebitda_is_op_income_plus_da(self, _wacc: WACCInputs) -> None:
         ctx = _make_context(
             _wacc,
             [_section("income_statement", _IS_PARSED)],
             adjustments=[_op_tax_rate_adj("25")],
         )
         bridge = AnalysisDeriver().derive(ctx).nopat_bridge_by_period[0]
-        # D&A 80 is added back: EBITA = 200 + 80 = 280
-        assert bridge.ebita == Decimal("280")
-        # Operating taxes: 280 * 25% = 70, NOPAT = 210
+        # D&A 80 is added back: EBITDA = 200 + 80 = 280
+        assert bridge.ebitda == Decimal("280")
+        # EBITA stays None because the parser doesn't split D from A.
+        assert bridge.ebita is None
+        # Operating taxes anchor off EBITDA when EBITA is absent:
+        # 280 * 25% = 70, NOPAT = 210
         assert bridge.operating_taxes == Decimal("70")
         assert bridge.nopat == Decimal("210")
 
@@ -250,11 +253,11 @@ class TestKeyRatios:
         assert abs(ratios.roe - Decimal("21.538461538461538")) < Decimal("0.01")
         # Op income 200 / Revenue 1000 = 20%
         assert ratios.operating_margin == Decimal("20")
-        # EBITDA = EBITA 280 + D&A 80 = 360; margin = 36%
-        assert ratios.ebitda_margin == Decimal("36")
-        # Net debt = 400 - 200 = 200; EBITDA 360; ratio = 0.555
+        # EBITDA already includes D&A (Op Income 200 + D&A 80 = 280); margin = 28%
+        assert ratios.ebitda_margin == Decimal("28")
+        # Net debt = 400 - 200 = 200; EBITDA 280; ratio ≈ 0.714
         assert ratios.net_debt_ebitda is not None
-        assert abs(ratios.net_debt_ebitda - Decimal("0.555555555555555")) < Decimal("0.01")
+        assert abs(ratios.net_debt_ebitda - Decimal("0.714285714")) < Decimal("0.01")
         # CapEx 60 / Revenue 1000 = 6%
         assert ratios.capex_revenue == Decimal("6")
 
@@ -282,4 +285,6 @@ class TestKeyRatios:
         result = AnalysisDeriver().derive(ctx)
         assert result.ratios_by_period[0].roic is None
         assert result.invested_capital_by_period[0].invested_capital == Decimal("0")
-        assert result.nopat_bridge_by_period[0].ebita == Decimal("0")
+        # EBITDA is always populated (zero when no lines); EBITA stays None.
+        assert result.nopat_bridge_by_period[0].ebitda == Decimal("0")
+        assert result.nopat_bridge_by_period[0].ebita is None

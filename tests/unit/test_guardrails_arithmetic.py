@@ -280,7 +280,7 @@ class TestICConsistency:
     def _nopat(self, value: Decimal) -> NOPATBridge:
         return NOPATBridge(
             period=_period(),
-            ebita=value,
+            ebitda=value,
             operating_taxes=Decimal("0"),
             nopat=value,
             financial_income=Decimal("0"),

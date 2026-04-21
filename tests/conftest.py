@@ -152,7 +152,7 @@ def sample_company_state(
             nopat_bridge_by_period=[
                 NOPATBridge(
                     period=sample_fiscal_period,
-                    ebita=Decimal("180.00"),
+                    ebitda=Decimal("180.00"),
                     operating_taxes=Decimal("45.00"),
                     nopat=Decimal("135.00"),
                     financial_income=Decimal("2.00"),
