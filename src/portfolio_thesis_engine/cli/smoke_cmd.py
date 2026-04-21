@@ -27,6 +27,7 @@ from portfolio_thesis_engine.llm.base import LLMRequest
 from portfolio_thesis_engine.llm.openai_provider import OpenAIEmbeddingsProvider
 from portfolio_thesis_engine.llm.router import TaskType, model_for_task
 from portfolio_thesis_engine.market_data.fmp_provider import FMPProvider
+from portfolio_thesis_engine.market_data.yfinance_provider import YFinanceProvider
 from portfolio_thesis_engine.schemas.common import Currency, GuardrailStatus
 from portfolio_thesis_engine.schemas.position import Position, PositionStatus
 from portfolio_thesis_engine.shared.config import settings
@@ -271,13 +272,38 @@ async def _real_fmp_check() -> tuple[str, bool, str, Decimal]:
             quote = await p.get_quote("AAPL")
         ok = quote.get("symbol") == "AAPL" and "price" in quote
         return (
-            "FMP (real API)",
+            "FMP stable (real API)",
             ok,
             f"AAPL price={quote.get('price')}",
             Decimal("0"),  # FMP is flat-fee subscription; no per-call attribution
         )
     except Exception as e:
-        return ("FMP (real API)", False, f"{type(e).__name__}: {e}", Decimal("0"))
+        return (
+            "FMP stable (real API)",
+            False,
+            f"{type(e).__name__}: {e}",
+            Decimal("0"),
+        )
+
+
+async def _real_yfinance_check() -> tuple[str, bool, str, Decimal]:
+    try:
+        provider = YFinanceProvider()
+        quote = await provider.get_quote("AAPL")
+        ok = quote.get("symbol") == "AAPL" and quote.get("price") is not None
+        return (
+            "yfinance (real API)",
+            ok,
+            f"AAPL price={quote.get('price')} currency={quote.get('currency')}",
+            Decimal("0"),  # Free — no API key, no per-call cost
+        )
+    except Exception as e:
+        return (
+            "yfinance (real API)",
+            False,
+            f"{type(e).__name__}: {e}",
+            Decimal("0"),
+        )
 
 
 async def _run_real_api_checks() -> list[tuple[str, bool, str, Decimal]]:
@@ -285,6 +311,7 @@ async def _run_real_api_checks() -> list[tuple[str, bool, str, Decimal]]:
         _real_anthropic_check(),
         _real_openai_check(),
         _real_fmp_check(),
+        _real_yfinance_check(),
     )
     return list(results)
 

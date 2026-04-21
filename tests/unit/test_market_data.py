@@ -1,7 +1,8 @@
-"""Unit tests for the FMP market data provider.
+"""Unit tests for the FMP market data provider (stable API).
 
 HTTP is mocked via :class:`httpx.MockTransport` — no network access and no
-real API key required.
+real API key required. Response fixtures match the shapes verified live
+against ``https://financialmodelingprep.com/stable`` endpoints.
 """
 
 from __future__ import annotations
@@ -21,8 +22,20 @@ from portfolio_thesis_engine.market_data.fmp_provider import FMPProvider
 
 def _make_provider(handler: Any) -> FMPProvider:
     transport = httpx.MockTransport(handler)
-    client = httpx.AsyncClient(transport=transport, base_url=FMPProvider.BASE_URL, timeout=5.0)
+    client = httpx.AsyncClient(
+        transport=transport, base_url=FMPProvider.BASE_URL, timeout=5.0
+    )
     return FMPProvider(api_key="test-key", client=client)
+
+
+# ======================================================================
+# BASE_URL
+# ======================================================================
+
+
+class TestBaseURL:
+    def test_base_url_is_stable(self) -> None:
+        assert FMPProvider.BASE_URL == "https://financialmodelingprep.com/stable"
 
 
 # ======================================================================
@@ -43,7 +56,7 @@ class TestValidateTicker:
 
 
 # ======================================================================
-# get_quote
+# get_quote — /quote?symbol=...
 # ======================================================================
 
 
@@ -51,28 +64,58 @@ class TestGetQuote:
     @pytest.mark.asyncio
     async def test_returns_first_row_of_list(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "/quote/AAPL" in request.url.path
+            assert request.url.path.endswith("/quote")
+            assert request.url.params["symbol"] == "AAPL"
             assert request.url.params["apikey"] == "test-key"
-            return httpx.Response(200, json=[{"symbol": "AAPL", "price": 181.5, "change": 1.2}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "price": 273.05,
+                        "changePercentage": 0.12,
+                        "volume": 40000000,
+                    }
+                ],
+            )
 
         p = _make_provider(handler)
         quote = await p.get_quote("AAPL")
         assert quote["symbol"] == "AAPL"
-        assert quote["price"] == 181.5
+        assert quote["price"] == 273.05
         await p.aclose()
 
     @pytest.mark.asyncio
     async def test_empty_list_raises_ticker_not_found(self) -> None:
+        """Stable API returns 200 + [] for unknown tickers."""
         p = _make_provider(lambda req: httpx.Response(200, json=[]))
         with pytest.raises(TickerNotFoundError):
             await p.get_quote("NOPE")
         await p.aclose()
 
     @pytest.mark.asyncio
-    async def test_404_maps_to_ticker_not_found(self) -> None:
-        p = _make_provider(lambda req: httpx.Response(404, text="not found"))
-        with pytest.raises(TickerNotFoundError):
-            await p.get_quote("MISSING")
+    async def test_401_maps_to_market_data_error(self) -> None:
+        p = _make_provider(
+            lambda req: httpx.Response(
+                401,
+                json={"Error Message": "Invalid API KEY."},
+            )
+        )
+        with pytest.raises(MarketDataError, match="Invalid API KEY"):
+            await p.get_quote("AAPL")
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_403_maps_to_market_data_error(self) -> None:
+        """Legacy endpoint sends 403 — proves we're not hitting those any more."""
+        p = _make_provider(
+            lambda req: httpx.Response(
+                403, json={"Error Message": "Legacy Endpoint"}
+            )
+        )
+        with pytest.raises(MarketDataError, match="Legacy Endpoint"):
+            await p.get_quote("AAPL")
         await p.aclose()
 
     @pytest.mark.asyncio
@@ -91,23 +134,24 @@ class TestGetQuote:
 
 
 # ======================================================================
-# get_price_history
+# get_price_history — /historical-price-eod/full?symbol=&from=&to=
 # ======================================================================
 
 
 class TestGetPriceHistory:
     @pytest.mark.asyncio
-    async def test_returns_historical_list(self) -> None:
+    async def test_returns_flat_list_of_rows(self) -> None:
         rows = [
-            {"date": "2025-01-02", "close": 181.0},
-            {"date": "2025-01-03", "close": 182.5},
+            {"symbol": "AAPL", "date": "2025-01-10", "close": 229.5},
+            {"symbol": "AAPL", "date": "2025-01-09", "close": 228.0},
         ]
 
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "/historical-price-full/AAPL" in request.url.path
+            assert request.url.path.endswith("/historical-price-eod/full")
+            assert request.url.params["symbol"] == "AAPL"
             assert request.url.params["from"] == "2025-01-01"
             assert request.url.params["to"] == "2025-01-31"
-            return httpx.Response(200, json={"symbol": "AAPL", "historical": rows})
+            return httpx.Response(200, json=rows)
 
         p = _make_provider(handler)
         out = await p.get_price_history("AAPL", "2025-01-01", "2025-01-31")
@@ -116,14 +160,50 @@ class TestGetPriceHistory:
 
     @pytest.mark.asyncio
     async def test_empty_response_raises_not_found(self) -> None:
-        p = _make_provider(lambda req: httpx.Response(200, json={}))
+        p = _make_provider(lambda req: httpx.Response(200, json=[]))
         with pytest.raises(TickerNotFoundError):
             await p.get_price_history("NOPE", "2025-01-01", "2025-01-31")
         await p.aclose()
 
+    @pytest.mark.asyncio
+    async def test_unexpected_shape_raises_market_data_error(self) -> None:
+        p = _make_provider(lambda req: httpx.Response(200, json={"unexpected": "shape"}))
+        with pytest.raises(MarketDataError):
+            await p.get_price_history("AAPL", "2025-01-01", "2025-01-31")
+        await p.aclose()
+
 
 # ======================================================================
-# get_fundamentals
+# get_profile — /profile?symbol=...
+# ======================================================================
+
+
+class TestGetProfile:
+    @pytest.mark.asyncio
+    async def test_returns_first_row(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path.endswith("/profile")
+            return httpx.Response(
+                200,
+                json=[{"symbol": "AAPL", "currency": "USD", "marketCap": 3.4e12}],
+            )
+
+        p = _make_provider(handler)
+        profile = await p.get_profile("AAPL")
+        assert profile["symbol"] == "AAPL"
+        assert profile["currency"] == "USD"
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_empty_raises_not_found(self) -> None:
+        p = _make_provider(lambda req: httpx.Response(200, json=[]))
+        with pytest.raises(TickerNotFoundError):
+            await p.get_profile("NOPE")
+        await p.aclose()
+
+
+# ======================================================================
+# get_fundamentals — 3x endpoint bundle
 # ======================================================================
 
 
@@ -132,12 +212,13 @@ class TestGetFundamentals:
     async def test_bundles_three_statements(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             path = request.url.path
-            if "income-statement" in path:
-                return httpx.Response(200, json=[{"year": 2024, "revenue": 1000}])
-            if "balance-sheet-statement" in path:
-                return httpx.Response(200, json=[{"year": 2024, "total_assets": 5000}])
-            if "cash-flow-statement" in path:
-                return httpx.Response(200, json=[{"year": 2024, "cfo": 300}])
+            assert request.url.params["symbol"] == "AAPL"
+            if path.endswith("/income-statement"):
+                return httpx.Response(200, json=[{"date": "2024", "revenue": 1000}])
+            if path.endswith("/balance-sheet-statement"):
+                return httpx.Response(200, json=[{"date": "2024", "total_assets": 5000}])
+            if path.endswith("/cash-flow-statement"):
+                return httpx.Response(200, json=[{"date": "2024", "cfo": 300}])
             return httpx.Response(404)
 
         p = _make_provider(handler)
@@ -156,7 +237,7 @@ class TestGetFundamentals:
 
 
 # ======================================================================
-# get_key_metrics
+# get_key_metrics — /key-metrics?symbol=&limit=5
 # ======================================================================
 
 
@@ -164,12 +245,14 @@ class TestGetKeyMetrics:
     @pytest.mark.asyncio
     async def test_returns_records(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "/key-metrics/AAPL" in request.url.path
-            return httpx.Response(200, json=[{"year": 2024, "pe": 28.5}])
+            assert request.url.path.endswith("/key-metrics")
+            assert request.url.params["symbol"] == "AAPL"
+            assert request.url.params["limit"] == "5"
+            return httpx.Response(200, json=[{"fiscalYear": 2024, "marketCap": 3.4e12}])
 
         p = _make_provider(handler)
         data = await p.get_key_metrics("AAPL")
-        assert data["records"][0]["pe"] == 28.5
+        assert data["records"][0]["fiscalYear"] == 2024
         await p.aclose()
 
     @pytest.mark.asyncio
@@ -181,21 +264,23 @@ class TestGetKeyMetrics:
 
 
 # ======================================================================
-# search_tickers
+# search_tickers — /search-name?query=&limit=20
 # ======================================================================
 
 
 class TestSearchTickers:
     @pytest.mark.asyncio
-    async def test_returns_matches(self) -> None:
+    async def test_returns_matches_via_search_name(self) -> None:
         results = [
             {"symbol": "AAPL", "name": "Apple Inc."},
-            {"symbol": "AAPL.MX", "name": "Apple Inc."},
+            {"symbol": "APC.DE", "name": "Apple Inc."},
         ]
 
         def handler(request: httpx.Request) -> httpx.Response:
-            assert "/search" in request.url.path
+            # We route name searches to /search-name (not /search-symbol).
+            assert request.url.path.endswith("/search-name")
             assert request.url.params["query"] == "apple"
+            assert request.url.params["limit"] == "20"
             return httpx.Response(200, json=results)
 
         p = _make_provider(handler)
@@ -211,7 +296,7 @@ class TestSearchTickers:
 
 
 # ======================================================================
-# Error paths shared across endpoints
+# Shared error paths
 # ======================================================================
 
 
@@ -230,13 +315,40 @@ class TestErrorPaths:
     async def test_malformed_json_maps_to_market_data_error(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
-                200, content=b"not-valid-json{{", headers={"content-type": "application/json"}
+                200,
+                content=b"not-valid-json{{",
+                headers={"content-type": "application/json"},
             )
 
         p = _make_provider(handler)
         with pytest.raises(MarketDataError):
             await p.get_quote("AAPL")
         await p.aclose()
+
+
+# ======================================================================
+# Error-body parser
+# ======================================================================
+
+
+class TestErrorMessageExtraction:
+    def test_extracts_error_message_key(self) -> None:
+        assert (
+            FMPProvider._extract_error_message('{"Error Message": "Invalid API KEY."}')
+            == "Invalid API KEY."
+        )
+
+    def test_extracts_lowercase_message_key(self) -> None:
+        assert (
+            FMPProvider._extract_error_message('{"message": "throttled"}')
+            == "throttled"
+        )
+
+    def test_falls_back_to_truncated_body(self) -> None:
+        body = "not json at all " * 50
+        result = FMPProvider._extract_error_message(body)
+        assert len(result) <= 200
+        assert result.startswith("not json")
 
 
 # ======================================================================
@@ -247,10 +359,9 @@ class TestErrorPaths:
 class TestContextManager:
     @pytest.mark.asyncio
     async def test_async_context_closes_owned_client(self) -> None:
-        transport = httpx.MockTransport(lambda r: httpx.Response(200, json=[{"symbol": "AAPL"}]))
-        # Don't inject client so FMPProvider creates (and owns) one internally
+        transport = httpx.MockTransport(
+            lambda r: httpx.Response(200, json=[{"symbol": "AAPL"}])
+        )
         client = httpx.AsyncClient(transport=transport, base_url=FMPProvider.BASE_URL)
         async with FMPProvider(api_key="x", client=client) as p:
             await p.get_quote("AAPL")
-        # Client is NOT owned (we injected it); aclose is a no-op on our end
-        # but context manager must not blow up

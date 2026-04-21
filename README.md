@@ -51,6 +51,13 @@ uv run streamlit run src/portfolio_thesis_engine/ui/app.py
 | Filesystem blobs | `data/documents/` | PDFs, source filings |
 | SQLite metadata | `data/metadata.sqlite` | Relational metadata (companies, archetypes, clusters, joins) |
 
+Market-data providers (both implement `MarketDataProvider` — polymorphic):
+
+| Provider | Source | Auth | Cost | Role |
+|---|---|---|---|---|
+| `FMPProvider` | Financial Modeling Prep `/stable/` | `FMP_API_KEY` | paid | primary |
+| `YFinanceProvider` | Yahoo Finance via yfinance | none | free | alternative / cross-check |
+
 See `docs/architecture.md` and `docs/schemas.md` for details.
 
 ## VPS Deployment

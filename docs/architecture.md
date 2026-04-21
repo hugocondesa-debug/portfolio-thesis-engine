@@ -25,8 +25,8 @@ docstring and in the Phase 0 spec (`SPEC_PHASE_0.md`).
 │                 embeddings-only, CostTracker (JSONL), retry (tenacity), │
 │                 router (TaskType → model), structured-output helpers.   │
 │                                                                         │
-│   market_data/  FMP provider over httpx (quotes, history, fundamentals, │
-│                 key metrics, search, ticker validation). Typed errors.  │
+│   market_data/  FMP (stable) + yfinance providers (quotes, history,     │
+│                 fundamentals, key metrics, search). Typed errors.       │
 │                                                                         │
 │   guardrails/   Guardrail ABC + runner (exception → FAIL), aggregator,  │
 │                 ReportWriter (text + JSON).                             │
@@ -102,6 +102,28 @@ Phase 0 ships the plumbing; the contexts below will plug into it.
 
 Phase 0 provides every schema and repository in this diagram. The
 engines themselves are deferred.
+
+## Market data providers
+
+Both implement the same `MarketDataProvider` abstract base — call sites
+can swap them polymorphically.
+
+| Provider          | Source                     | Auth          | Cost       | Notes                                                                              |
+| ----------------- | -------------------------- | ------------- | ---------- | ---------------------------------------------------------------------------------- |
+| `FMPProvider`     | FMP `/stable/` API         | `FMP_API_KEY` | paid tier  | **Primary.** Refactored to `/stable/` endpoints (Aug 2025 legacy-cutoff).          |
+| `YFinanceProvider`| Yahoo Finance via yfinance | none          | free       | **Alternative.** Scraping-based — breaks if Yahoo changes HTML, use at own risk.   |
+
+Typical patterns:
+
+- **FMP** for everything that benefits from a contract: fundamentals,
+  key metrics, historical price ranges, paid-tier reliability.
+- **yfinance** for cross-check / fallback (tickers FMP doesn't cover —
+  some international listings) and for local development when the FMP
+  key isn't wired up.
+
+Both raise the same typed exceptions (`MarketDataError`,
+`TickerNotFoundError`, `RateLimitError`) rooted at
+`shared.exceptions.MarketDataError`.
 
 ## Cross-cutting concerns
 

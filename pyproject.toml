@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "rich>=13.7",
     "tenacity>=9.0",
+    "yfinance>=0.2.40",
 ]
 
 [dependency-groups]
@@ -84,3 +85,7 @@ markers = [
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = "yfinance"
+ignore_missing_imports = true
