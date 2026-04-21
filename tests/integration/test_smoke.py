@@ -90,9 +90,7 @@ class TestFullStorageWorkflow:
         assert yaml_repo.exists("TEST-L") is False
         assert in_memory.get("TEST-L") is None
 
-    def test_yaml_list_keys_returns_canonical_form(
-        self, tmp_path: Path
-    ) -> None:
+    def test_yaml_list_keys_returns_canonical_form(self, tmp_path: Path) -> None:
         """list_keys always returns on-disk (normalised) names so UI code
         can use the result as a stable key without re-normalising."""
         repo = PositionRepository(base_path=tmp_path)
@@ -116,9 +114,7 @@ class TestFullStorageWorkflow:
 def _mocked_anthropic(input_tokens: int, output_tokens: int) -> AnthropicProvider:
     fake = SimpleNamespace(
         content=[SimpleNamespace(type="text", text="ok")],
-        usage=SimpleNamespace(
-            input_tokens=input_tokens, output_tokens=output_tokens
-        ),
+        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
         stop_reason="end_turn",
     )
     async_client = MagicMock()
@@ -127,9 +123,7 @@ def _mocked_anthropic(input_tokens: int, output_tokens: int) -> AnthropicProvide
     sync_client = MagicMock()
     sync_client.messages = MagicMock()
     sync_client.messages.create = MagicMock(return_value=fake)
-    return AnthropicProvider(
-        api_key="mock", sync_client=sync_client, async_client=async_client
-    )
+    return AnthropicProvider(api_key="mock", sync_client=sync_client, async_client=async_client)
 
 
 class TestLLMToCostTracker:
@@ -224,9 +218,7 @@ class _IntWarn(Guardrail):
         return "integration warn"
 
     def check(self, context: dict[str, Any]) -> GuardrailResult:
-        return GuardrailResult(
-            self.check_id, self.name, GuardrailStatus.WARN, "careful now"
-        )
+        return GuardrailResult(self.check_id, self.name, GuardrailStatus.WARN, "careful now")
 
 
 class _IntFail(Guardrail):
@@ -239,9 +231,7 @@ class _IntFail(Guardrail):
         return "integration fail"
 
     def check(self, context: dict[str, Any]) -> GuardrailResult:
-        return GuardrailResult(
-            self.check_id, self.name, GuardrailStatus.FAIL, "simulated failure"
-        )
+        return GuardrailResult(self.check_id, self.name, GuardrailStatus.FAIL, "simulated failure")
 
 
 class TestGuardrailWorkflow:
@@ -281,9 +271,7 @@ class TestCLIEndToEnd:
     ) -> None:
         data_dir = tmp_path / "data"
         backup_dir = tmp_path / "backup"
-        monkeypatch.setattr(
-            "portfolio_thesis_engine.shared.config.settings.data_dir", data_dir
-        )
+        monkeypatch.setattr("portfolio_thesis_engine.shared.config.settings.data_dir", data_dir)
         monkeypatch.setattr(
             "portfolio_thesis_engine.shared.config.settings.backup_dir",
             backup_dir,

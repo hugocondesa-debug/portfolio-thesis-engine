@@ -22,9 +22,7 @@ from portfolio_thesis_engine.market_data.fmp_provider import FMPProvider
 
 def _make_provider(handler: Any) -> FMPProvider:
     transport = httpx.MockTransport(handler)
-    client = httpx.AsyncClient(
-        transport=transport, base_url=FMPProvider.BASE_URL, timeout=5.0
-    )
+    client = httpx.AsyncClient(transport=transport, base_url=FMPProvider.BASE_URL, timeout=5.0)
     return FMPProvider(api_key="test-key", client=client)
 
 
@@ -110,9 +108,7 @@ class TestGetQuote:
     async def test_403_maps_to_market_data_error(self) -> None:
         """Legacy endpoint sends 403 — proves we're not hitting those any more."""
         p = _make_provider(
-            lambda req: httpx.Response(
-                403, json={"Error Message": "Legacy Endpoint"}
-            )
+            lambda req: httpx.Response(403, json={"Error Message": "Legacy Endpoint"})
         )
         with pytest.raises(MarketDataError, match="Legacy Endpoint"):
             await p.get_quote("AAPL")
@@ -339,10 +335,7 @@ class TestErrorMessageExtraction:
         )
 
     def test_extracts_lowercase_message_key(self) -> None:
-        assert (
-            FMPProvider._extract_error_message('{"message": "throttled"}')
-            == "throttled"
-        )
+        assert FMPProvider._extract_error_message('{"message": "throttled"}') == "throttled"
 
     def test_falls_back_to_truncated_body(self) -> None:
         body = "not json at all " * 50
@@ -359,9 +352,7 @@ class TestErrorMessageExtraction:
 class TestContextManager:
     @pytest.mark.asyncio
     async def test_async_context_closes_owned_client(self) -> None:
-        transport = httpx.MockTransport(
-            lambda r: httpx.Response(200, json=[{"symbol": "AAPL"}])
-        )
+        transport = httpx.MockTransport(lambda r: httpx.Response(200, json=[{"symbol": "AAPL"}]))
         client = httpx.AsyncClient(transport=transport, base_url=FMPProvider.BASE_URL)
         async with FMPProvider(api_key="x", client=client) as p:
             await p.get_quote("AAPL")

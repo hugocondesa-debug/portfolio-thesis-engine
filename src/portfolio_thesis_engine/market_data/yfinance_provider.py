@@ -89,14 +89,11 @@ class YFinanceProvider(MarketDataProvider):
                 t = yf.Ticker(ticker)
                 df = t.history(start=start_date, end=end_date, auto_adjust=False)
             except Exception as e:  # noqa: BLE001
-                raise MarketDataError(
-                    f"yfinance history failed for {ticker!r}: {e}"
-                ) from e
+                raise MarketDataError(f"yfinance history failed for {ticker!r}: {e}") from e
 
             if df is None or df.empty:
                 raise TickerNotFoundError(
-                    f"yfinance: no history for {ticker!r} "
-                    f"in {start_date}..{end_date}"
+                    f"yfinance: no history for {ticker!r} in {start_date}..{end_date}"
                 )
             rows: list[dict[str, Any]] = []
             for idx, row in df.iterrows():
@@ -123,13 +120,9 @@ class YFinanceProvider(MarketDataProvider):
                 balance = _df_to_records(t.balance_sheet)
                 cashflow = _df_to_records(t.cashflow)
             except Exception as e:  # noqa: BLE001
-                raise MarketDataError(
-                    f"yfinance fundamentals failed for {ticker!r}: {e}"
-                ) from e
+                raise MarketDataError(f"yfinance fundamentals failed for {ticker!r}: {e}") from e
             if not (income or balance or cashflow):
-                raise TickerNotFoundError(
-                    f"yfinance: no fundamentals for {ticker!r}"
-                )
+                raise TickerNotFoundError(f"yfinance: no fundamentals for {ticker!r}")
             return {
                 "income_statement": income,
                 "balance_sheet": balance,
@@ -147,9 +140,7 @@ class YFinanceProvider(MarketDataProvider):
                 t = yf.Ticker(ticker)
                 info = t.info or {}
             except Exception as e:  # noqa: BLE001
-                raise MarketDataError(
-                    f"yfinance key-metrics failed for {ticker!r}: {e}"
-                ) from e
+                raise MarketDataError(f"yfinance key-metrics failed for {ticker!r}: {e}") from e
             if not info.get("symbol"):
                 raise TickerNotFoundError(f"yfinance: no key metrics for {ticker!r}")
             record = {
@@ -174,9 +165,7 @@ class YFinanceProvider(MarketDataProvider):
             try:
                 hits = yf.Search(query, max_results=20).quotes
             except Exception as e:  # noqa: BLE001
-                raise MarketDataError(
-                    f"yfinance search failed for {query!r}: {e}"
-                ) from e
+                raise MarketDataError(f"yfinance search failed for {query!r}: {e}") from e
             if not isinstance(hits, list):
                 return []
             return [
@@ -212,9 +201,7 @@ def _df_to_records(df: Any) -> list[dict[str, Any]]:
 
     records: list[dict[str, Any]] = []
     for col in df.columns:
-        period_label = (
-            col.date().isoformat() if hasattr(col, "date") else str(col)
-        )
+        period_label = col.date().isoformat() if hasattr(col, "date") else str(col)
         row: dict[str, Any] = {"period": period_label}
         for item, value in df[col].items():
             # Cast numpy scalars to python native; skip NaN

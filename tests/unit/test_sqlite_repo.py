@@ -54,17 +54,13 @@ class TestUpsertCompany:
         assert c.exchange == "?"
         assert c.isin is None
 
-    def test_insert_with_profile_keeps_default_name(
-        self, repo: MetadataRepository
-    ) -> None:
+    def test_insert_with_profile_keeps_default_name(self, repo: MetadataRepository) -> None:
         repo.upsert_company("1846.HK", profile="P1")
         c = repo.get_company("1846.HK")
         assert c.profile == "P1"
         assert c.name == "1846.HK"
 
-    def test_update_only_changes_provided_fields(
-        self, repo: MetadataRepository
-    ) -> None:
+    def test_update_only_changes_provided_fields(self, repo: MetadataRepository) -> None:
         repo.add_company("ACME", "Acme Industrial", "P1", "USD", "NYSE", isin="US0001")
         # Upsert updates only the profile; other columns must be preserved.
         repo.upsert_company("ACME", profile="P3a")

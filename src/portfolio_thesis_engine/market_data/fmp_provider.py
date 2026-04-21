@@ -140,8 +140,7 @@ class FMPProvider(MarketDataProvider):
         # Stable API returns a flat list of rows directly.
         if not isinstance(data, list):
             raise MarketDataError(
-                f"Unexpected response shape from /historical-price-eod/full: "
-                f"{type(data).__name__}"
+                f"Unexpected response shape from /historical-price-eod/full: {type(data).__name__}"
             )
         if not data:
             raise TickerNotFoundError(f"No history for ticker {ticker!r}")
@@ -159,15 +158,9 @@ class FMPProvider(MarketDataProvider):
     async def get_fundamentals(self, ticker: str) -> dict[str, Any]:
         """Bundle IS + BS + CF into a single dict. Each sub-endpoint returns
         a list of period snapshots (most recent first)."""
-        income = await self._get(
-            "/income-statement", {"symbol": ticker, "limit": 5}
-        )
-        balance = await self._get(
-            "/balance-sheet-statement", {"symbol": ticker, "limit": 5}
-        )
-        cashflow = await self._get(
-            "/cash-flow-statement", {"symbol": ticker, "limit": 5}
-        )
+        income = await self._get("/income-statement", {"symbol": ticker, "limit": 5})
+        balance = await self._get("/balance-sheet-statement", {"symbol": ticker, "limit": 5})
+        cashflow = await self._get("/cash-flow-statement", {"symbol": ticker, "limit": 5})
         if not (income or balance or cashflow):
             raise TickerNotFoundError(f"No fundamentals for ticker {ticker!r}")
         return {
@@ -177,9 +170,7 @@ class FMPProvider(MarketDataProvider):
         }
 
     async def get_key_metrics(self, ticker: str) -> dict[str, Any]:
-        data = await self._get(
-            "/key-metrics", {"symbol": ticker, "limit": 5}
-        )
+        data = await self._get("/key-metrics", {"symbol": ticker, "limit": 5})
         if not isinstance(data, list) or not data:
             raise TickerNotFoundError(f"No key metrics for ticker {ticker!r}")
         return {"records": data}
@@ -193,9 +184,7 @@ class FMPProvider(MarketDataProvider):
         callers who know they have a ticker should just call
         :meth:`get_quote` directly.
         """
-        data = await self._get(
-            "/search-name", {"query": query, "limit": 20}
-        )
+        data = await self._get("/search-name", {"query": query, "limit": 20})
         if not isinstance(data, list):
             return []
         return data

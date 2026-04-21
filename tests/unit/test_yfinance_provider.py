@@ -126,9 +126,7 @@ class TestGetQuote:
 class TestGetPriceHistory:
     @pytest.mark.asyncio
     async def test_converts_dataframe_to_list_of_dicts(self) -> None:
-        idx = pd.DatetimeIndex(
-            [datetime(2025, 1, 2), datetime(2025, 1, 3)], name="Date"
-        )
+        idx = pd.DatetimeIndex([datetime(2025, 1, 2), datetime(2025, 1, 3)], name="Date")
         df = pd.DataFrame(
             {
                 "Open": [248.93, 243.0],
@@ -154,9 +152,7 @@ class TestGetPriceHistory:
     async def test_empty_dataframe_raises_not_found(self) -> None:
         empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
         with patch(_YF_MODULE) as yf:
-            yf.Ticker.return_value = _mock_ticker(
-                history=MagicMock(return_value=empty)
-            )
+            yf.Ticker.return_value = _mock_ticker(history=MagicMock(return_value=empty))
             p = YFinanceProvider()
             with pytest.raises(TickerNotFoundError):
                 await p.get_price_history("NOPE", "2025-01-01", "2025-01-31")
@@ -164,9 +160,7 @@ class TestGetPriceHistory:
     @pytest.mark.asyncio
     async def test_none_dataframe_raises_not_found(self) -> None:
         with patch(_YF_MODULE) as yf:
-            yf.Ticker.return_value = _mock_ticker(
-                history=MagicMock(return_value=None)
-            )
+            yf.Ticker.return_value = _mock_ticker(history=MagicMock(return_value=None))
             p = YFinanceProvider()
             with pytest.raises(TickerNotFoundError):
                 await p.get_price_history("NOPE", "2025-01-01", "2025-01-31")
@@ -181,15 +175,9 @@ class TestGetFundamentals:
     @pytest.mark.asyncio
     async def test_transposes_dataframes_to_period_records(self) -> None:
         col = pd.Timestamp("2024-09-30")
-        income = pd.DataFrame(
-            {col: {"Total Revenue": 385_000_000_000.0}}
-        )
-        balance = pd.DataFrame(
-            {col: {"Total Assets": 360_000_000_000.0}}
-        )
-        cashflow = pd.DataFrame(
-            {col: {"Operating Cash Flow": 108_000_000_000.0}}
-        )
+        income = pd.DataFrame({col: {"Total Revenue": 385_000_000_000.0}})
+        balance = pd.DataFrame({col: {"Total Assets": 360_000_000_000.0}})
+        cashflow = pd.DataFrame({col: {"Operating Cash Flow": 108_000_000_000.0}})
 
         with patch(_YF_MODULE) as yf:
             yf.Ticker.return_value = _mock_ticker(

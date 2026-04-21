@@ -58,7 +58,4 @@ with cols[2]:
     st.metric("Status", "Scaffolding complete")
 
 st.divider()
-st.caption(
-    "Portfolio Thesis Engine · Semi-automated portfolio management · "
-    f"v{__version__}"
-)
+st.caption(f"Portfolio Thesis Engine · Semi-automated portfolio management · v{__version__}")

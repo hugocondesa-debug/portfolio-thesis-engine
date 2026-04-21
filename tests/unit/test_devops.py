@@ -18,26 +18,20 @@ SYSTEMD = REPO_ROOT / "systemd"
 
 
 class TestScriptsExistExecutable:
-    @pytest.mark.parametrize(
-        "name", ["provision_vps.sh", "backup.sh"]
-    )
+    @pytest.mark.parametrize("name", ["provision_vps.sh", "backup.sh"])
     def test_script_is_present_and_executable(self, name: str) -> None:
         path = SCRIPTS / name
         assert path.is_file(), f"{path} missing"
         # Any executable bit set is sufficient.
         assert path.stat().st_mode & 0o111, f"{path} not executable"
 
-    @pytest.mark.parametrize(
-        "name", ["provision_vps.sh", "backup.sh"]
-    )
+    @pytest.mark.parametrize("name", ["provision_vps.sh", "backup.sh"])
     def test_script_has_bash_shebang(self, name: str) -> None:
         path = SCRIPTS / name
         first_line = path.read_text().splitlines()[0]
         assert first_line.startswith("#!") and "bash" in first_line
 
-    @pytest.mark.parametrize(
-        "name", ["provision_vps.sh", "backup.sh"]
-    )
+    @pytest.mark.parametrize("name", ["provision_vps.sh", "backup.sh"])
     def test_bash_syntax_valid(self, name: str) -> None:
         """`bash -n` catches syntax errors without executing the script."""
         result = subprocess.run(  # noqa: S603
