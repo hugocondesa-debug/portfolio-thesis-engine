@@ -39,19 +39,30 @@ PTE_SMOKE_HIT_REAL_APIS=true uv run pte smoke-test
 uv run streamlit run src/portfolio_thesis_engine/ui/app.py
 ```
 
-## Phase 1 — End-to-end pipeline
+## Phase 1.5 — End-to-end pipeline (current)
 
-Process a company from markdown to Ficha with a single CLI chain:
+Phase 1.5 split extraction out of the app. You produce the boundary
+YAML in a Claude.ai Project (see
+[`docs/claude_ai_extraction_guide.md`](docs/claude_ai_extraction_guide.md)),
+then the app consumes it deterministically — **zero LLM calls inside
+the pipeline**.
 
 ```bash
-# 1. Ingest prepared markdown (annual report, interim, wacc_inputs.md)
-uv run pte ingest --ticker 1846.HK \
-  --files annual_report_2024.md,interim_h1_2025.md,wacc_inputs.md
+# 1. Extract in Claude.ai Project (one per profile: P1, P2, ...)
+#    Output: raw_extraction.yaml matching the RawExtraction schema.
+#    See docs/claude_ai_extraction_guide.md for the 7-pass workflow.
 
-# 2. Run the 10-stage pipeline (≈ $5–$10 API cost for a real company)
+# 2. Validate locally before shipping
+uv run pte validate-extraction path/to/raw_extraction.yaml --profile P1
+
+# 3. Ingest the YAML + manual WACC inputs
+uv run pte ingest --ticker 1846.HK \
+  --files raw_extraction.yaml,wacc_inputs.md
+
+# 4. Run the 11-stage pipeline (no LLM cost; FMP / yfinance only)
 uv run pte process 1846.HK
 
-# 3. Render the aggregate Ficha view
+# 5. Render the aggregate Ficha view
 uv run pte show 1846.HK            # Rich tables
 uv run pte show 1846.HK --json     # machine-readable output
 
@@ -59,8 +70,9 @@ uv run pte show 1846.HK --json     # machine-readable output
 uv run streamlit run src/portfolio_thesis_engine/ui/app.py
 ```
 
-See `docs/phase1_architecture.md` for the pipeline diagram and
-`docs/phase1_schemas.md` for the top-level schemas.
+See [`docs/phase1_architecture.md`](docs/phase1_architecture.md) for the
+pipeline diagram and [`docs/raw_extraction_schema.md`](docs/raw_extraction_schema.md)
+for the boundary schema contract.
 
 ## Structure
 
@@ -102,10 +114,13 @@ sudo systemctl enable --now pte-streamlit
 - Repo scaffolding, 8 Pydantic schemas with YAML roundtrip, 5-layer storage (YAML + DuckDB + SQLite + Chroma + filesystem + in-memory doubles) with atomic writes and ticker normalisation, LLM orchestrator (Anthropic + OpenAI embeddings + cost tracking + retry + router + structured outputs), FMP market-data provider, guardrails framework, `pte` CLI (setup / health-check / smoke-test), Streamlit UI stub, DevOps (idempotent provisioning, backup, systemd units), 324 tests at 93 % coverage, ruff + mypy strict clean.
 
 **Phase 1 — EuroEyes end-to-end MVP** ✅ complete (2026-04-21)
-- 10-stage `PipelineCoordinator` orchestrating: bulk-markdown ingestion → 3-pass LLM section extraction → FMP + yfinance cross-check gate → Modules A (taxes), B (provisions), C (leases) + AnalysisDeriver → guardrails A/V core (arithmetic + validation) → 3-scenario FCFF DCF + equity bridge + IRR decomposition → aggregate Ficha composer. `pte ingest / process / show / cross-check` CLI. Streamlit Ficha UI. 712 tests at 95 % coverage. Integration smoke over EuroEyes synthetic fixture + gated real-API smoke against `~/data_inputs/euroeyes/`.
+- 10-stage `PipelineCoordinator` orchestrating: bulk-markdown ingestion → 3-pass LLM section extraction → FMP + yfinance cross-check gate → Modules A (taxes), B (provisions), C (leases) + AnalysisDeriver → guardrails A/V core (arithmetic + validation) → 3-scenario FCFF DCF + equity bridge + IRR decomposition → aggregate Ficha composer. `pte ingest / process / show / cross-check` CLI. Streamlit Ficha UI. 712 tests at 95 % coverage.
+
+**Phase 1.5 — Extraction pivot to Claude.ai Projects** ✅ complete (2026-04-22)
+- Moved all LLM-driven extraction OUT of the app. Human + Claude.ai produce `raw_extraction.yaml` matching the 376-line `RawExtraction` schema (42 DocumentType values, 17 note types, ExtractionValidator 3-tier). Pipeline grew to 11 stages (added LOAD_EXTRACTION + VALIDATE_EXTRACTION). Modules A/B/C + AnalysisDeriver rewritten to consume typed schema directly — no adapter shim. Zero LLM calls in pipeline. 832 tests at 94 % coverage. Four docs for Claude.ai Projects: `claude_ai_extraction_guide.md` (10 pages), `raw_extraction_schema.md`, `document_types.md`, `required_notes_by_profile.md`.
 
 **Phase 2 — Portfolio system + advanced extraction** (next)
-- Multi-period extraction + DSO/DPO/DIO + ΔWC in DCF; Modules D (Pensions), E (SBC), F (Capitalize Expenses); Patches 1-7 (NCI, Associates, Discontinued Ops, Business Combinations, Hyperinflation, CTA, SOTP); Reverse DCF / Monte Carlo / EPS bridge; Research/RAG over earnings calls + MD&A; portfolio dashboard cross-empresa; scenario tuner interactivo; post-earnings update workflow; peer discovery runtime; archetypes P2-P6.
+- Multi-document merge (annual + interim + earnings call into one canonical state); narrative processing (earnings calls, MD&A); Profiles P2 (banks), P3a (insurance), P3b (REITs), P4 (resources), P5 (pre-revenue), P6 (holdings); Modules D (Pensions), E (SBC), F (Capitalize Expenses); Patches 1-7; Reverse DCF / Monte Carlo / EPS bridge; portfolio dashboard cross-empresa; scenario tuner; post-earnings update workflow.
 
 ## License
 

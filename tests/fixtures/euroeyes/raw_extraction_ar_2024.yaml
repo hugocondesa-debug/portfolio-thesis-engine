@@ -1,0 +1,413 @@
+# EuroEyes Medical Group — Annual Report FY2024
+# ==============================================
+# Few-shot example for the P1 Industrial Claude.ai Project.
+# Synthetic numbers based on plausible EuroEyes scale (HKD millions,
+# 38 clinics, ~850 staff). All arithmetic identities hold by
+# construction so `pte validate-extraction --profile P1` is clean.
+#
+# Scope: full FY2024 annual with all P1 required notes + all
+# recommended notes + segments + 5-year historical + operational KPIs.
+
+metadata:
+  ticker: "1846.HK"
+  company_name: "EuroEyes Medical Group"
+  document_type: "annual_report"
+  extraction_type: "numeric"
+  reporting_currency: "HKD"
+  unit_scale: "millions"
+  fiscal_year: 2024
+  extraction_date: "2025-04-15"
+  extractor: "Claude.ai + human validation"
+  source_file_sha256: "placeholder-sha256-ar-2024"
+  extraction_version: 1
+  extraction_notes: >
+    FY2024 consolidated annual report. Statements audited under IFRS
+    as adopted for Hong Kong listings. IFRS 16 lease accounting in
+    effect since FY2019; prior-year rebased. Greater China represents
+    ~72% of revenue, Germany / Europe the balance.
+  fiscal_periods:
+    - period: "FY2024"
+      end_date: "2024-12-31"
+      is_primary: true
+      period_type: "FY"
+    - period: "FY2023"
+      end_date: "2023-12-31"
+      is_primary: false
+      period_type: "FY"
+
+# =======================================================================
+# INCOME STATEMENT — FY2024 + comparative FY2023
+# =======================================================================
+income_statement:
+  FY2024:
+    # Identity: revenue + cost_of_sales + opex + D&A = operating_income
+    # 580 - 290 - 95 - 65 - 20 = 110 ✓
+    revenue: "580.0"
+    cost_of_sales: "-290.0"
+    gross_profit: "290.0"
+    selling_marketing: "-95.0"
+    general_administrative: "-65.0"
+    depreciation_amortization: "-20.0"
+    operating_expenses_total: "-180.0"
+    operating_income: "110.0"
+    finance_income: "4.0"
+    finance_expenses: "-18.0"
+    income_before_tax: "96.0"
+    income_tax: "-21.0"
+    net_income: "75.0"
+    net_income_parent: "75.0"
+    eps_basic: "0.375"
+    eps_diluted: "0.370"
+    shares_basic_weighted_avg: "200.0"
+    shares_diluted_weighted_avg: "202.7"
+  FY2023:
+    revenue: "520.0"
+    cost_of_sales: "-265.0"
+    gross_profit: "255.0"
+    selling_marketing: "-88.0"
+    general_administrative: "-58.0"
+    depreciation_amortization: "-18.0"
+    operating_expenses_total: "-164.0"
+    operating_income: "91.0"
+    finance_income: "3.5"
+    finance_expenses: "-16.0"
+    income_before_tax: "78.5"
+    income_tax: "-18.5"
+    net_income: "60.0"
+    net_income_parent: "60.0"
+    eps_basic: "0.300"
+    eps_diluted: "0.297"
+    shares_basic_weighted_avg: "200.0"
+    shares_diluted_weighted_avg: "202.0"
+
+# =======================================================================
+# BALANCE SHEET — FY2024 + comparative FY2023
+# =======================================================================
+balance_sheet:
+  FY2024:
+    # Identity: total_assets = total_liabilities + total_equity
+    # 3200 = 1300 + 1900 ✓
+    cash_and_equivalents: "450.0"
+    accounts_receivable: "120.0"
+    inventory: "80.0"
+    current_assets_other: "0.0"
+    total_current_assets: "650.0"
+    ppe_net: "950.0"
+    rou_assets: "380.0"
+    goodwill: "600.0"
+    intangibles_other: "420.0"
+    investments: "0.0"
+    non_current_assets_other: "200.0"
+    deferred_tax_assets: "0.0"
+    total_non_current_assets: "2550.0"
+    total_assets: "3200.0"
+    accounts_payable: "95.0"
+    short_term_debt: "150.0"
+    lease_liabilities_current: "60.0"
+    total_current_liabilities: "305.0"
+    long_term_debt: "580.0"
+    lease_liabilities_noncurrent: "310.0"
+    provisions: "0.0"
+    non_current_liabilities_other: "105.0"
+    total_non_current_liabilities: "995.0"
+    total_liabilities: "1300.0"
+    share_capital: "500.0"
+    retained_earnings: "1275.0"
+    other_reserves: "125.0"
+    total_equity_parent: "1900.0"
+    non_controlling_interests: "0.0"
+    total_equity: "1900.0"
+  FY2023:
+    cash_and_equivalents: "420.0"
+    accounts_receivable: "105.0"
+    inventory: "75.0"
+    current_assets_other: "0.0"
+    total_current_assets: "600.0"
+    ppe_net: "890.0"
+    rou_assets: "360.0"
+    goodwill: "620.0"
+    intangibles_other: "410.0"
+    investments: "0.0"
+    non_current_assets_other: "170.0"
+    total_non_current_assets: "2450.0"
+    total_assets: "3050.0"
+    accounts_payable: "88.0"
+    short_term_debt: "140.0"
+    lease_liabilities_current: "55.0"
+    total_current_liabilities: "283.0"
+    long_term_debt: "550.0"
+    lease_liabilities_noncurrent: "295.0"
+    provisions: "0.0"
+    non_current_liabilities_other: "142.0"
+    total_non_current_liabilities: "987.0"
+    total_liabilities: "1270.0"
+    share_capital: "500.0"
+    retained_earnings: "1225.0"
+    other_reserves: "55.0"
+    total_equity_parent: "1780.0"
+    non_controlling_interests: "0.0"
+    total_equity: "1780.0"
+
+# =======================================================================
+# CASH FLOW — FY2024 only (comparative typically condensed)
+# =======================================================================
+cash_flow:
+  FY2024:
+    # Identity: CFO + CFI + CFF + FX ≈ net_change_in_cash
+    # 135 + (-75) + (-45) + 0 = 15 ✓
+    net_income_cf: "75.0"
+    depreciation_amortization_cf: "20.0"
+    working_capital_changes: "-10.0"
+    operating_cash_flow_other: "50.0"
+    operating_cash_flow: "135.0"
+    capex: "-75.0"
+    acquisitions: "0.0"
+    divestitures: "0.0"
+    investing_cash_flow: "-75.0"
+    dividends_paid: "-25.0"
+    debt_issuance: "35.0"
+    debt_repayment: "-5.0"
+    share_issuance: "0.0"
+    share_repurchases: "0.0"
+    financing_other: "-50.0"
+    financing_cash_flow: "-45.0"
+    fx_effect: "0.0"
+    net_change_in_cash: "15.0"
+    extensions:
+      cash_taxes_paid: "19.0"
+
+# =======================================================================
+# NOTES — P1 required (10) + recommended (5)
+# =======================================================================
+notes:
+  # ---- Required #1: Taxes --------------------------------------------
+  taxes:
+    effective_tax_rate_percent: "21.9"
+    statutory_rate_percent: "16.5"
+    reconciling_items:
+      - description: "Effect of lower tax rate in Germany subsidiary (~15.8%)"
+        amount: "-0.2"
+        classification: "operational"
+      - description: "Non-deductible expenses (goodwill amortization)"
+        amount: "1.5"
+        classification: "operational"
+      - description: "Prior-year adjustments"
+        amount: "0.8"
+        classification: "one_time"
+      - description: "Tax loss carry-forward utilisation"
+        amount: "-1.0"
+        classification: "operational"
+
+  # ---- Required #2: Leases (IFRS 16) ---------------------------------
+  leases:
+    rou_assets_opening: "360.0"
+    rou_assets_closing: "380.0"
+    rou_assets_additions: "55.0"
+    rou_assets_depreciation: "45.0"
+    lease_liabilities_total: "370.0"
+    lease_liabilities_opening: "350.0"
+    lease_liabilities_closing: "370.0"
+    lease_interest_expense: "15.0"
+    lease_principal_payments: "35.0"
+    short_term_lease_expense: "3.0"
+    variable_lease_payments: "2.0"
+
+  # ---- Required #3: PP&E ---------------------------------------------
+  ppe:
+    opening_gross: "1520.0"
+    additions: "75.0"
+    disposals: "-10.0"
+    transfers: "0.0"
+    closing_gross: "1585.0"
+    accumulated_depreciation: "-635.0"
+
+  # ---- Required #4: Inventory ----------------------------------------
+  inventory:
+    raw_materials: "15.0"
+    wip: "10.0"
+    finished_goods: "60.0"
+    provisions: "-5.0"
+    total: "80.0"
+
+  # ---- Required #5: Trade receivables (by period) --------------------
+  trade_receivables:
+    "FY2024": "120.0"
+    "FY2023": "105.0"
+
+  # ---- Required #6: Trade payables (by period) -----------------------
+  trade_payables:
+    "FY2024": "95.0"
+    "FY2023": "88.0"
+
+  # ---- Required #7: Employee benefits --------------------------------
+  employee_benefits:
+    headcount: "850"
+    avg_compensation: "0.45"
+    total_compensation: "382.5"
+    pension_expense: "8.0"
+    sbc_expense: "6.5"
+
+  # ---- Required #8: Financial instruments (narrative) ----------------
+  financial_instruments:
+    credit_risk: >
+      Concentrated in HK + German medical-insurance payers; 30-day DSO average.
+      Low counterparty risk given payer mix; no single customer >5% of revenue.
+    liquidity_risk: >
+      HKD 450M cash + undrawn HKD 200M revolver covers 18 months of
+      operating cash burn. Debt maturity ladder evenly spread 2025-2028.
+    market_risk: >
+      FX: HKD reporting vs 35% EUR-denominated operating costs creates
+      translation exposure. No interest-rate derivatives; HKD 400M of
+      floating-rate debt hedged via interest-rate caps.
+
+  # ---- Required #9: Commitments + contingencies ----------------------
+  commitments_contingencies:
+    capital_commitments: "42.0"
+    operating_lease_future: "0.0"
+    guarantees_provided: "0.0"
+    contingent_liabilities: "3.0"
+
+  # ---- Required #10: Provisions (list of ProvisionItem) --------------
+  provisions:
+    - description: "Warranty provisions on surgical outcomes"
+      amount: "8.0"
+      classification: "operating"
+    - description: "Legal and regulatory provisions (HK medical board)"
+      amount: "5.0"
+      classification: "operating"
+
+  # ---- Recommended #1: Goodwill movement + by CGU --------------------
+  goodwill:
+    opening: "620.0"
+    additions: "0.0"
+    impairment: "-20.0"
+    closing: "600.0"
+    by_cgu:
+      "Greater China": "420.0"
+      "Germany": "180.0"
+
+  # ---- Recommended #2: Intangibles movement + split ------------------
+  intangibles:
+    opening: "410.0"
+    additions: "25.0"
+    amortization: "-15.0"
+    impairment: "0.0"
+    closing: "420.0"
+    by_type:
+      "Software": "150.0"
+      "Customer relationships": "200.0"
+      "Brand": "70.0"
+
+  # ---- Recommended #3: Share-based compensation ----------------------
+  share_based_compensation:
+    stock_options_granted: "0.5"
+    stock_options_exercised: "0.2"
+    stock_options_outstanding: "2.8"
+    rsus_granted: "1.0"
+    rsus_vested: "0.8"
+    rsus_outstanding: "3.2"
+    expense: "6.5"
+
+  # ---- Recommended #4: Pensions (minimal — HK + DE schemes) ----------
+  pensions:
+    dbo_opening: "28.0"
+    dbo_closing: "32.0"
+    plan_assets_opening: "22.0"
+    plan_assets_closing: "25.0"
+    service_cost: "3.5"
+    interest_cost: "1.2"
+    actuarial_gains_losses: "-0.8"
+
+  # ---- Recommended #5: Acquisitions (none in FY2024) -----------------
+  acquisitions:
+    items: []
+
+  # ---- Optional extras we captured ----------------------------------
+  subsequent_events:
+    - description: "Announced HKD 80M debt refinancing at 4.25% (replacing 4.50% facility)"
+      date: "2025-03-14"
+      impact: "material_positive"
+
+# =======================================================================
+# SEGMENTS — by geography (the primary cut for EuroEyes)
+# =======================================================================
+segments:
+  by_geography:
+    FY2024:
+      "Greater China":
+        revenue: "420.0"
+        operating_income: "85.0"
+      "Germany / Europe":
+        revenue: "160.0"
+        operating_income: "25.0"
+    FY2023:
+      "Greater China":
+        revenue: "378.0"
+        operating_income: "72.0"
+      "Germany / Europe":
+        revenue: "142.0"
+        operating_income: "19.0"
+
+# =======================================================================
+# HISTORICAL — 5-year summary
+# =======================================================================
+historical:
+  revenue_by_year:
+    "2020": "380.0"
+    "2021": "440.0"
+    "2022": "485.0"
+    "2023": "520.0"
+    "2024": "580.0"
+  net_income_by_year:
+    "2020": "32.0"
+    "2021": "45.0"
+    "2022": "52.0"
+    "2023": "60.0"
+    "2024": "75.0"
+  total_assets_by_year:
+    "2020": "2400.0"
+    "2021": "2650.0"
+    "2022": "2900.0"
+    "2023": "3050.0"
+    "2024": "3200.0"
+  total_equity_by_year:
+    "2020": "1380.0"
+    "2021": "1520.0"
+    "2022": "1600.0"
+    "2023": "1780.0"
+    "2024": "1900.0"
+  free_cash_flow_by_year:
+    "2022": "38.0"
+    "2023": "52.0"
+    "2024": "60.0"
+  shares_outstanding_by_year:
+    "2020": "200.0"
+    "2024": "200.0"
+  dividends_by_year:
+    "2022": "15.0"
+    "2023": "20.0"
+    "2024": "25.0"
+
+# =======================================================================
+# OPERATIONAL KPIs — sector-specific (medical clinic metrics)
+# =======================================================================
+operational_kpis:
+  metrics:
+    clinics_total:
+      "FY2020": "28"
+      "FY2021": "32"
+      "FY2022": "34"
+      "FY2023": "36"
+      "FY2024": "38"
+    patient_visits_thousands:
+      "FY2020": "195"
+      "FY2021": "230"
+      "FY2022": "252"
+      "FY2023": "268"
+      "FY2024": "285"
+    avg_revenue_per_visit_hkd:
+      "FY2023": "1940"
+      "FY2024": "2035"
+    procedures_performed_thousands:
+      "FY2023": "48"
+      "FY2024": "52"

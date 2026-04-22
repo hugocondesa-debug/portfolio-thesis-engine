@@ -1,0 +1,196 @@
+# EuroEyes Medical Group — Interim Report H1 2025
+# =================================================
+# Few-shot example demonstrating the schema's interim-period support.
+# Plausible synthetic numbers; less comprehensive note coverage than
+# an annual (consistent with what most interims disclose).
+
+metadata:
+  ticker: "1846.HK"
+  company_name: "EuroEyes Medical Group"
+  document_type: "interim_report"
+  extraction_type: "numeric"
+  reporting_currency: "HKD"
+  unit_scale: "millions"
+  fiscal_year: 2025
+  extraction_date: "2025-09-10"
+  extractor: "Claude.ai + human validation"
+  source_file_sha256: "placeholder-sha256-interim-h1-2025"
+  extraction_version: 1
+  extraction_notes: >
+    H1 2025 (six months to 30 June 2025) interim report.
+    Condensed statements as reviewed (not audited). Comparative
+    H1 2024 disclosed on the IS; BS is a 30 Jun 2025 snapshot
+    vs 31 Dec 2024 year-end comparative.
+  fiscal_periods:
+    - period: "H1 2025"
+      end_date: "2025-06-30"
+      is_primary: true
+      period_type: "H1"
+    - period: "H1 2024"
+      end_date: "2024-06-30"
+      is_primary: false
+      period_type: "H1"
+
+# =======================================================================
+# INCOME STATEMENT — H1 2025 + H1 2024 comparative
+# =======================================================================
+income_statement:
+  "H1 2025":
+    revenue: "310.0"
+    cost_of_sales: "-152.0"
+    gross_profit: "158.0"
+    selling_marketing: "-50.0"
+    general_administrative: "-35.0"
+    depreciation_amortization: "-11.0"
+    operating_expenses_total: "-96.0"
+    operating_income: "62.0"
+    finance_income: "2.2"
+    finance_expenses: "-9.5"
+    income_before_tax: "54.7"
+    income_tax: "-12.0"
+    net_income: "42.7"
+    net_income_parent: "42.7"
+    eps_basic: "0.2135"
+    eps_diluted: "0.2108"
+    shares_basic_weighted_avg: "200.0"
+    shares_diluted_weighted_avg: "202.5"
+  "H1 2024":
+    revenue: "272.0"
+    cost_of_sales: "-135.5"
+    gross_profit: "136.5"
+    selling_marketing: "-44.5"
+    general_administrative: "-30.5"
+    depreciation_amortization: "-9.5"
+    operating_expenses_total: "-84.5"
+    operating_income: "52.0"
+    finance_income: "1.9"
+    finance_expenses: "-8.5"
+    income_before_tax: "45.4"
+    income_tax: "-9.9"
+    net_income: "35.5"
+    net_income_parent: "35.5"
+    eps_basic: "0.1775"
+    shares_basic_weighted_avg: "200.0"
+
+# =======================================================================
+# BALANCE SHEET — 30 Jun 2025 + 31 Dec 2024 comparative
+# (period keys kept consistent with the IS labels)
+# =======================================================================
+balance_sheet:
+  "H1 2025":
+    # 3270 = 1303 + 1967 ✓
+    cash_and_equivalents: "485.0"
+    accounts_receivable: "135.0"
+    inventory: "82.0"
+    total_current_assets: "702.0"
+    ppe_net: "960.0"
+    rou_assets: "395.0"
+    goodwill: "600.0"
+    intangibles_other: "410.0"
+    investments: "0.0"
+    non_current_assets_other: "203.0"
+    total_non_current_assets: "2568.0"
+    total_assets: "3270.0"
+    accounts_payable: "98.0"
+    short_term_debt: "150.0"
+    lease_liabilities_current: "62.0"
+    total_current_liabilities: "310.0"
+    long_term_debt: "560.0"
+    lease_liabilities_noncurrent: "325.0"
+    provisions: "0.0"
+    non_current_liabilities_other: "108.0"
+    total_non_current_liabilities: "993.0"
+    total_liabilities: "1303.0"
+    share_capital: "500.0"
+    retained_earnings: "1367.0"
+    other_reserves: "100.0"
+    total_equity_parent: "1967.0"
+    non_controlling_interests: "0.0"
+    total_equity: "1967.0"
+
+# =======================================================================
+# CASH FLOW — H1 2025 only (interims often condensed)
+# =======================================================================
+cash_flow:
+  "H1 2025":
+    net_income_cf: "42.7"
+    depreciation_amortization_cf: "11.0"
+    working_capital_changes: "-8.0"
+    operating_cash_flow_other: "20.3"
+    operating_cash_flow: "66.0"
+    capex: "-35.0"
+    investing_cash_flow: "-35.0"
+    dividends_paid: "-25.0"
+    debt_issuance: "0.0"
+    debt_repayment: "-20.0"
+    financing_other: "49.0"
+    financing_cash_flow: "4.0"
+    fx_effect: "0.0"
+    net_change_in_cash: "35.0"
+
+# =======================================================================
+# NOTES — interim reports typically disclose a subset of the full AR
+# =======================================================================
+notes:
+  # Interim tax note — rates only, no full reconciliation
+  taxes:
+    effective_tax_rate_percent: "21.9"
+    statutory_rate_percent: "16.5"
+    reconciling_items: []
+
+  # Leases — updated roll-forward numbers
+  leases:
+    rou_assets_opening: "380.0"
+    rou_assets_closing: "395.0"
+    rou_assets_additions: "38.0"
+    rou_assets_depreciation: "23.0"
+    lease_liabilities_total: "387.0"
+    lease_liabilities_opening: "370.0"
+    lease_liabilities_closing: "387.0"
+    lease_interest_expense: "8.0"
+    lease_principal_payments: "20.0"
+
+  # Trade receivables + payables continue to be tracked per period
+  trade_receivables:
+    "H1 2025": "135.0"
+    "FY2024": "120.0"
+  trade_payables:
+    "H1 2025": "98.0"
+    "FY2024": "95.0"
+
+  # Employee benefits — headcount update
+  employee_benefits:
+    headcount: "880"
+    total_compensation: "198.0"
+    sbc_expense: "3.5"
+
+  financial_instruments:
+    credit_risk: "No material change from FY2024 disclosure."
+    liquidity_risk: "Cash +8% since year-end; revolver still undrawn."
+    market_risk: "FX exposure unchanged; HKD/EUR rate stable vs YE."
+
+  commitments_contingencies:
+    capital_commitments: "38.0"
+    operating_lease_future: "0.0"
+    guarantees_provided: "0.0"
+    contingent_liabilities: "3.0"
+
+  subsequent_events:
+    - description: "Completed HKD 80M debt refinancing at 4.25% (announced Mar 2025)"
+      date: "2025-07-22"
+      impact: "material_positive"
+
+# =======================================================================
+# OPERATIONAL KPIs — interim update
+# =======================================================================
+operational_kpis:
+  metrics:
+    clinics_total:
+      "H1 2025": "40"
+      "FY2024": "38"
+    patient_visits_thousands:
+      "H1 2025": "152"
+      "FY2024": "285"
+    avg_revenue_per_visit_hkd:
+      "H1 2025": "2040"
+      "FY2024": "2035"

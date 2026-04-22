@@ -1,16 +1,18 @@
 """End-to-end integration smoke for the Phase 1.5 pipeline.
 
-Uses the real EuroEyes ``raw_extraction.yaml`` fixture + mocked FMP /
+Uses the EuroEyes ``raw_extraction.yaml`` fixture + mocked FMP /
 yfinance cross-check providers. No LLM involvement anywhere —
 extraction is the YAML file, modules are deterministic, valuation
 is deterministic. This is the strongest in-suite regression test.
 
-The test runs the full 11-stage pipeline and asserts:
+The test runs the full 11-stage Phase 1.5 pipeline and asserts:
 
 - Every stage runs and records OK / skip (no failures).
 - Extraction validation produces the expected strict/warn/completeness
   statuses.
 - CanonicalCompanyState, ValuationSnapshot, and Ficha are persisted.
+- Specific key analysis values (IC, NOPAT bridge, ratios, 3 scenarios)
+  are coherent with the fixture.
 - The pipeline's run log is written + readable.
 """
 
@@ -265,6 +267,40 @@ class TestPhase1_5E2E:
         assert state.identity.ticker == "1846.HK"
         assert state.identity.reporting_currency == Currency.HKD
         assert state.methodology.protocols_activated == ["A", "B", "C"]
+        assert state.methodology.extraction_system_version == "phase1.5-sprint3"
+
+        # Adjustments routed into correct buckets.
+        # Module A.1 always produces an operating-tax-rate adjustment.
+        assert len(state.adjustments.module_a_taxes) >= 1
+        # Module C.3 lease additions adjustment.
+        assert len(state.adjustments.module_c_leases) == 1
+        # Module B.2.goodwill_impairment comes from notes.goodwill.impairment.
+        b_modules = {adj.module for adj in state.adjustments.module_b_provisions}
+        assert "B.2.goodwill_impairment" in b_modules
+
+        # Analysis block: IC + NOPAT bridge + ratios present.
+        assert len(state.analysis.invested_capital_by_period) == 1
+        ic = state.analysis.invested_capital_by_period[0]
+        # Operating assets + IC coherent (EuroEyes fixture in base units).
+        assert ic.operating_assets > Decimal("0")
+        assert ic.invested_capital > Decimal("0")
+
+        bridge = state.analysis.nopat_bridge_by_period[0]
+        assert bridge.ebitda > Decimal("0")
+        assert bridge.nopat > Decimal("0")
+        assert bridge.reported_net_income > Decimal("0")
+
+        ratios = state.analysis.ratios_by_period[0]
+        # Op margin 110/580 ≈ 18.97% — sanity-check it's in range.
+        assert ratios.operating_margin is not None
+        assert Decimal("15") < ratios.operating_margin < Decimal("25")
+
+        # Reclassified statements carry every non-None typed field.
+        assert len(state.reclassified_statements) == 1
+        rs = state.reclassified_statements[0]
+        assert len(rs.income_statement) > 0
+        assert len(rs.balance_sheet) > 0
+        assert len(rs.cash_flow) > 0
 
         # Valuation snapshot persisted with 3 scenarios.
         snap = valuation_repo.get("1846.HK")
@@ -273,6 +309,9 @@ class TestPhase1_5E2E:
         labels = [sc.label for sc in snap.scenarios]
         assert labels == ["bear", "base", "bull"]
         assert snap.weighted.expected_value > Decimal("0")
+        # Fair-value range is ordered.
+        assert snap.weighted.fair_value_range_low <= snap.weighted.expected_value
+        assert snap.weighted.expected_value <= snap.weighted.fair_value_range_high
 
         # Ficha persisted.
         ficha = company_repo.get("1846.HK")
