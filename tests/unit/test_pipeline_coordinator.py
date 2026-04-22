@@ -6,6 +6,7 @@ import shutil
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -476,35 +477,51 @@ class TestFlags:
 class TestGuardrailFailure:
     @pytest.mark.asyncio
     async def test_guardrail_fail_marks_outcome_unsuccessful(
-        self, _setup: dict[str, object]
+        self,
+        _setup: dict[str, object],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Phase 1.5.6: guardrails read from raw_extraction, so a
+        "broken canonical state" no longer reaches them (strict
+        validation catches broken raw_extraction first). To verify
+        the pipeline propagates a guardrail FAIL into
+        ``outcome.success=False``, inject a custom Guardrail that
+        always returns FAIL."""
+        from portfolio_thesis_engine.guardrails.base import (
+            Guardrail,
+            GuardrailResult,
+        )
+
+        class _AlwaysFailGuardrail(Guardrail):
+            @property
+            def check_id(self) -> str:
+                return "TEST.ALWAYS_FAIL"
+
+            @property
+            def name(self) -> str:
+                return "Test — always FAIL"
+
+            @property
+            def blocking(self) -> bool:
+                return True
+
+            def check(self, context: dict[str, Any]) -> GuardrailResult:
+                return GuardrailResult(
+                    self.check_id,
+                    self.name,
+                    GuardrailStatus.FAIL,
+                    "Forced FAIL for test.",
+                    blocking=True,
+                )
+
+        monkeypatch.setattr(
+            "portfolio_thesis_engine.pipeline.coordinator.default_guardrails",
+            lambda: [_AlwaysFailGuardrail()],
+        )
+
         coord = _setup["coord"]  # type: ignore[index]
         wacc_path = _setup["wacc_path"]  # type: ignore[index]
         extraction_path = _setup["extraction_path"]  # type: ignore[index]
-        ec = _setup["extraction_coordinator"]  # type: ignore[index]
-
-        # Break the canonical state's IS so guardrails FAIL.
-        broken = _make_canonical()
-        broken.reclassified_statements[0].income_statement.clear()
-        broken.reclassified_statements[0].income_statement.extend(
-            [
-                IncomeStatementLine(label="Revenue", value=Decimal("100")),
-                IncomeStatementLine(label="Tax", value=Decimal("-50")),
-                IncomeStatementLine(label="Net income", value=Decimal("999")),
-            ]
-        )
-        ec.extract_canonical = AsyncMock(
-            return_value=ExtractionEngineResult(
-                ticker="1846.HK",
-                fiscal_period_label="FY2024",
-                primary_period=parse_fiscal_period("FY2024"),
-                adjustments=[],
-                decision_log=[],
-                estimates_log=[],
-                modules_run=["A", "B", "C"],
-                canonical_state=broken,
-            )
-        )
 
         outcome = await coord.process(
             "1846.HK",

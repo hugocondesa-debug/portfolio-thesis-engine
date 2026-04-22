@@ -36,6 +36,11 @@ from portfolio_thesis_engine.schemas.company import (
     ValidationResults,
     VintageAndCascade,
 )
+from portfolio_thesis_engine.schemas.raw_extraction import (
+    DocumentType,
+    ExtractionType,
+    RawExtraction,
+)
 
 # ======================================================================
 # Helpers
@@ -107,56 +112,118 @@ def _state(
 
 
 # ======================================================================
-# ISChecksum
+# ISChecksum (Phase 1.5.6 — reads raw_extraction with line_items)
 # ======================================================================
+
+
+def _raw_with_is(line_items: list[dict]) -> RawExtraction:
+    """Minimal valid RawExtraction with the given IS line_items."""
+    return RawExtraction.model_validate({
+        "metadata": {
+            "ticker": "TST",
+            "company_name": "Test Co",
+            "document_type": DocumentType.ANNUAL_REPORT,
+            "extraction_type": ExtractionType.NUMERIC,
+            "reporting_currency": Currency.USD,
+            "unit_scale": "units",
+            "extraction_date": "2025-01-01",
+            "fiscal_periods": [
+                {"period": "FY2024", "end_date": "2024-12-31", "is_primary": True},
+            ],
+        },
+        "income_statement": {
+            "FY2024": {"line_items": line_items},
+        },
+        "balance_sheet": {
+            "FY2024": {
+                "line_items": [
+                    {
+                        "order": 1, "label": "Total assets",
+                        "value": "100", "section": "total_assets",
+                        "is_subtotal": True,
+                    },
+                ],
+            },
+        },
+    })
 
 
 class TestISChecksum:
     def test_exact_match_passes(self) -> None:
-        lines = [
-            IncomeStatementLine(label="Revenue", value=Decimal("100")),
-            IncomeStatementLine(label="COGS", value=Decimal("-60")),
-            IncomeStatementLine(label="Tax", value=Decimal("-10")),
-            IncomeStatementLine(label="Net income", value=Decimal("30")),
-        ]
-        result = ISChecksum().check({"canonical_state": _state(is_lines=lines)})
+        raw = _raw_with_is([
+            {"order": 1, "label": "Revenue", "value": "100"},
+            {"order": 2, "label": "COGS", "value": "-60"},
+            {"order": 3, "label": "Tax", "value": "-10"},
+            {"order": 4, "label": "Profit for the year",
+             "value": "30", "is_subtotal": True},
+        ])
+        result = ISChecksum().check({"raw_extraction": raw})
         assert result.status == GuardrailStatus.PASS
-        assert "0.00%" in result.message or "0." in result.message
 
     def test_small_drift_warns(self) -> None:
-        # Sum of components = 29, reported NI = 30 → 3.33% off → WARN? Actually
-        # FAIL (>0.5%). Pick a drift that hits WARN: 0.3%.
-        lines = [
-            IncomeStatementLine(label="Revenue", value=Decimal("100")),
-            IncomeStatementLine(label="COGS", value=Decimal("-60")),
-            IncomeStatementLine(label="Tax", value=Decimal("-9.910")),
-            IncomeStatementLine(label="Net income", value=Decimal("30")),
-        ]
         # Components: 100 - 60 - 9.91 = 30.09; reported 30; delta 0.3%.
-        result = ISChecksum().check({"canonical_state": _state(is_lines=lines)})
+        raw = _raw_with_is([
+            {"order": 1, "label": "Revenue", "value": "100"},
+            {"order": 2, "label": "COGS", "value": "-60"},
+            {"order": 3, "label": "Tax", "value": "-9.910"},
+            {"order": 4, "label": "Profit for the year",
+             "value": "30", "is_subtotal": True},
+        ])
+        result = ISChecksum().check({"raw_extraction": raw})
         assert result.status == GuardrailStatus.WARN
 
     def test_big_drift_fails(self) -> None:
-        lines = [
-            IncomeStatementLine(label="Revenue", value=Decimal("100")),
-            IncomeStatementLine(label="COGS", value=Decimal("-60")),
-            IncomeStatementLine(label="Tax", value=Decimal("-15")),
-            IncomeStatementLine(label="Net income", value=Decimal("30")),
-        ]
         # Components sum to 25 vs reported 30 → ~16.7% off.
-        result = ISChecksum().check({"canonical_state": _state(is_lines=lines)})
+        raw = _raw_with_is([
+            {"order": 1, "label": "Revenue", "value": "100"},
+            {"order": 2, "label": "COGS", "value": "-60"},
+            {"order": 3, "label": "Tax", "value": "-15"},
+            {"order": 4, "label": "Profit for the year",
+             "value": "30", "is_subtotal": True},
+        ])
+        result = ISChecksum().check({"raw_extraction": raw})
         assert result.status == GuardrailStatus.FAIL
         assert result.blocking is True
 
     def test_no_ni_line_skips(self) -> None:
-        lines = [IncomeStatementLine(label="Revenue", value=Decimal("100"))]
-        result = ISChecksum().check({"canonical_state": _state(is_lines=lines)})
+        raw = _raw_with_is([
+            {"order": 1, "label": "Revenue", "value": "100"},
+            # No PFY / NI subtotal anywhere — walker finds nothing.
+            {"order": 2, "label": "Some other subtotal",
+             "value": "100", "is_subtotal": True},
+        ])
+        result = ISChecksum().check({"raw_extraction": raw})
         assert result.status == GuardrailStatus.SKIP
-        assert "net-income" in result.message
 
     def test_empty_state_skips(self) -> None:
+        # No raw_extraction on context at all.
         result = ISChecksum().check({})
         assert result.status == GuardrailStatus.SKIP
+
+    def test_nested_subtotal_not_double_counted(self) -> None:
+        """Phase 1.5.6 regression — nested "X, net" subtotals that
+        sit mid-waterfall mustn't break the sum-leaves-to-PFY check."""
+        raw = _raw_with_is([
+            {"order": 1, "label": "Revenue", "value": "1000"},
+            {"order": 2, "label": "Cost of sales", "value": "-400"},
+            {"order": 3, "label": "Gross profit",
+             "value": "600", "is_subtotal": True},
+            {"order": 4, "label": "Operating expenses", "value": "-485"},
+            {"order": 5, "label": "Operating profit",
+             "value": "115", "is_subtotal": True},
+            {"order": 6, "label": "Finance income", "value": "26"},
+            {"order": 7, "label": "Finance expenses", "value": "-16"},
+            {"order": 8, "label": "Finance income/(expenses), net",
+             "value": "10", "is_subtotal": True},
+            {"order": 9, "label": "Profit before tax",
+             "value": "125", "is_subtotal": True},
+            {"order": 10, "label": "Income tax", "value": "-42"},
+            {"order": 11, "label": "Profit for the year",
+             "value": "83", "is_subtotal": True},
+        ])
+        result = ISChecksum().check({"raw_extraction": raw})
+        # Σ leaves = 1000 - 400 - 485 + 26 - 16 - 42 = 83 ✓
+        assert result.status == GuardrailStatus.PASS
 
 
 # ======================================================================

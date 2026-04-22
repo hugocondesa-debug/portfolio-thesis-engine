@@ -182,6 +182,17 @@ class ExtractionCoordinator:
             confidence_rating="MEDIUM",
         )
 
+        # Phase 1.5.6: report THIS run's cost, not the cumulative JSONL
+        # total. Phase 1.5+ pipelines are LLM-free, so run-local cost
+        # is typically zero; using ticker_total() would leak legacy
+        # Phase-1 experiment costs into current canonical states.
+        session_ticker_cost = sum(
+            (
+                entry.cost_usd for entry in self.cost_tracker.session_entries()
+                if entry.ticker == context.ticker
+            ),
+            start=Decimal("0"),
+        )
         methodology = MethodologyMetadata(
             extraction_system_version=_EXTRACTION_SYSTEM_VERSION,
             profile_applied=identity.profile,
@@ -191,7 +202,7 @@ class ExtractionCoordinator:
             sub_modules_active={},
             tiers={},
             llm_calls_summary={},
-            total_api_cost_usd=self.cost_tracker.ticker_total(context.ticker),
+            total_api_cost_usd=session_ticker_cost,
         )
 
         as_of_date = (

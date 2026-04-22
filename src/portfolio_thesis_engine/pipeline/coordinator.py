@@ -243,7 +243,12 @@ def _extract_cross_check_values(
         )
         if op_income is not None:
             values["operating_income"] = op_income
-        net_income = (
+        # Phase 1.5.6: prefer parent-attributed NI (matches FMP
+        # netIncome semantics). Falls back to group NI subtotal.
+        parent_ni: Decimal | None = None
+        if is_data.profit_attribution is not None:
+            parent_ni = is_data.profit_attribution.parent
+        net_income = parent_ni or (
             _first_subtotal_value(is_data.line_items, _NET_INCOME_LABEL)
             or _first_line_value(is_data.line_items, _NET_INCOME_LABEL)
         )
@@ -281,35 +286,105 @@ def _extract_cross_check_values(
     return values
 
 
+# Ticker-suffix → exchange / domicile map (Phase 1.5.6).
+# Defaults when SQLite row is absent. Covers the main issuer
+# exchanges in the portfolio universe; extend as new tickers arrive.
+_TICKER_SUFFIX_EXCHANGE: dict[str, tuple[str, str]] = {
+    # suffix: (exchange code, ISO-3166-1 alpha-2 domicile)
+    "HK": ("HKEX", "HK"),
+    "L": ("LSE", "GB"),
+    "DE": ("XETRA", "DE"),
+    "PA": ("EURONEXT_PARIS", "FR"),
+    "AS": ("EURONEXT_AMSTERDAM", "NL"),
+    "BR": ("EURONEXT_BRUSSELS", "BE"),
+    "LS": ("EURONEXT_LISBON", "PT"),
+    "MC": ("BME", "ES"),
+    "MI": ("BORSA_ITALIANA", "IT"),
+    "SW": ("SIX", "CH"),
+    "ST": ("NASDAQ_STOCKHOLM", "SE"),
+    "CO": ("NASDAQ_COPENHAGEN", "DK"),
+    "OL": ("OSLO_BORS", "NO"),
+    "HE": ("NASDAQ_HELSINKI", "FI"),
+    "TO": ("TSX", "CA"),
+    "V": ("TSXV", "CA"),
+    "T": ("TSE", "JP"),
+    "SS": ("SSE", "CN"),
+    "SZ": ("SZSE", "CN"),
+    "AX": ("ASX", "AU"),
+    "NZ": ("NZX", "NZ"),
+}
+
+_ISIN_FROM_NOTES_PATTERN = re.compile(
+    r"\bISIN[:\s]+([A-Z]{2}[A-Z0-9]{9}\d)\b"
+)
+
+
+def _derive_exchange_domicile(ticker: str) -> tuple[str, str]:
+    """Return ``(exchange, country_domicile)`` from the ticker suffix.
+
+    Example: ``"1846.HK"`` → ``("HKEX", "HK")``.  US tickers without a
+    suffix default to ``("NYSE_or_NASDAQ", "US")``.  Fall back to
+    ``("UNKNOWN", "XX")`` for unrecognised suffixes.
+    """
+    if "." not in ticker:
+        # US convention: no suffix. We don't know NYSE vs NASDAQ here.
+        return ("US", "US")
+    suffix = ticker.rsplit(".", 1)[1].upper()
+    if suffix in _TICKER_SUFFIX_EXCHANGE:
+        return _TICKER_SUFFIX_EXCHANGE[suffix]
+    return ("UNKNOWN", "XX")
+
+
 def _identity_from(
     company_row: CompanyRow | None,
     wacc_inputs: WACCInputs,
     raw_extraction: RawExtraction,
 ) -> CompanyIdentity:
-    """Build a :class:`CompanyIdentity` from the SQLite row + WACC +
-    raw extraction metadata. Kept lenient so ``pte process`` works on
-    thin metadata."""
+    """Build a :class:`CompanyIdentity` from SQLite row + WACC + raw
+    extraction metadata.
+
+    Phase 1.5.6 improvements:
+    - Prefer ``metadata.company_name`` over ticker fallback for name.
+    - Derive exchange + country_domicile from ticker suffix when
+      SQLite row is missing or stale (``"?"`` in legacy rows).
+    - Scavenge ISIN from ``extraction_notes`` free text when present.
+    """
     reporting_currency = raw_extraction.metadata.reporting_currency
     if company_row is not None:
         with suppress(ValueError):
             reporting_currency = Currency(company_row.currency)
 
+    # Exchange + domicile — prefer SQLite row; else derive from ticker.
+    derived_exchange, derived_domicile = _derive_exchange_domicile(
+        wacc_inputs.ticker
+    )
+    if company_row and company_row.exchange not in ("", "?"):
+        exchange = company_row.exchange
+        country_domicile = company_row.exchange  # legacy: same field
+    else:
+        exchange = derived_exchange
+        country_domicile = derived_domicile
+
+    # ISIN — look in extraction_notes for "ISIN: XXXXXXXXXXXX" pattern.
+    isin: str | None = None
+    notes_blob = raw_extraction.metadata.extraction_notes or ""
+    match = _ISIN_FROM_NOTES_PATTERN.search(notes_blob)
+    if match:
+        isin = match.group(1)
+
     return CompanyIdentity(
         ticker=wacc_inputs.ticker,
+        isin=isin,
         name=(
             company_row.name
-            if company_row
+            if company_row and company_row.name
             else raw_extraction.metadata.company_name
         ),
         reporting_currency=reporting_currency,
         profile=Profile(wacc_inputs.profile),
         fiscal_year_end_month=12,
-        country_domicile=(
-            company_row.exchange if company_row and company_row.exchange != "?" else "XX"
-        ),
-        exchange=(
-            company_row.exchange if company_row and company_row.exchange != "?" else "—"
-        ),
+        country_domicile=country_domicile,
+        exchange=exchange,
     )
 
 
@@ -450,6 +525,7 @@ class PipelineCoordinator:
                     canonical=canonical,
                     cross_check_report=cross_check_report,
                     wacc_inputs=wacc_inputs,
+                    raw_extraction=raw_extraction,
                     outcome=outcome,
                 )
                 outcome.guardrails = agg
@@ -771,6 +847,7 @@ class PipelineCoordinator:
         canonical: CanonicalCompanyState,
         cross_check_report: CrossCheckReport | None,
         wacc_inputs: WACCInputs,
+        raw_extraction: RawExtraction,
         outcome: PipelineOutcome,
     ) -> AggregatedResults:
         t0 = perf_counter()
@@ -780,6 +857,10 @@ class PipelineCoordinator:
                 "canonical_state": canonical,
                 "cross_check_report": cross_check_report,
                 "wacc_inputs": wacc_inputs,
+                # Phase 1.5.6: guardrails that need the structured
+                # line_items (walking subtotals, is_subtotal flag) read
+                # directly from the raw extraction.
+                "raw_extraction": raw_extraction,
             },
             stop_on_blocking_fail=False,
         )

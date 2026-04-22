@@ -47,6 +47,7 @@ from portfolio_thesis_engine.schemas.raw_extraction import (
     CashFlowPeriod,
     IncomeStatementPeriod,
     LineItem,
+    RawExtraction,
 )
 
 # ----------------------------------------------------------------------
@@ -109,6 +110,15 @@ _CAPEX_CF = re.compile(
     r"capital expenditure|additions? to (property|ppe|intangib)",
     re.IGNORECASE,
 )
+
+# Phase 1.5.6 — D&A discovery from notes.
+_PPE_NOTE_TITLE = re.compile(
+    r"property,? plant|property and equipment|plant and equipment",
+    re.IGNORECASE,
+)
+_INTANGIBLES_NOTE_TITLE = re.compile(r"intangible", re.IGNORECASE)
+_DEPRECIATION_ROW = re.compile(r"^\s*depreciation charge\s*$", re.IGNORECASE)
+_AMORTISATION_ROW = re.compile(r"^\s*amorti[sz]ation charge\s*$", re.IGNORECASE)
 
 
 def _safe_div(num: Decimal | None, den: Decimal | None) -> Decimal | None:
@@ -272,11 +282,25 @@ class AnalysisDeriver:
             or _first_match(is_data.line_items, _OPERATING_INCOME)
             or Decimal("0")
         )
+        # Phase 1.5.6: D&A discovery order.
+        # 1. Explicit IS line matching /^depreciation|amortisation/.
+        # 2. Aggregate from PP&E note depreciation + intangibles amortisation
+        #    charge rows (typical IFRS presentation where D&A is embedded
+        #    in cost of sales on the IS).
         d_and_a = _first_match(is_data.line_items, _DA)
-        # EBITDA = Op Income + |D&A|; D&A is typically negative on the
-        # IS so abs() yields the add-back.
+        if d_and_a is None:
+            d_and_a = _sum_da_from_notes(context.raw_extraction)
+        # EBITDA = Op Income + |D&A|; D&A is typically negative (expense
+        # convention) so abs() yields the add-back.
         ebitda = op_income + abs(d_and_a) if d_and_a is not None else op_income
         ebita: Decimal | None = None
+
+        if d_and_a is None:
+            context.estimates_log.append(
+                "AnalysisDeriver: D&A not discoverable from IS line_items "
+                "or PP&E / intangibles notes. EBITDA falls back to "
+                "Operating profit."
+            )
 
         anchor = ebita if ebita is not None else ebitda
         op_rate = self._operating_tax_rate_pct(context)
@@ -378,6 +402,59 @@ class AnalysisDeriver:
             net_debt_ebitda=net_debt_ebitda,
             capex_revenue=capex_revenue,
         )
+
+
+def _sum_da_from_notes(raw: RawExtraction) -> Decimal | None:
+    """Phase 1.5.6 — sum D&A from PP&E + intangibles movement tables.
+
+    Strategy: walk every note whose title matches PP&E or Intangibles;
+    within each, walk every table that is a current-period rollforward
+    (table_label contains the fiscal year of the primary period);
+    within each, grab any row whose label matches ``/^depreciation
+    charge$/`` (PP&E) or ``/^amortisation charge$/`` (intangibles);
+    take the last numeric cell (the "Total" column of a multi-column
+    rollforward) and add its absolute value.
+
+    Returns ``None`` when nothing matches — callers should fall back
+    to EBITDA = Operating profit and log an estimate.
+    """
+    primary_year_str = str(
+        raw.primary_period.end_date.split("-")[0]
+        if raw.primary_period.end_date
+        else raw.metadata.fiscal_year or ""
+    )
+    total = Decimal("0")
+    found_any = False
+
+    for note in raw.notes:
+        is_ppe = bool(_PPE_NOTE_TITLE.search(note.title))
+        is_intangible = bool(_INTANGIBLES_NOTE_TITLE.search(note.title))
+        if not (is_ppe or is_intangible):
+            continue
+        for table in note.tables:
+            label = (table.table_label or "").lower()
+            # Require the primary period's year to appear in the
+            # table label — prevents picking up the prior-year
+            # rollforward.
+            if primary_year_str and primary_year_str not in label:
+                continue
+            for row in table.rows:
+                if not row:
+                    continue
+                row_label = str(row[0]) if row[0] is not None else ""
+                if is_ppe and not _DEPRECIATION_ROW.search(row_label):
+                    continue
+                if is_intangible and not _AMORTISATION_ROW.search(row_label):
+                    continue
+                # Last Decimal cell — typical "Total" column of
+                # multi-asset rollforwards.
+                numeric_cells = [c for c in row[1:] if isinstance(c, Decimal)]
+                if not numeric_cells:
+                    continue
+                total += abs(numeric_cells[-1])
+                found_any = True
+
+    return total if found_any else None
 
 
 def _empty_ic(period: FiscalPeriod) -> InvestedCapital:

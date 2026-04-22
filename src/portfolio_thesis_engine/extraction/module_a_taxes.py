@@ -102,24 +102,48 @@ class ModuleATaxes(ExtractionModule):
     # ------------------------------------------------------------------
     async def apply(self, context: ExtractionContext) -> ExtractionContext:
         raw = context.raw_extraction
-        tax_note = _find_note(raw.notes, _TAX_NOTE_PATTERN)
-
-        if tax_note is None:
-            self._fallback_to_statutory(context, reason="no taxes note found")
-            return context
-
-        effective_rate, statutory_rate, recon_items = _parse_tax_recon(tax_note)
         reported_tax, pbt = _derive_tax_facts(raw)
+
+        # Phase 1.5.6: effective rate sources in priority order:
+        # 1. IS arithmetic — |income_tax| / PBT (most reliable).
+        # 2. Tax-note "Effective tax rate" row — when parse succeeds.
+        # 3. Statutory rate from WACCInputs (loud fallback).
+        effective_rate_from_is: Decimal | None = None
+        if reported_tax is not None and pbt is not None and pbt != 0:
+            effective_rate_from_is = (reported_tax / pbt) * Decimal("100")
+
+        tax_note = _find_note(raw.notes, _TAX_NOTE_PATTERN)
+        effective_rate_from_note: Decimal | None = None
+        statutory_rate: Decimal | None = None
+        recon_items: list[tuple[str, Decimal]] = []
+        if tax_note is not None:
+            effective_rate_from_note, statutory_rate, recon_items = _parse_tax_recon(
+                tax_note
+            )
+
+        # Choose the rate. IS-derived wins; note is fallback; statutory is last.
+        effective_rate = effective_rate_from_is or effective_rate_from_note
+        rate_source = (
+            "IS arithmetic (|income_tax| / PBT)"
+            if effective_rate_from_is is not None
+            else "tax note recon row"
+            if effective_rate_from_note is not None
+            else None
+        )
 
         if effective_rate is None or reported_tax is None:
             self._fallback_to_statutory(
                 context,
                 reason=(
-                    "taxes note missing effective rate or IS missing "
-                    "income_tax line"
+                    "IS missing income_tax/PBT and no tax-note rate parseable"
                 ),
             )
             return context
+
+        context.decision_log.append(
+            f"Module A.1: effective tax rate = {effective_rate:.2f}% "
+            f"(source: {rate_source})."
+        )
 
         # Classify reconciling items.
         operating_items: list[tuple[str, Decimal]] = []
@@ -176,7 +200,13 @@ class ModuleATaxes(ExtractionModule):
                 f"sum {non_operating_sum})."
             )
 
-        source = Source(document=f"notes[{tax_note.title!r}]")
+        source = Source(
+            document=(
+                f"notes[{tax_note.title!r}]"
+                if tax_note is not None
+                else "income_statement"
+            )
+        )
         for description, amount in non_operating_items:
             context.adjustments.append(
                 ModuleAdjustment(

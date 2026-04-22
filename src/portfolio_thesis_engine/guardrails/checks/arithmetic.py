@@ -17,6 +17,7 @@ default.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -63,45 +64,37 @@ def _sum_lines(lines: list[IncomeStatementLine] | list[BalanceSheetLine]) -> Dec
 # A.1.IS_CHECKSUM
 # ----------------------------------------------------------------------
 class ISChecksum(Guardrail):
-    """Income statement arithmetic: the reclassified IS lines sum to
-    the net income line (within tolerance).
+    """Income statement arithmetic: the IS line_items walk from
+    leaves through subtotals to the PFY anchor.
 
-    Reference: reported Net Income. Tolerances: PASS ≤ 0.1 %, FAIL > 0.5 %.
-    The check works on **reclassified** IS: the sum of every atomic
-    line item (revenue, COGS, OpEx, D&A, finance, tax) equals the net
-    income line. Subtotals (Gross Profit, Operating Income, PBT) are
-    excluded from the sum — they'd double-count — via label matching.
+    Phase 1.5.6: operates on the raw extraction's typed
+    ``line_items`` — respecting ``is_subtotal`` and
+    ``skip_in_waterfall`` flags — instead of label-matching on the
+    reclassified-IS shape. This means nested subtotals
+    ("Finance income/(expenses), net") don't double-count and IFRS
+    layouts (where D&A is embedded in cost of sales) no longer trip
+    a false FAIL.
+
+    Algorithm: sum every non-subtotal leaf from the start of the IS
+    up to the first net-income-style subtotal ("Profit for the year"
+    / "Net income" / etc.). That sum should equal the PFY value
+    (within 0.5%). Skipped if no raw_extraction is provided on the
+    guardrail context.
     """
 
     _PASS_TOL = Decimal("0.001")
     _FAIL_TOL = Decimal("0.005")
 
-    _SUBTOTAL_LABEL_KEYWORDS = (
-        "operating income",
-        "operating profit",
-        "profit from operations",
-        "gross profit",
-        "profit before tax",
-        "profit before taxation",
-        "pretax income",
-        "pre-tax income",
-        "income before tax",
-        "ebit",
-        "ebitda",
+    _NI_LABEL = re.compile(
+        r"^profit for the (year|period)$|"
+        r"^net (income|profit|earnings)$|"
+        r"^profit attributable to",
+        re.IGNORECASE,
     )
-
-    _NI_LABEL_PATTERNS = (
-        "net income",
-        "profit for the year",
-        "profit for the period",
-        "net profit",
-        "profit attributable to",
+    _OCI_HEADER = re.compile(
+        r"other comprehensive (income|loss|\(loss\)/income|\(income\)/loss)",
+        re.IGNORECASE,
     )
-
-    @classmethod
-    def _is_subtotal(cls, label: str) -> bool:
-        lowered = label.strip().lower()
-        return any(kw in lowered for kw in cls._SUBTOTAL_LABEL_KEYWORDS)
 
     @property
     def check_id(self) -> str:
@@ -116,61 +109,79 @@ class ISChecksum(Guardrail):
         return True
 
     def check(self, context: dict[str, Any]) -> GuardrailResult:
-        state = _state_or_none(context)
-        if state is None or not state.reclassified_statements:
+        raw = context.get("raw_extraction")
+        if raw is None:
             return GuardrailResult(
                 self.check_id,
                 self.name,
                 GuardrailStatus.SKIP,
-                "No canonical_state with reclassified statements available.",
+                "No raw_extraction available — Phase 1.5.6 IS checksum "
+                "requires structured line_items.",
                 blocking=self.blocking,
             )
-        is_lines = state.reclassified_statements[0].income_statement
-        if not is_lines:
+        is_data = raw.primary_is
+        if is_data is None or not is_data.line_items:
             return GuardrailResult(
                 self.check_id,
                 self.name,
                 GuardrailStatus.SKIP,
-                "Income statement has no line items.",
+                "No IS line_items for primary period.",
                 blocking=self.blocking,
             )
 
-        ni_lines = [
-            ln for ln in is_lines
-            if any(pat in ln.label.lower() for pat in self._NI_LABEL_PATTERNS)
-        ]
-        if not ni_lines:
+        items = sorted(is_data.line_items, key=lambda li: li.order)
+        running = Decimal("0")
+        pfy_item = None
+        # Walk from start; stop at the first PFY-style subtotal (end
+        # of the PnL — before OCI). Do NOT include OCI items (which
+        # come after PFY).
+        for item in items:
+            if item.value is None:
+                # OCI headers (and similar) — skip.
+                continue
+            # Stop walking if we hit the OCI section header (PFY comes
+            # before OCI; if the subtotal ordering is weird we bail).
+            if self._OCI_HEADER.search(item.label) and not item.is_subtotal:
+                break
+            if item.is_subtotal:
+                # PFY is a waterfall subtotal matching the NI label
+                # pattern. Earlier waterfall subtotals (GP, OP, PBT)
+                # and nested subtotals (skip_in_waterfall=True or
+                # "X, net" style) are all skipped — we're summing
+                # leaves only.
+                if self._NI_LABEL.search(item.label):
+                    pfy_item = item
+                    break
+                continue
+            # Leaf — add to running sum.
+            running += item.value
+
+        if pfy_item is None:
             return GuardrailResult(
                 self.check_id,
                 self.name,
                 GuardrailStatus.SKIP,
-                "No net-income line found in reclassified IS.",
+                "No PFY subtotal line found in IS (label must match "
+                "/profit for the (year|period)|net (income|profit)/).",
                 blocking=self.blocking,
             )
-        ni_reported = ni_lines[-1].value
-        ni_label_lower = ni_lines[-1].label.lower()
-        ni_computed = _sum_lines(
-            [
-                ln
-                for ln in is_lines
-                if ln.label.lower() != ni_label_lower
-                and not self._is_subtotal(ln.label)
-            ]
-        )
-        delta_pct = _pct_delta(ni_computed, ni_reported)
+
+        ni_reported = pfy_item.value
+        delta_pct = _pct_delta(running, ni_reported)
         status = _tier(delta_pct, pass_tol=self._PASS_TOL, fail_tol=self._FAIL_TOL)
 
         return GuardrailResult(
             self.check_id,
             self.name,
             status,
-            f"Σ components {ni_computed} vs reported NI {ni_reported} "
-            f"(|Δ|={delta_pct:.2%}; PASS≤{self._PASS_TOL:.1%}, "
+            f"Σ leaves {running} vs reported {pfy_item.label!r} "
+            f"{ni_reported} (|Δ|={delta_pct:.2%}; PASS≤{self._PASS_TOL:.1%}, "
             f"FAIL>{self._FAIL_TOL:.1%}).",
             blocking=self.blocking,
             data={
-                "computed": str(ni_computed),
+                "computed": str(running),
                 "reported": str(ni_reported),
+                "pfy_label": pfy_item.label,
                 "delta_pct": str(delta_pct),
             },
         )

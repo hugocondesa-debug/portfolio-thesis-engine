@@ -116,20 +116,31 @@ class TestModuleAMateriality:
 
 class TestModuleAFallbacks:
     @pytest.mark.asyncio
-    async def test_no_taxes_note_falls_back_to_statutory(
-        self, wacc_inputs: WACCInputs, cost_tracker: CostTracker
+    async def test_no_taxes_note_uses_is_computed_rate(
+        self,
+        wacc_inputs: WACCInputs,
+        cost_tracker: CostTracker,
     ) -> None:
+        """Phase 1.5.6: no tax note, but IS has PBT + income_tax →
+        compute rate from IS arithmetic (|-20| / 100 = 20%). Does NOT
+        fall back to statutory 25%."""
         raw = build_raw(is_lines=_clean_is_lines())
         context = make_context(raw, wacc_inputs)
         await ModuleATaxes(MagicMock(), cost_tracker).apply(context)
         a1 = [adj for adj in context.adjustments if adj.module == "A.1"]
-        assert a1[0].amount == Decimal("25.0")
-        assert any("statutory fallback" in d for d in context.decision_log)
+        assert a1[0].amount == Decimal("20")
+        assert any(
+            "IS arithmetic" in d for d in context.decision_log
+        )
 
     @pytest.mark.asyncio
-    async def test_missing_effective_rate_falls_back(
-        self, wacc_inputs: WACCInputs, cost_tracker: CostTracker
+    async def test_missing_effective_rate_in_note_uses_is(
+        self,
+        wacc_inputs: WACCInputs,
+        cost_tracker: CostTracker,
     ) -> None:
+        """Phase 1.5.6: note lacks effective-rate row → compute from
+        IS arithmetic (primary source)."""
         raw = build_raw(
             is_lines=_clean_is_lines(),
             notes=[_tax_note(effective=None)],
@@ -137,13 +148,14 @@ class TestModuleAFallbacks:
         context = make_context(raw, wacc_inputs)
         await ModuleATaxes(MagicMock(), cost_tracker).apply(context)
         a1 = [adj for adj in context.adjustments if adj.module == "A.1"]
-        assert a1[0].amount == Decimal("25.0")
+        assert a1[0].amount == Decimal("20")
 
     @pytest.mark.asyncio
     async def test_missing_income_tax_line_falls_back(
         self, wacc_inputs: WACCInputs, cost_tracker: CostTracker
     ) -> None:
-        # IS has no income-tax-like label
+        """IS has no income-tax-like label AND note has no rate →
+        statutory fallback."""
         raw = build_raw(
             is_lines=[
                 {"order": 1, "label": "Revenue", "value": "1000"},
@@ -152,12 +164,34 @@ class TestModuleAFallbacks:
                     "value": "80", "is_subtotal": True,
                 },
             ],
-            notes=[_tax_note()],
+            notes=[_tax_note(effective=None, statutory=None)],
         )
         context = make_context(raw, wacc_inputs)
         await ModuleATaxes(MagicMock(), cost_tracker).apply(context)
         a1 = [adj for adj in context.adjustments if adj.module == "A.1"]
         assert a1[0].amount == Decimal("25.0")
+
+    @pytest.mark.asyncio
+    async def test_no_tax_note_no_is_tax_falls_back(
+        self,
+        wacc_inputs: WACCInputs,
+        cost_tracker: CostTracker,
+    ) -> None:
+        """Phase 1.5.6: both sources missing → statutory fallback."""
+        raw = build_raw(
+            is_lines=[
+                {"order": 1, "label": "Revenue", "value": "1000"},
+                {
+                    "order": 2, "label": "Profit for the year",
+                    "value": "80", "is_subtotal": True,
+                },
+            ],
+        )
+        context = make_context(raw, wacc_inputs)
+        await ModuleATaxes(MagicMock(), cost_tracker).apply(context)
+        a1 = [adj for adj in context.adjustments if adj.module == "A.1"]
+        assert a1[0].amount == Decimal("25.0")
+        assert any("statutory fallback" in d for d in context.decision_log)
 
 
 class TestModuleALabelHeuristics:

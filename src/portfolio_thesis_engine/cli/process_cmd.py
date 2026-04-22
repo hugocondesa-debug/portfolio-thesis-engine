@@ -32,6 +32,7 @@ from rich.table import Table
 
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+from portfolio_thesis_engine.ficha.composer import FichaComposer
 from portfolio_thesis_engine.llm.anthropic_provider import AnthropicProvider
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.market_data.fmp_provider import FMPProvider
@@ -47,7 +48,14 @@ from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.storage.base import normalise_ticker
 from portfolio_thesis_engine.storage.filesystem_repo import DocumentRepository
 from portfolio_thesis_engine.storage.sqlite_repo import MetadataRepository
-from portfolio_thesis_engine.storage.yaml_repo import CompanyStateRepository
+from portfolio_thesis_engine.storage.yaml_repo import (
+    CompanyRepository,
+    CompanyStateRepository,
+    ValuationRepository,
+)
+from portfolio_thesis_engine.valuation.composer import ValuationComposer
+from portfolio_thesis_engine.valuation.dcf import FCFFDCFEngine
+from portfolio_thesis_engine.valuation.scenarios import ScenarioComposer
 
 console = Console()
 
@@ -113,7 +121,14 @@ def _resolve_extraction_path(ticker: str, explicit: str | None) -> Path:
 # Build coordinator
 # ----------------------------------------------------------------------
 def _build_coordinator(ticker: str) -> PipelineCoordinator:
-    """Wire the real service graph for production runs."""
+    """Wire the real service graph for production runs.
+
+    Phase 1.5.6: wires all eleven pipeline stages by default —
+    ingestion / WACC / extraction / cross-check / canonical /
+    persist / guardrails / valuation / persist-valuation / ficha.
+    Earlier coordinators left stages 9-11 to SKIP.
+    """
+    _ = ticker  # unused — PipelineCoordinator takes ticker per-call
     cost_tracker = CostTracker()
     llm_provider = AnthropicProvider()
     extraction_coordinator = ExtractionCoordinator(
@@ -121,13 +136,21 @@ def _build_coordinator(ticker: str) -> PipelineCoordinator:
         llm=llm_provider,
         cost_tracker=cost_tracker,
     )
-    cross_check_gate = CrossCheckGate(FMPProvider(), YFinanceProvider())
+    fmp = FMPProvider()
+    cross_check_gate = CrossCheckGate(fmp, YFinanceProvider())
     return PipelineCoordinator(
         document_repo=DocumentRepository(),
         metadata_repo=MetadataRepository(),
         cross_check_gate=cross_check_gate,
         extraction_coordinator=extraction_coordinator,
         state_repo=CompanyStateRepository(),
+        # Phase 1.5.6: stages 9-11 wired by default.
+        valuation_composer=ValuationComposer(),
+        scenario_composer=ScenarioComposer(dcf_engine=FCFFDCFEngine(n_years=5)),
+        valuation_repo=ValuationRepository(),
+        market_data_provider=fmp,
+        ficha_composer=FichaComposer(),
+        company_repo=CompanyRepository(),
     )
 
 
