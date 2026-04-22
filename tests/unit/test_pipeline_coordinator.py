@@ -260,6 +260,7 @@ class TestHappyPath:
             PipelineStage.LOAD_EXTRACTION,
             PipelineStage.VALIDATE_EXTRACTION,
             PipelineStage.CROSS_CHECK,
+            PipelineStage.DECOMPOSE_NOTES,
             PipelineStage.EXTRACT_CANONICAL,
             PipelineStage.PERSIST,
             PipelineStage.GUARDRAILS,
@@ -289,7 +290,7 @@ class TestHappyPath:
         assert outcome.log_path is not None
         lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
         stage_lines = [ln for ln in lines if '"type": "stage"' in ln]
-        assert len(stage_lines) == 11
+        assert len(stage_lines) == 12
 
 
 # ======================================================================

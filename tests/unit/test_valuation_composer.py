@@ -224,7 +224,7 @@ class TestValuationSnapshot:
         assert snap.profile == Profile.P1_INDUSTRIAL
         assert snap.based_on_extraction_id == "ext1"
         assert len(snap.scenarios) == 3
-        assert snap.forecast_system_version == "phase1-sprint9"
+        assert snap.forecast_system_version == "phase1.5.9"
         assert snap.guardrails.overall == GuardrailStatus.PASS
 
     def test_yaml_roundtrip(self) -> None:

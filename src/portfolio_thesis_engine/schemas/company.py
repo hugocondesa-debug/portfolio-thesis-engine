@@ -21,6 +21,11 @@ from portfolio_thesis_engine.schemas.common import (
     Profile,
     Source,
 )
+from portfolio_thesis_engine.schemas.decomposition import (
+    DecompositionCoverage,
+    LineDecomposition,
+    SubItem,
+)
 
 
 class CompanyIdentity(BaseSchema):
@@ -95,12 +100,23 @@ class ModuleAdjustment(BaseSchema):
 
 
 class AdjustmentsApplied(BaseSchema):
-    """All adjustments applied during extraction."""
+    """All adjustments applied during extraction.
+
+    Phase 1.5.10: :attr:`module_d_note_decompositions` stores the
+    universal note decomposer output — keyed by ``"{statement}:{label}"``
+    so the analysis layer and display layer can look up any line's
+    sub-items without re-running Module D. Coverage summary lives on
+    :attr:`module_d_coverage` for quick audit.
+    """
 
     module_a_taxes: list[ModuleAdjustment] = Field(default_factory=list)
     module_b_provisions: list[ModuleAdjustment] = Field(default_factory=list)
     module_c_leases: list[ModuleAdjustment] = Field(default_factory=list)
     module_d_pensions: list[ModuleAdjustment] = Field(default_factory=list)
+    module_d_note_decompositions: dict[str, LineDecomposition] = Field(
+        default_factory=dict
+    )
+    module_d_coverage: DecompositionCoverage | None = None
     module_e_sbc: list[ModuleAdjustment] = Field(default_factory=list)
     module_f_capitalize: list[ModuleAdjustment] = Field(default_factory=list)
     patches: list[ModuleAdjustment] = Field(default_factory=list)
@@ -109,7 +125,14 @@ class AdjustmentsApplied(BaseSchema):
 
 
 class InvestedCapital(BaseSchema):
-    """Invested Capital summary (P1, P4)."""
+    """Invested Capital summary (P1, P4).
+
+    Phase 1.5.9.1: :attr:`financial_liabilities` stays as the aggregate
+    (bank debt + leases) to preserve the IC identity, but :attr:`bank_debt`
+    and :attr:`lease_liabilities` expose the split needed by the equity
+    bridge. :attr:`operating_working_capital` (current operating assets −
+    current operating liabilities) feeds the DCF's per-year ΔWC projection.
+    """
 
     period: FiscalPeriod
     operating_assets: Money
@@ -117,27 +140,60 @@ class InvestedCapital(BaseSchema):
     invested_capital: Money
     financial_assets: Money
     financial_liabilities: Money
+    bank_debt: Money = Decimal("0")
+    lease_liabilities: Money = Decimal("0")
+    operating_working_capital: Money = Decimal("0")
     equity_claims: Money
     nci_claims: Money = Decimal("0")
     cross_check_residual: Money
 
 
 class NOPATBridge(BaseSchema):
-    """EBITDA / EBITA → NOPAT → NI bridge.
+    """Operating profit → EBITA → NOPAT → NI bridge.
 
-    :attr:`ebitda` is always populated (operating income + absolute value
-    of combined D&A). :attr:`ebita` is optional and only meaningful when
-    the section parser has split depreciation from amortisation; the
-    Phase 1 P1 parser aggregates both under the ``d_and_a`` category, so
-    ``ebita`` stays ``None`` in Phase 1 runs. NOPAT and operating taxes
-    anchor off :attr:`ebita` when present, otherwise off :attr:`ebitda`.
+    Phase 1.5.9.1: :attr:`nopat` is the **sustainable-basis** NOPAT
+    (primary metric for investment decisions), while :attr:`nopat_reported`
+    tracks the reported-basis NOPAT for reconciliation with accounting
+    statements. :attr:`which_used_for_nopat` records which was used as
+    the primary anchor (``"sustainable"`` when non-recurring items were
+    detected, otherwise ``"reported"``). The DCF reads ``nopat`` for its
+    Year-0 display so reported NOPAT never contradicts the forward
+    projection (which has always used sustainable margin).
+
+    Structure, per Phase 1.5.9::
+
+        NOPAT = EBITA × (1 − t)
+              = (sustainable_ebit + amortisation) × (1 − t)     [primary]
+        FCFF  = NOPAT + Depreciation − CapEx − ΔWC
+
+    When amortisation can't be isolated, :attr:`nopat_methodology`
+    records ``"ebit_based_no_amort_detected"`` and the anchor falls back
+    to EBIT × (1 − t).
+
+    :attr:`operating_income_sustainable` strips non-recurring below-the-
+    line items (``Other gains, net``, government grants, gain on disposal,
+    FV remeasurements of contingent consideration, exceptional /
+    restructuring).
     """
 
     period: FiscalPeriod
     ebitda: Money
     ebita: Money | None = None
+    operating_income: Money | None = None
+    operating_income_sustainable: Money | None = None
+    non_recurring_operating_items: Money = Decimal("0")
+    # Phase 1.5.10 — when Module D runs, it populates these with the
+    # exact sub-items that contributed to the sustainable adjustment
+    # so the display can show each rationale.
+    non_recurring_items_detail: list[SubItem] = Field(default_factory=list)
+    operational_adjustments_detail: list[SubItem] = Field(default_factory=list)
+    depreciation: Money = Decimal("0")
+    amortisation: Money = Decimal("0")
+    nopat_methodology: str = "ebita_based"
+    which_used_for_nopat: str = "reported"
     operating_taxes: Money
     nopat: Money
+    nopat_reported: Money | None = None
     financial_income: Money
     financial_expense: Money
     non_operating_items: Money
@@ -145,14 +201,22 @@ class NOPATBridge(BaseSchema):
 
 
 class KeyRatios(BaseSchema):
-    """Ratios derived from reclassified statements."""
+    """Ratios derived from reclassified statements.
+
+    Phase 1.5.9.1 — :attr:`roic` is the **sustainable-basis** ROIC
+    (primary metric). :attr:`roic_reported` tracks the reported-basis
+    ROIC for reconciliation. Same convention as :class:`NOPATBridge`:
+    sustainable first, reported as audit trail.
+    """
 
     period: FiscalPeriod
     roic: Percentage | None = None
+    roic_reported: Percentage | None = None
     roic_adj_leases: Percentage | None = None
     roe: Percentage | None = None
     ros: Percentage | None = None
     operating_margin: Percentage | None = None
+    sustainable_operating_margin: Percentage | None = None
     ebitda_margin: Percentage | None = None
     net_debt_ebitda: Decimal | None = None
     capex_revenue: Percentage | None = None

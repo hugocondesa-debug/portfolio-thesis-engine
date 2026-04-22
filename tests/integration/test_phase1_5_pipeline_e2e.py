@@ -230,8 +230,8 @@ class TestPhase1_5E2E:
             extraction_path=extraction_path,
         )
 
-        # All 11 stages executed.
-        assert len(outcome.stages) == 11
+        # Phase 1.5.10 — 12 stages (DECOMPOSE_NOTES added).
+        assert len(outcome.stages) == 12
         stage_names = [s.stage for s in outcome.stages]
         assert stage_names == [
             PipelineStage.CHECK_INGESTION,
@@ -239,6 +239,7 @@ class TestPhase1_5E2E:
             PipelineStage.LOAD_EXTRACTION,
             PipelineStage.VALIDATE_EXTRACTION,
             PipelineStage.CROSS_CHECK,
+            PipelineStage.DECOMPOSE_NOTES,
             PipelineStage.EXTRACT_CANONICAL,
             PipelineStage.PERSIST,
             PipelineStage.GUARDRAILS,
@@ -337,4 +338,4 @@ class TestPhase1_5E2E:
         assert outcome.log_path.exists()
         log_lines = outcome.log_path.read_text(encoding="utf-8").strip().splitlines()
         stage_log_lines = [ln for ln in log_lines if '"type": "stage"' in ln]
-        assert len(stage_log_lines) == 11
+        assert len(stage_log_lines) == 12

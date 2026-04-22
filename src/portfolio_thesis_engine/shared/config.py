@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     backup_dir: Path = Field(
         default=Path.home() / "workspace" / "portfolio-thesis-engine" / "backup"
     )
+    # Phase 1.5.10 — per-ticker overrides live under ``portfolio_dir/<ticker>/``.
+    # Default sibling of ``data_dir``; can be overridden via the
+    # ``PTE_PORTFOLIO_DIR`` environment variable.
+    portfolio_dir: Path = Field(
+        default=Path.home() / "portfolio"
+    )
 
     llm_model_judgment: str = "claude-opus-4-7"
     llm_model_analysis: str = "claude-sonnet-4-6"

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
+from typing import Any
 
 from portfolio_thesis_engine.extraction.base import ExtractionContext, ExtractionModule
 from portfolio_thesis_engine.llm.anthropic_provider import AnthropicProvider
@@ -408,3 +409,34 @@ def _classify_label(description: str) -> str:
     if any(kw in lowered for kw in _NON_OPERATING_LABEL_KEYWORDS):
         return "non_operating"
     return "operating"
+
+
+def compute_operational_tax_rate_from_reconciliation(
+    tax_note_decomposition: Any | None,
+    income_tax_total: Decimal | None,
+    profit_before_tax: Decimal | None,
+) -> Decimal:
+    """Phase 1.5.10 stub — strip one-time items from the tax
+    reconciliation to derive an *operational* tax rate.
+
+    Phase 2 Sprint 1 will parse ``tax_note_decomposition.sub_items``
+    (e.g. "Effect of non-deductible expenses", "Tax credits",
+    "Withholding tax adjustments") and subtract one-off effects before
+    computing the rate. For Phase 1.5.10 this preserves current
+    behaviour: effective rate when both inputs are present, 30 %
+    statutory fallback otherwise.
+
+    Arg ``tax_note_decomposition`` is the
+    :class:`~portfolio_thesis_engine.schemas.decomposition.LineDecomposition`
+    for the income-tax line (may be ``None`` when the note wasn't
+    decomposable) — unused by the stub; reserved for the Phase-2
+    implementation.
+    """
+    _ = tax_note_decomposition  # Phase 2 Sprint 1
+    if (
+        income_tax_total is not None
+        and profit_before_tax is not None
+        and profit_before_tax != 0
+    ):
+        return abs(income_tax_total) / profit_before_tax
+    return Decimal("0.30")

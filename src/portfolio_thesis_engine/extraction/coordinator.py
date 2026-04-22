@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from portfolio_thesis_engine.extraction.analysis import AnalysisDeriver
 from portfolio_thesis_engine.extraction.base import (
@@ -111,13 +112,23 @@ class ExtractionCoordinator:
         identity: CompanyIdentity,
         *,
         source_documents: list[str] | None = None,
+        decompositions: dict[str, Any] | None = None,
+        decomposition_coverage: Any = None,
     ) -> ExtractionResult:
-        """Full pipeline: modules + analysis + :class:`CanonicalCompanyState`."""
+        """Full pipeline: modules + analysis + :class:`CanonicalCompanyState`.
+
+        Phase 1.5.10 — when ``decompositions`` (Module D output) is
+        supplied, the :class:`AnalysisDeriver` uses sub-item granularity
+        for the sustainable operating income. Absent decompositions, the
+        Phase 1.5.9 aggregate-label regex remains the fallback.
+        """
         context = await self._run_modules(raw_extraction, wacc_inputs)
         canonical = self._build_canonical_state(
             context=context,
             identity=identity,
             source_documents=source_documents or [],
+            decompositions=decompositions,
+            decomposition_coverage=decomposition_coverage,
         )
         return ExtractionResult(
             ticker=context.ticker,
@@ -161,10 +172,19 @@ class ExtractionCoordinator:
         context: ExtractionContext,
         identity: CompanyIdentity,
         source_documents: list[str],
+        decompositions: dict[str, Any] | None = None,
+        decomposition_coverage: Any = None,
     ) -> CanonicalCompanyState:
-        analysis = self._analysis.derive(context)
+        analysis = self._analysis.derive(context, decompositions=decompositions)
         reclassified = self._reclassified_statements(context)
         adjustments = self._partition_adjustments(context)
+        # Phase 1.5.10 — attach Module D output so downstream consumers
+        # (display, guardrails, Phase-2 modules) can query it without
+        # re-running.
+        if decompositions is not None:
+            adjustments.module_d_note_decompositions = decompositions
+        if decomposition_coverage is not None:
+            adjustments.module_d_coverage = decomposition_coverage
 
         validation = ValidationResults(
             universal_checksums=[

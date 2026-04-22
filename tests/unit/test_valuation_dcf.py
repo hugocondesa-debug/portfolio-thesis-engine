@@ -198,10 +198,11 @@ class TestProjection:
     def test_projection_uses_a1_tax_rate(self) -> None:
         engine = FCFFDCFEngine(n_years=1)
         _, d = engine.project_fcff(_scenario(), _canonical(op_tax_rate=Decimal("30")))
-        # Year 1 taxes = EBITDA × 30%
-        ebitda = d[1]["ebitda"]
+        # Phase 1.5.9 — taxes anchor on EBIT (not EBITDA). Year 1 taxes
+        # = EBIT × 30 %.
+        ebit = d[1]["ebit"]
         taxes = d[1]["taxes"]
-        assert abs(taxes - ebitda * Decimal("0.3")) < Decimal("0.01")
+        assert abs(taxes - ebit * Decimal("0.3")) < Decimal("0.01")
 
 
 # ======================================================================
@@ -399,9 +400,10 @@ class TestPhase1_5_8_FCFFComposition:
                 rs.cash_flow.append(ln)
 
     def test_fcff_includes_capex_deduction(self) -> None:
-        """FCFF = NOPAT + D&A − CapEx − ΔWC (ΔWC = 0 in Phase 1).
-        With revenue 1000, margin 20%, tax 25%, CapEx 60, D&A 80:
-        NOPAT = 200 × 0.75 = 150; FCFF = 150 + 80 − 60 = 170."""
+        """FCFF = NOPAT + Depreciation − CapEx − ΔWC (ΔWC = 0 in Phase 1).
+        Phase 1.5.9: NOPAT = EBITA × (1 − t). The synthetic fixture has
+        no amortisation note → EBITA = EBIT = 200; NOPAT = 150; the full
+        80 flows as depreciation, so FCFF = 150 + 80 − 60 = 170."""
         state = _canonical(
             revenue=Decimal("1000"),
             op_income=Decimal("200"),
@@ -409,18 +411,29 @@ class TestPhase1_5_8_FCFFComposition:
             capex=Decimal("-60"),
             op_tax_rate=Decimal("25"),
         )
+        # Pre-populate the bridge with the split D / A so the DCF's
+        # base-year extractor picks up the depreciation ratio (no notes
+        # available in the synthetic state).
+        bridge = state.analysis.nopat_bridge_by_period[0]
+        state.analysis.nopat_bridge_by_period[0] = bridge.model_copy(
+            update={
+                "depreciation": Decimal("80"),
+                "amortisation": Decimal("0"),
+                "nopat_methodology": "ebit_based_no_amort_detected",
+            }
+        )
         self._retag_capex_label(state, "Purchases of property, plant and equipment")
-        # Use a flat scenario (no growth, margin stays at base).
         scenario = _scenario(cagr=Decimal("0"), tg=Decimal("1"), tm=Decimal("20"))
         engine = FCFFDCFEngine(n_years=1)
-        projected, detail = engine.project_fcff(scenario, state)
+        _, detail = engine.project_fcff(scenario, state)
         y1 = detail[1]
-        # Y1: revenue 1000, margin 20%, EBITDA 200, NOPAT 150,
-        # CapEx 60, D&A 80, reinvestment = 60 − 80 = −20, FCFF = 170.
         assert y1["capex"] == Decimal("60.00")
-        assert y1["d_and_a"] == Decimal("80.00")
-        assert y1["reinvestment"] == Decimal("-20.00")
-        assert y1["fcff"] == Decimal("170.00")
+        assert y1["depreciation"] == Decimal("80.00")
+        assert y1["amortisation"] == Decimal("0.00")
+        assert y1["ebit"] == Decimal("200.00")
+        assert y1["ebita"] == Decimal("200.00")
+        assert y1["nopat"] == Decimal("150.0000")
+        assert y1["fcff"] == Decimal("170.0000")
 
     def test_fcff_drops_when_capex_ratio_increases(self) -> None:
         """Regression: earlier bug had CapEx = 0 always → FCFF = NOPAT

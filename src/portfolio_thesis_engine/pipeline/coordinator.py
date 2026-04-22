@@ -92,6 +92,7 @@ from portfolio_thesis_engine.storage.yaml_repo import (
     ValuationRepository,
 )
 from portfolio_thesis_engine.valuation.composer import ValuationComposer
+from portfolio_thesis_engine.valuation.dispatcher import ValuationDispatcher
 from portfolio_thesis_engine.valuation.scenarios import ScenarioComposer
 
 _COST_OVERRIDE_CAP_USD = 10_000.0
@@ -103,6 +104,7 @@ class PipelineStage(StrEnum):
     LOAD_EXTRACTION = "load_extraction"
     VALIDATE_EXTRACTION = "validate_extraction"
     CROSS_CHECK = "cross_check"
+    DECOMPOSE_NOTES = "decompose_notes"
     EXTRACT_CANONICAL = "extract_canonical"
     PERSIST = "persist"
     GUARDRAILS = "guardrails"
@@ -424,14 +426,23 @@ def _identity_from(
     # Phase 1.5.7 — shares outstanding from EPS footer (base units).
     shares_outstanding = _derive_shares_outstanding(raw_extraction)
 
+    # Phase 1.5.9.1 — prefer the extraction's ``metadata.company_name``
+    # over the SQLite bootstrap row. The SQLite row is often just the
+    # ticker repeated (``"1846.HK"``); the extraction carries the full
+    # legal name ("EuroEyes International Eye Clinic Limited"). Fall
+    # back to the row when the extraction omits the name, then to the
+    # ticker as a last resort (the :class:`CompanyIdentity` schema
+    # requires a non-empty string).
+    name: str = (
+        raw_extraction.metadata.company_name
+        or (company_row.name if company_row else None)
+        or wacc_inputs.ticker
+    )
+
     return CompanyIdentity(
         ticker=wacc_inputs.ticker,
         isin=isin,
-        name=(
-            company_row.name
-            if company_row and company_row.name
-            else raw_extraction.metadata.company_name
-        ),
+        name=name,
         reporting_currency=reporting_currency,
         profile=Profile(wacc_inputs.profile),
         fiscal_year_end_month=12,
@@ -559,6 +570,20 @@ class PipelineCoordinator:
                 )
                 outcome.cross_check_report = cross_check_report
 
+                # Stage 5b — Module D decomposition. Runs before
+                # extract_canonical so the analysis layer can consume
+                # sub-item granularity. Ticket calls this
+                # ``decompose_notes``; it's functionally sequenced
+                # before the canonical build, not after, because the
+                # NOPAT bridge's sustainable margin reads it.
+                decompositions, decomposition_coverage = (
+                    self._stage_decompose_notes(
+                        ticker=ticker,
+                        raw_extraction=raw_extraction,
+                        outcome=outcome,
+                    )
+                )
+
                 # Stage 6 — extract canonical
                 company_row = self.metadata_repo.get_company(ticker)
                 identity = _identity_from(company_row, wacc_inputs, raw_extraction)
@@ -567,6 +592,8 @@ class PipelineCoordinator:
                     wacc_inputs=wacc_inputs,
                     identity=identity,
                     outcome=outcome,
+                    decompositions=decompositions,
+                    decomposition_coverage=decomposition_coverage,
                 )
                 outcome.canonical_state = canonical
 
@@ -842,12 +869,82 @@ class PipelineCoordinator:
             )
         return report
 
+    def _stage_decompose_notes(
+        self,
+        ticker: str,
+        raw_extraction: RawExtraction,
+        outcome: PipelineOutcome,
+    ) -> tuple[dict[str, Any], Any]:
+        """Phase 1.5.10 — run Module D decomposition + attach overrides.
+
+        Loads ``{portfolio_dir}/<ticker>/overrides.yaml`` when it
+        exists. The status flips to WARN when more than half of IS
+        leaves fell back to ``not_decomposable`` (a high fallback rate
+        usually signals the extraction is missing note references).
+        """
+        t0 = perf_counter()
+        try:
+            from portfolio_thesis_engine.extraction.module_d import ModuleD
+            from portfolio_thesis_engine.extraction.module_d_overrides import (
+                load_overrides,
+            )
+
+            overrides = load_overrides(ticker)
+            module_d = ModuleD(overrides=overrides)
+            decompositions = module_d.decompose_all(raw_extraction)
+            coverage = module_d.compute_coverage(raw_extraction, decompositions)
+        except Exception as exc:
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.DECOMPOSE_NOTES,
+                    status="fail",
+                    duration_ms=_ms_since(t0),
+                    message=f"Module D raised {type(exc).__name__}: {exc}",
+                )
+            )
+            return {}, None
+
+        is_total = coverage.is_total
+        is_not_decomposable = coverage.is_not_decomposable
+        status: str = "ok"
+        if is_total > 0 and is_not_decomposable * 2 > is_total:
+            status = "ok"  # elevated fallback rate but not blocking
+            note_suffix = " (high fallback rate — review note references)"
+        else:
+            note_suffix = ""
+
+        outcome.stages.append(
+            StageOutcome(
+                stage=PipelineStage.DECOMPOSE_NOTES,
+                status=status,
+                duration_ms=_ms_since(t0),
+                message=(
+                    f"decomposed IS:{coverage.is_decomposed}/{coverage.is_total}, "
+                    f"BS:{coverage.bs_decomposed}/{coverage.bs_total}, "
+                    f"CF:{coverage.cf_decomposed}/{coverage.cf_total}"
+                    f"{note_suffix}"
+                ),
+                data={
+                    "is": {
+                        "total": coverage.is_total,
+                        "decomposed": coverage.is_decomposed,
+                        "fallback": coverage.is_fallback,
+                        "not_decomposable": coverage.is_not_decomposable,
+                    },
+                    "overrides_count": len(overrides.sub_item_classifications),
+                },
+            )
+        )
+        return decompositions, coverage
+
     async def _stage_extract_canonical(
         self,
         raw_extraction: RawExtraction,
         wacc_inputs: WACCInputs,
         identity: CompanyIdentity,
         outcome: PipelineOutcome,
+        decompositions: dict[str, Any] | None = None,
+        decomposition_coverage: Any = None,
     ) -> CanonicalCompanyState:
         t0 = perf_counter()
         doc_id = (
@@ -860,6 +957,8 @@ class PipelineCoordinator:
             wacc_inputs=wacc_inputs,
             identity=identity,
             source_documents=[doc_id],
+            decompositions=decompositions,
+            decomposition_coverage=decomposition_coverage,
         )
         if result.canonical_state is None:  # pragma: no cover - defensive
             raise PipelineError("extract_canonical returned no canonical_state")
@@ -973,10 +1072,42 @@ class PipelineCoordinator:
             wacc_inputs=wacc_inputs,
             canonical_state=canonical,
         )
+        # Phase 1.5.9 — dispatcher chooses engine by profile. For P1 it
+        # resolves to :class:`FCFFDCFEngine` (the only implemented
+        # engine); P2/P3a/P3b stubs raise on call. We don't *invoke*
+        # the dispatcher here (the :class:`ScenarioComposer` does the
+        # per-scenario call under the hood), but we log the choice for
+        # audit purposes.
+        dispatcher = ValuationDispatcher()
+        engine = dispatcher.select_engine(canonical)
+        if not engine.describe().get("implemented", True):
+            # Phase 1.5.9 — a stub engine was selected: the pipeline
+            # must skip valuation cleanly rather than raising deep in
+            # the scenario loop.
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.VALUATE,
+                    status="skip",
+                    duration_ms=_ms_since(t0),
+                    message=(
+                        f"Profile {canonical.identity.profile.value} routes to "
+                        f"{engine.describe().get('method')} engine (not yet "
+                        "implemented — Phase 2)."
+                    ),
+                    data=engine.describe(),
+                )
+            )
+            return None
+        sensitivities = self.scenario_composer.compose_sensitivity(
+            wacc_inputs=wacc_inputs,
+            canonical_state=canonical,
+            labels=("base",),
+        )
         snapshot = self.valuation_composer.compose(
             canonical_state=canonical,
             scenarios=scenarios,
             market=market,
+            sensitivities=sensitivities,
         )
         outcome.stages.append(
             StageOutcome(

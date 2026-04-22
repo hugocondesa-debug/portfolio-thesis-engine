@@ -23,11 +23,17 @@ from typing import Any
 
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState
 from portfolio_thesis_engine.schemas.valuation import (
+    EquityBridgeDetail,
+    EVBreakdown,
+    MarketSnapshot,
+    ProjectionYear,
     Scenario,
     ScenarioDrivers,
+    SensitivityGrid,
+    TerminalProjection,
 )
 from portfolio_thesis_engine.schemas.wacc import ScenarioDriversManual, WACCInputs
-from portfolio_thesis_engine.valuation.base import IRRResult
+from portfolio_thesis_engine.valuation.base import IRRResult, ValuationResult
 from portfolio_thesis_engine.valuation.dcf import FCFFDCFEngine
 from portfolio_thesis_engine.valuation.equity_bridge import EquityBridge
 from portfolio_thesis_engine.valuation.irr import IRRDecomposer
@@ -74,10 +80,17 @@ class ScenarioComposer:
         self,
         wacc_inputs: WACCInputs,
         canonical_state: CanonicalCompanyState,
+        market: MarketSnapshot | None = None,
     ) -> list[Scenario]:
         """Return one :class:`Scenario` per label in ``wacc_inputs``,
         in ``bear → base → bull`` order (filtering out labels that
-        aren't supplied)."""
+        aren't supplied).
+
+        Phase 1.5.9: delegates the full transparency build-up
+        (projection / terminal / EV breakdown / equity bridge /
+        sensitivity grids) to :meth:`FCFFDCFEngine.compute`. The composer
+        still handles IRR + upside + scenario metadata.
+        """
         current_price = wacc_inputs.current_price
         scenarios_out: list[Scenario] = []
 
@@ -88,19 +101,29 @@ class ScenarioComposer:
             scenario_stub = _build_scenario_stub(label, driver, self.horizon_years)
             wacc_used = self._wacc_for(driver, wacc_inputs)
 
-            dcf = self.dcf_engine.compute_target(
-                scenario=scenario_stub,
-                wacc_pct=wacc_used,
-                canonical_state=canonical_state,
+            # Build a MarketSnapshot stub so the engine can read the
+            # WACC — callers that have a real market snapshot pass it
+            # in to capture price / shares.
+            market_for_engine = market or MarketSnapshot(
+                price=current_price,
+                price_date=wacc_inputs.valuation_date,
+                shares_outstanding=canonical_state.identity.shares_outstanding,
+                wacc=wacc_used,
+                currency=canonical_state.identity.reporting_currency,
             )
-            equity = self.equity_bridge.compute(dcf, canonical_state)
-            if equity.per_share is None:
-                # Without per-share we can't compute IRR; emit a
-                # Scenario without IRR fields rather than failing.
+            result: ValuationResult = self.dcf_engine.compute(
+                canonical_state=canonical_state,
+                scenario=scenario_stub,
+                market=market_for_engine,
+            )
+            equity_per_share = result.target_per_share
+            equity_value = result.equity_bridge.equity_value
+
+            if equity_per_share is None:
                 irr: IRRResult | None = None
             else:
                 irr = self.irr_decomposer.decompose(
-                    target_price=equity.per_share,
+                    target_price=equity_per_share,
                     current_price=current_price,
                     scenario=scenario_stub,
                     canonical_state=canonical_state,
@@ -110,14 +133,53 @@ class ScenarioComposer:
             scenarios_out.append(
                 _finalise_scenario(
                     stub=scenario_stub,
-                    equity_per_share=equity.per_share,
-                    equity_value=equity.equity_value,
+                    equity_per_share=equity_per_share,
+                    equity_value=equity_value,
                     current_price=current_price,
                     irr=irr,
+                    projection=result.projection,
+                    terminal=result.terminal,
+                    ev_breakdown=result.enterprise_value_breakdown,
+                    equity_bridge=result.equity_bridge,
+                    sensitivity_grids=result.sensitivity_grids,
                 )
             )
 
         return scenarios_out
+
+    # ------------------------------------------------------------------
+    def compose_sensitivity(
+        self,
+        wacc_inputs: WACCInputs,
+        canonical_state: CanonicalCompanyState,
+        labels: tuple[str, ...] = ("base",),
+    ) -> list[SensitivityGrid]:
+        """Phase 1.5.9 — flatten per-scenario sensitivity grids to the
+        top-level :class:`ValuationSnapshot.sensitivities` list. Default
+        emits only the base-scenario grids (2: WACC×g and CAGR×margin).
+        """
+        grids: list[SensitivityGrid] = []
+        current_price = wacc_inputs.current_price
+        for label in labels:
+            driver = wacc_inputs.scenarios.get(label)
+            if driver is None:
+                continue
+            scenario_stub = _build_scenario_stub(label, driver, self.horizon_years)
+            wacc_used = self._wacc_for(driver, wacc_inputs)
+            market = MarketSnapshot(
+                price=current_price,
+                price_date=wacc_inputs.valuation_date,
+                shares_outstanding=canonical_state.identity.shares_outstanding,
+                wacc=wacc_used,
+                currency=canonical_state.identity.reporting_currency,
+            )
+            result = self.dcf_engine.compute(
+                canonical_state=canonical_state,
+                scenario=scenario_stub,
+                market=market,
+            )
+            grids.extend(result.sensitivity_grids)
+        return grids
 
     # ------------------------------------------------------------------
     def _wacc_for(self, driver: ScenarioDriversManual, wacc_inputs: WACCInputs) -> Decimal:
@@ -162,6 +224,11 @@ def _finalise_scenario(
     equity_value: Decimal,
     current_price: Decimal,
     irr: IRRResult | None,
+    projection: list[ProjectionYear] | None = None,
+    terminal: TerminalProjection | None = None,
+    ev_breakdown: EVBreakdown | None = None,
+    equity_bridge: EquityBridgeDetail | None = None,
+    sensitivity_grids: list[SensitivityGrid] | None = None,
 ) -> Scenario:
     """Return a new :class:`Scenario` with targets / IRR fields set."""
     targets: dict[str, Decimal] = {"equity_value": equity_value}
@@ -171,10 +238,6 @@ def _finalise_scenario(
     irr_3y: Decimal | None = None
     irr_decomp: dict[str, Decimal] | None = None
     if irr is not None:
-        # Schema clamps Percentage at [-100, 1000]. Deep-bear scenarios
-        # can overshoot mathematically (−103 % IRR); clip at the bounds
-        # so the Scenario object validates. Semantics: anything at −100 %
-        # is a wipeout; deeper is degenerate.
         irr_3y = _clip_pct(irr.total_p_a * Decimal("100"))
         irr_decomp = {
             "fundamental": _clip_pct(irr.fundamental_p_a * Decimal("100")),
@@ -198,4 +261,9 @@ def _finalise_scenario(
         irr_3y=irr_3y,
         irr_decomposition=irr_decomp,
         upside_pct=upside,
+        projection=projection or [],
+        terminal=terminal,
+        enterprise_value_breakdown=ev_breakdown,
+        equity_bridge=equity_bridge,
+        sensitivity_grids=sensitivity_grids or [],
     )

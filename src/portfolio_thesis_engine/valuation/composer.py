@@ -36,11 +36,12 @@ from portfolio_thesis_engine.schemas.valuation import (
     GuardrailsStatus,
     MarketSnapshot,
     Scenario,
+    SensitivityGrid,
     ValuationSnapshot,
     WeightedOutputs,
 )
 
-_FORECAST_SYSTEM_VERSION = "phase1-sprint9"
+_FORECAST_SYSTEM_VERSION = "phase1.5.9"
 
 
 class ValuationComposer:
@@ -54,6 +55,7 @@ class ValuationComposer:
         *,
         guardrails: GuardrailsStatus | None = None,
         conviction: Conviction | None = None,
+        sensitivities: list[SensitivityGrid] | None = None,
     ) -> ValuationSnapshot:
         if not scenarios:
             raise ValueError("ValuationComposer requires at least one scenario")
@@ -83,6 +85,7 @@ class ValuationComposer:
             guardrails=guardrails or _default_guardrails_stub(),
             forecast_system_version=_FORECAST_SYSTEM_VERSION,
             source_documents=list(canonical_state.source_documents),
+            sensitivities=sensitivities or [],
         )
 
     # ------------------------------------------------------------------

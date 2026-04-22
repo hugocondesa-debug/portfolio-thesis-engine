@@ -22,6 +22,92 @@ from portfolio_thesis_engine.schemas.common import (
 )
 
 
+class ProjectionYear(BaseSchema):
+    """Phase 1.5.9 — one row of the per-scenario FCFF projection.
+
+    Year 0 is the base year (historical anchor); years 1..N carry the
+    forecast. Year-0 rows leave ``fcff`` + ``discount_factor`` +
+    ``pv_fcff`` as ``None`` since they represent the reported last
+    fiscal period, not a projected cash flow.
+    """
+
+    year: int
+    revenue: Money
+    operating_margin_reported: Percentage | None = None
+    operating_margin_sustainable: Percentage | None = None
+    operating_margin_used: Percentage
+    ebit: Money
+    amort_for_ebita: Money | None = None
+    ebita: Money | None = None
+    nopat: Money
+    depreciation: Money
+    capex: Money
+    wc_change: Money | None = None
+    fcff: Money | None = None
+    discount_factor: Money | None = None
+    pv_fcff: Money | None = None
+
+
+class TerminalProjection(BaseSchema):
+    """Phase 1.5.9 — Gordon-growth terminal block alongside the per-year
+    schedule. Persists the exact inputs to the TV calculation so an
+    analyst can re-derive it without re-running the engine."""
+
+    revenue_final_year: Money
+    terminal_growth: Percentage
+    terminal_margin: Percentage
+    terminal_wacc: Percentage
+    terminal_nopat: Money
+    terminal_fcff: Money
+    terminal_value: Money
+    pv_terminal: Money
+
+
+class EVBreakdown(BaseSchema):
+    """Phase 1.5.9 — enterprise-value composition: sum of discounted
+    explicit-period FCFF + discounted terminal value."""
+
+    sum_pv_explicit: Money
+    pv_terminal: Money
+    total_ev: Money
+
+
+class EquityBridgeDetail(BaseSchema):
+    """Phase 1.5.9 — enterprise → equity bridge per scenario. Field names
+    match the industry convention (cash, financial debt, lease liabilities,
+    NCI) so the :command:`pte show --detail` output is directly audit-
+    ready."""
+
+    enterprise_value: Money
+    cash_and_equivalents: Money
+    financial_debt: Money
+    lease_liabilities: Money
+    non_controlling_interests: Money
+    other_adjustments: Money = Decimal("0")
+    equity_value: Money
+    shares_outstanding: Decimal | None = None
+    target_per_share: Money | None = None
+
+
+class SensitivityGrid(BaseSchema):
+    """Phase 1.5.9 — 2D per-share-target grid for two-variable
+    perturbations around one scenario's anchor.
+
+    ``axis_x`` and ``axis_y`` carry the variable names (``"wacc"``,
+    ``"terminal_growth"``, ``"revenue_cagr"``, ``"terminal_margin"``).
+    ``target_per_share[i][j]`` corresponds to ``y_values[i]`` paired with
+    ``x_values[j]``. Cells where the model is undefined (e.g. Gordon-
+    growth with WACC ≤ g) are ``Decimal(0)`` and rendered as ``—``.
+    """
+
+    scenario_label: str
+    axis_x: str
+    axis_y: str
+    x_values: list[Percentage]
+    y_values: list[Percentage]
+    target_per_share: list[list[Money]]
+
+
 class ScenarioDrivers(BaseSchema):
     """Key drivers defining a scenario. Shape varies by profile."""
 
@@ -71,6 +157,17 @@ class Scenario(BaseSchema):
 
     survival_conditions: list[SurvivalCondition] = Field(default_factory=list)
     kill_signals: list[str] = Field(default_factory=list)
+
+    # Phase 1.5.9 — transparency fields. All optional so callers that
+    # don't need the full schedule (e.g. light integration tests) can
+    # skip them.
+    projection: list[ProjectionYear] = Field(default_factory=list)
+    terminal: TerminalProjection | None = None
+    enterprise_value_breakdown: EVBreakdown | None = None
+    equity_bridge: EquityBridgeDetail | None = None
+    # Per-scenario sensitivity grids (typically one WACC×g and one
+    # CAGR×margin).
+    sensitivity_grids: list[SensitivityGrid] = Field(default_factory=list)
 
 
 class MarketImpliedView(BaseSchema):
@@ -265,6 +362,12 @@ class ValuationSnapshot(ImmutableSchema, VersionedMixin):
     catalysts: list[Catalyst] = Field(default_factory=list)
     factor_exposures: list[FactorExposure] = Field(default_factory=list)
     scenario_response: dict[str, Any] | None = None
+
+    # Phase 1.5.9 — top-level sensitivity grids. Mirrors the per-
+    # scenario grids attached to :class:`Scenario`; kept here so
+    # callers that want to query "what does base look like under WACC
+    # ±1pp?" without iterating the scenario list still have access.
+    sensitivities: list[SensitivityGrid] = Field(default_factory=list)
 
     conviction: Conviction
     guardrails: GuardrailsStatus

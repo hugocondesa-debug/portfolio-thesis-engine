@@ -165,12 +165,17 @@ class TestNOPATBridge:
         ctx = make_context(raw, wacc_inputs)
         ctx.adjustments.append(_op_tax_rate_adj("25"))
         bridge = AnalysisDeriver().derive(ctx).nopat_bridge_by_period[0]
-        # Op income 200 + |D&A| 80 = 280
+        # Op income 200 + |D&A| 80 = 280 (reported EBITDA metric).
         assert bridge.ebitda == Decimal("280")
         assert bridge.ebita is None
-        # 280 * 25% = 70
-        assert bridge.operating_taxes == Decimal("70")
-        assert bridge.nopat == Decimal("210")
+        # Phase 1.5.9 — operating income is the reported EBIT anchor.
+        assert bridge.operating_income == Decimal("200")
+        # No non-recurring items in the fixture — sustainable stays None.
+        assert bridge.operating_income_sustainable is None
+        # Phase 1.5.9 — NOPAT = EBIT × (1 − t), not EBITDA × (1 − t).
+        # 200 × 25 % = 50 operating taxes → NOPAT 150.
+        assert bridge.operating_taxes == Decimal("50")
+        assert bridge.nopat == Decimal("150")
 
     def test_finance_lines_captured(self, wacc_inputs: WACCInputs) -> None:
         raw = build_raw(is_lines=_IS_LINES)
@@ -212,9 +217,10 @@ class TestKeyRatios:
         ctx = make_context(raw, wacc_inputs)
         ctx.adjustments.append(_op_tax_rate_adj("25"))
         ratios = AnalysisDeriver().derive(ctx).ratios_by_period[0]
-        # NOPAT 210 / IC 850 → ROIC ≈ 24.7%
+        # Phase 1.5.9 — NOPAT anchors on EBIT (op_income 200). With tax
+        # 25 %, NOPAT = 200 × 0.75 = 150. IC 850 → ROIC = 150 / 850 ≈ 17.65 %.
         assert ratios.roic is not None
-        assert abs(ratios.roic - Decimal("24.7058823529")) < Decimal("0.01")
+        assert abs(ratios.roic - Decimal("17.6470588235")) < Decimal("0.01")
         # NI 140 / Equity 650 → ROE ≈ 21.54%
         assert ratios.roe is not None
         assert abs(ratios.roe - Decimal("21.5384615385")) < Decimal("0.01")
