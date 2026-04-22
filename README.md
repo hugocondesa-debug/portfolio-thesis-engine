@@ -119,6 +119,9 @@ sudo systemctl enable --now pte-streamlit
 **Phase 1.5 — Extraction pivot to Claude.ai Projects** ✅ complete (2026-04-22)
 - Moved all LLM-driven extraction OUT of the app. Human + Claude.ai produce `raw_extraction.yaml` matching the 376-line `RawExtraction` schema (42 DocumentType values, 17 note types, ExtractionValidator 3-tier). Pipeline grew to 11 stages (added LOAD_EXTRACTION + VALIDATE_EXTRACTION). Modules A/B/C + AnalysisDeriver rewritten to consume typed schema directly — no adapter shim. Zero LLM calls in pipeline. 832 tests at 94 % coverage. Four docs for Claude.ai Projects: `claude_ai_extraction_guide.md` (10 pages), `raw_extraction_schema.md`, `document_types.md`, `required_notes_by_profile.md`.
 
+**Phase 1.5.3 — Schema migration to as-reported structured** ✅ complete (2026-04-22)
+- Rewrote `RawExtraction` to capture company lines verbatim as `list[LineItem]` with `is_subtotal` + `section` grouping; notes are a flat `list[Note]` with `NoteTable` children. Killed the 17 typed note classes and all closed classification enums. Motivation: observed EuroEyes extraction double-counted D&A because the fixed-field schema forced the extractor to map reported lines onto predefined slots. The new schema lets modules A/B/C classify downstream by label keyword. Walking-subtotals validator + nine knowledge docs. 771 tests at 93 % coverage, ruff + mypy --strict clean.
+
 **Phase 2 — Portfolio system + advanced extraction** (next)
 - Multi-document merge (annual + interim + earnings call into one canonical state); narrative processing (earnings calls, MD&A); Profiles P2 (banks), P3a (insurance), P3b (REITs), P4 (resources), P5 (pre-revenue), P6 (holdings); Modules D (Pensions), E (SBC), F (Capitalize Expenses); Patches 1-7; Reverse DCF / Monte Carlo / EPS bridge; portfolio dashboard cross-empresa; scenario tuner; post-earnings update workflow.
 

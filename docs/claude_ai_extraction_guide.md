@@ -210,83 +210,116 @@ Don't extract numbers. Just the structure. I'll work through it.
 
 ### Pass 2 — Core statements (IS, BS, CF), all periods
 
-**Goal:** populate `income_statement`, `balance_sheet`, `cash_flow`.
+**Goal:** populate `income_statement`, `balance_sheet`, `cash_flow`
+as `list[LineItem]` in the company's reading order.
+
+**Critical change from Phase 1.5:** there are NO pre-defined typed
+fields. You do NOT map "Selling expenses" onto `selling_marketing` or
+`general_administrative` — you capture the line **as reported**. Every
+classification happens downstream.
 
 **Prompt:**
 
 ```
-Extract the Income Statement for every period reported (usually current
-year + prior year; interim reports may have H1 + prior H1).
+Extract the Income Statement for every period reported. Output as a
+list of LineItem entries preserving the reading order of the PDF.
 
-Output format — raw YAML, one block per period:
+Output format — YAML, one block per period:
 
 income_statement:
   FY2024:
-    revenue: "580.0"                   # AR p.42
-    cost_of_sales: "-290.0"            # AR p.42
-    gross_profit: "290.0"
-    selling_marketing: "-95.0"
-    general_administrative: "-65.0"
-    depreciation_amortization: "-20.0"
-    operating_expenses_total: "-180.0"
-    operating_income: "110.0"
-    finance_income: "4.0"
-    finance_expenses: "-18.0"
-    income_before_tax: "96.0"
-    income_tax: "-21.0"
-    net_income: "75.0"
-    net_income_parent: "75.0"
-    eps_basic: "0.375"
-    eps_diluted: "0.370"
-    shares_basic_weighted_avg: "200.0"
-    shares_diluted_weighted_avg: "202.7"
-  "FY2023":
-    ...
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      - {order: 1, label: "Revenue", value: "580.0"}
+      - {order: 2, label: "Cost of sales", value: "-290.0"}
+      - {order: 3, label: "Gross profit", value: "290.0", is_subtotal: true}
+      - {order: 4, label: "Selling expenses", value: "-95.0"}
+      - {order: 5, label: "Administrative expenses", value: "-65.0"}
+      - {order: 6, label: "Operating profit", value: "130.0", is_subtotal: true}
+      - {order: 7, label: "Finance income", value: "4.0"}
+      - {order: 8, label: "Finance costs", value: "-18.0"}
+      - {order: 9, label: "Profit before taxation", value: "116.0", is_subtotal: true}
+      - {order: 10, label: "Income tax", value: "-21.0"}
+      - {order: 11, label: "Profit for the year", value: "95.0", is_subtotal: true}
+    profit_attribution:
+      parent: "95.0"
+      non_controlling_interests: "0.0"
+      total: "95.0"
+    earnings_per_share:
+      basic_value: "0.475"
+      basic_unit: "HKD"
+      basic_weighted_avg_shares: "200.0"
+      shares_unit: "millions"
 
 Rules:
-- Every numeric value is a string with decimal point. No commas.
-- Negative values use "-", NEVER parentheses.
-- unit_scale will be declared in the metadata block — do not multiply
-  here; just use the number as reported in the PDF.
-- If a field isn't reported, OMIT it (don't use "0" or null).
-- Include a page reference as a YAML comment for every non-trivial line.
-- If the IS combines multiple lines (e.g. "Selling, general and
-  administrative expenses" in one line), populate
-  selling_general_administrative and leave the split fields empty.
+- Every line on the face of the IS → one LineItem. Verbatim label.
+- ``order`` preserves the PDF's reading order (use 1, 2, 3, ...).
+- ``is_subtotal: true`` for Gross profit, Operating profit, Profit
+  before taxation, Profit for the year, and any other running
+  subtotal the company presents.
+- ``value`` is a quoted decimal. Negative values use "-", NEVER
+  parentheses.
+- If a line is present but the value is not disclosed, use value: null.
+- Do NOT derive / calculate / split aggregated lines. If the PDF shows
+  "Selling and administrative expenses" as one line, that's ONE
+  LineItem — not two.
+- Do NOT add "synthetic" subtotals the company didn't print.
+- Include source_note: N when the line has a "(Note 5)" reference.
 
-Verify the identity: revenue + cost_of_sales should roughly match
-gross_profit; operating_income + finance_income + finance_expenses
-+ income_tax should roughly match net_income. Flag any discrepancies
-— they're usually currency-translation adjustments or share-of-
-associates buried elsewhere.
+Repeat for balance_sheet and cash_flow. For balance_sheet, use
+``section`` on every leaf line: "current_assets", "non_current_assets",
+"total_assets" (for the Total Assets subtotal), "current_liabilities",
+"non_current_liabilities", "total_liabilities", "equity".
+For cash_flow, use ``section``: "operating", "investing", "financing",
+"fx_effect", "subtotal" (for the final Δcash line).
 ```
 
-Repeat verbatim for `balance_sheet` and `cash_flow`.
-
-**Time budget:** 15 min.
+**Time budget:** 15-20 min.
 
 ---
 
 ### Pass 3 — Required notes (profile checklist)
 
-**Goal:** populate `notes` per [`required_notes_by_profile.md`](required_notes_by_profile.md).
+**Goal:** populate `notes` as a `list[Note]` per
+[`required_notes_by_profile.md`](required_notes_by_profile.md). Each
+note is a verbatim title + the tables it contains.
+
+**Phase 1.5.3 change:** there are NO typed note classes. Every note
+is an instance of the same `Note` type, with `tables: list[NoteTable]`.
+Modules discover notes by title-regex match and scan rows by label.
 
 **Prompt (run once per required note, in order):**
 
 ```
-Extract the <NOTE NAME> note, output as YAML under the `notes:` key.
+Extract the <NOTE NAME> note, output as one Note entry inside the
+`notes:` list.
 
-Required shape (see raw_extraction_schema.md):
-<Paste the relevant schema block for this note>
+Shape:
+
+- note_number: "5"                            # verbatim note number
+  title: "Income tax expense"                 # verbatim section title
+  source_pages: [84, 85]
+  tables:
+    - table_label: "Rate reconciliation"      # sub-caption if any
+      columns: ["Description", "HKD millions"]
+      rows:
+        - ["Profit before tax at statutory rate", "15.84"]
+        - ["Non-deductible expenses", "1.5"]
+        - ["Effective tax rate", "21.9"]
+      unit_note: "All amounts in HK$'millions"
+  narrative_summary: null                     # optional factual summary
 
 Rules:
-- Every Decimal field from the PDF becomes a string.
-- Required fields must be populated; optional may be omitted.
-- For ProvisionItem / TaxReconciliationItem: the classification
-  vocabulary is CLOSED — use the exact enum values. When uncertain,
-  use "unknown" (taxes) or "other" (provisions); never invent a new
-  classification.
-- Cross-reference each row with a page number.
+- Verbatim title and row labels. The module finds notes by regex on
+  the title (e.g. /income tax|taxation/ for the taxes note).
+- Every numeric cell is a quoted decimal string; text labels stay
+  as strings. The parser coerces numeric strings to Decimal.
+- NO classification vocabulary in the schema — classification happens
+  downstream based on label keywords.
+- Include source_pages for easy audit.
+- narrative_summary is optional: populate with a 1-2 sentence
+  factual description, never with judgements ("meaningful",
+  "concerning", "material", etc.).
 ```
 
 For P1 Industrial, required notes in order:
@@ -676,7 +709,7 @@ Until then, the workflow is:
 Phase 2 will automate the merge. For now, explicit is better than
 implicit.
 
-## 8. Quick reference — typical first-pass YAML skeleton
+## 8. Quick reference — typical first-pass YAML skeleton (Phase 1.5.3)
 
 ```yaml
 metadata:
@@ -697,39 +730,64 @@ metadata:
 
 income_statement:
   FY2024:
-    revenue: "580.0"
-    # ... Pass 2 output
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      - {order: 1, label: "Revenue", value: "580.0"}
+      - {order: 2, label: "Cost of sales", value: "-290.0"}
+      - {order: 3, label: "Gross profit", value: "290.0", is_subtotal: true}
+      # ... rest of Pass 2 output (every IS line)
+    profit_attribution: {parent: "75.0", total: "75.0"}
+    earnings_per_share: {basic_value: "0.375", basic_unit: "HKD"}
 
 balance_sheet:
   FY2024:
-    cash_and_equivalents: "450.0"
-    # ... Pass 2 output
+    period_end_date: "2024-12-31"
+    line_items:
+      - {order: 1, label: "Cash and cash equivalents",
+         value: "450.0", section: "current_assets"}
+      # ... rest of Pass 2 BS output (every BS line with section)
 
 cash_flow:
   FY2024:
-    operating_cash_flow: "135.0"
-    # ... Pass 2 output
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      - {order: 1, label: "Profit before taxation",
+         value: "96.0", section: "operating"}
+      # ... rest of Pass 2 CF output
 
 notes:
-  taxes:
-    effective_tax_rate_percent: "21.9"
-    # ... Pass 3 output
-  leases:
-    # ... Pass 3 output
-  # ... other required notes
+  - note_number: "6"
+    title: "Income tax expense"
+    source_pages: [84, 85]
+    tables:
+      - table_label: "Rate reconciliation"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Profit before tax at statutory rate", "15.84"]
+          # ... Pass 3 output
+  # ... other required notes as more entries in the list
 
 segments:
-  by_geography:
-    FY2024:
+  - period: "FY2024"
+    segment_type: "geography"
+    segments:
+      - segment_name: "Greater China"
+        metrics: {revenue: "420.0", operating_income: "85.0"}
       # ... Pass 5 output
 
 historical:
-  revenue_by_year:
+  source: "Five-Year Financial Summary, p.172"
+  years: [2020, 2021, 2022, 2023, 2024]
+  metrics:
+    revenue: ["380.0", "440.0", "485.0", "520.0", "580.0"]
     # ... Pass 6 output
 
 operational_kpis:
-  metrics:
-    # ... Pass 6 output
+  - metric_label: "Total clinics and consultation centres worldwide"
+    source: "MD&A"
+    unit: "count"
+    values: {FY2024: "38"}
+  # ... Pass 6 output
 ```
 
 That's the whole workflow. Start on an annual report, follow the 7

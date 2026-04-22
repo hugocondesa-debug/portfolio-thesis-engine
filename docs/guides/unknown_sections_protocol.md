@@ -1,11 +1,23 @@
-# The `unknown_sections` bucket — protocol
+# Unknown / catch-all notes — protocol (Phase 1.5.3)
 
 **When to use this guide:** whenever you're tempted to drop
-information because it doesn't fit any typed field.
+information because it doesn't fit any obvious shape.
 
-`notes.unknown_sections` is a **reviewer-flagged catchall**. It keeps
-information in the YAML instead of silently losing it. It is not a
-lazy dumping ground.
+## Phase 1.5.3 change
+
+In Phase 1.5 the schema had a dedicated `notes.unknown_sections`
+bucket with `UnknownSectionItem` entries. Phase 1.5.3 eliminated
+typed notes altogether: **every note is a `Note` entry** in the flat
+`notes: list[Note]`. There's no "unknown" bucket — there's just "a
+Note with whatever title the PDF uses."
+
+The protocol in this guide now applies to **any Note that doesn't fit
+the standard list in [`required_notes_by_profile.md`](../required_notes_by_profile.md)**.
+Such notes still belong in the YAML — just capture them as `Note`
+entries like any other.
+
+`Note` is a **reviewer-flagged catchall**. It keeps information in the
+YAML instead of silently losing it. It is not a lazy dumping ground.
 
 ## Decision order — where does a disclosure go?
 

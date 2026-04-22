@@ -1,6 +1,10 @@
-# EuroEyes Medical Group — Interim Report H1 2025
-# =================================================
-# Few-shot example demonstrating the schema's interim-period support.
+# EuroEyes Medical Group — Interim Report H1 2025 (LEGACY — Phase 1.5 schema)
+# ==============================================================================
+# LEGACY SCHEMA — superseded by the Phase 1.5.3 as-reported structured
+# schema. Kept for comparison and migration reference ONLY. Do NOT use as
+# a few-shot example.
+#
+# Original intent: Few-shot example demonstrating the schema's interim-period support.
 # Plausible synthetic numbers; less comprehensive note coverage than
 # an annual (consistent with what most interims disclose).
 

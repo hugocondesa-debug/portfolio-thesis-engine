@@ -5,23 +5,24 @@ to `~/data_inputs/<ticker>/`. Most are also enforced by
 `pte validate-extraction` — this checklist lets you self-audit
 before the command runs.
 
-## 1. Arithmetic identities
+## 1. Arithmetic identities — Phase 1.5.3 walking subtotals
 
-| Check                | Formula                                                | Tolerance |
-| -------------------- | ------------------------------------------------------ | --------- |
-| **BS identity**       | `total_assets = total_liabilities + total_equity`     | 0         |
-| **BS current**        | `total_current_assets = Σ(current-asset lines)`       | 1 %       |
-| **BS non-current**    | `total_non_current_assets = Σ(non-current lines)`     | 1 %       |
-| **IS gross**          | `gross_profit ≈ revenue + cost_of_sales`              | 1 %       |
-| **IS operating**      | `operating_income ≈ gross_profit − Σ(opex) − D&A`     | 1 %       |
-| **IS below-the-line** | `net_income ≈ op_income + fin_inc + fin_exp + tax`    | 2 %       |
-| **CF walk**           | `net_change_in_cash = CFO + CFI + CFF + fx_effect`    | 0         |
-| **CF cash movement**  | `cash_opening + net_change_in_cash = cash_closing`    | 0         |
+| Check                    | How it runs                                                    | Tolerance |
+| ------------------------ | -------------------------------------------------------------- | --------- |
+| **S.IS.SUBn**            | Each IS `is_subtotal: true` line equals running sum of preceding leaves | 0.5 %     |
+| **S.BS.<section>.SUBn**  | Each BS section subtotal equals sum of that section's leaves   | 0.5 %     |
+| **S.BS.IDENTITY**        | `total_assets = total_liabilities + total_equity` (by label match) | 0.1 % |
+| **S.CF.<section>.SUBn**  | Each CF section subtotal equals sum of that section's leaves   | 2 %       |
+| **W.CF**                 | Sum of CF section subtotals + fx = Δcash line                  | 2 %       |
 
-Strict validation catches the **BS identity** and **CF walk**. The
-others are warn-level checks (`W.GP`, `W.OI`, `W.NI_WALK`). Fix
-even warn-level failures before shipping unless you can point at a
-specific reconciling footnote.
+The validator walks ordered line items per section, resetting the
+running sum at each subtotal (waterfall semantics on the IS; reset
+per section for BS/CF). Cross-section grand totals (Total assets,
+Total liabilities, Δcash) are handled by their own identity checks
+rather than the walk.
+
+All strict-tier failures block the pipeline. Fix them before
+shipping.
 
 ## 2. Cross-statement identities
 

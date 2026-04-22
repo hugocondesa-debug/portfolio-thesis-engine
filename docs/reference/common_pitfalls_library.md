@@ -7,6 +7,26 @@ heuristic.
 Pitfalls are grouped by root cause. When you see the validator flag
 something, start at the relevant group.
 
+## Phase 1.5.3 — obsolete pitfall classes
+
+The Phase 1.5.3 schema migration eliminated whole classes of bugs:
+
+- **D.1 Inventing classification values** — the `TaxItemClassification`
+  and `ProvisionClassification` enums are gone. Classification now
+  happens downstream in Modules A/B based on label keywords. Nothing
+  for the extractor to invent.
+- **D.2 Classifying on gut feel** — same as above. Capture the row
+  label verbatim; let the module decide.
+- **D.3 Squashing "Other" into `operational`** — same.
+- **"selling_marketing or general_administrative?"** — no longer a
+  question. Whatever the company reports is one `LineItem` with its
+  own `label`. The schema doesn't force you to pick a bucket.
+
+These pitfalls still apply as cautionary tales for the old schema;
+they no longer happen in practice. The **new** pitfalls to watch for
+are around `is_subtotal` flagging and `section` assignment — see
+groups **G** and **H** below.
+
 ## Group A — Sign errors
 
 ### A.1 Parentheses slipping into the YAML
@@ -501,6 +521,107 @@ otherwise.
 
 **Detection:** re-read the subsequent events footnote. If the
 tag's polarity isn't in the text, default to `pending`.
+
+## Group G — `is_subtotal` flagging (Phase 1.5.3)
+
+### G.1 Flagging non-subtotal lines
+
+**Bad:**
+
+```yaml
+- {order: 4, label: "Selling expenses", value: "-95", is_subtotal: true}
+```
+
+Selling expenses is a leaf line, not a subtotal.
+
+**Good:**
+
+```yaml
+- {order: 4, label: "Selling expenses", value: "-95"}
+```
+
+**Detection:** validator S.IS walk FAILs — the subtotal-flagged line
+doesn't equal the sum of preceding leaves.
+
+### G.2 Missing subtotal flag on a reported subtotal
+
+**Bad:**
+
+```yaml
+- {order: 3, label: "Gross profit", value: "290"}
+```
+
+The walker then treats Gross profit as a leaf, adds it to Revenue +
+Cost of sales + Gross profit, and the next subtotal fails.
+
+**Good:**
+
+```yaml
+- {order: 3, label: "Gross profit", value: "290", is_subtotal: true}
+```
+
+### G.3 Inventing a subtotal the PDF doesn't show
+
+The issuer's condensed IS may not disclose "Gross profit". Don't add
+one just to make the validator happy. Report only the subtotals the
+PDF prints.
+
+## Group H — BS `section` assignment (Phase 1.5.3)
+
+### H.1 Mixing current and non-current under one section
+
+**Bad:**
+
+```yaml
+- {order: 1, label: "Cash", value: "200", section: "current_assets"}
+- {order: 2, label: "PP&E", value: "700", section: "current_assets"}
+```
+
+PP&E is a non-current asset. Setting section wrong breaks the section
+walk.
+
+**Good:**
+
+```yaml
+- {order: 1, label: "Cash", value: "200", section: "current_assets"}
+- {order: 2, label: "PP&E", value: "700", section: "non_current_assets"}
+```
+
+### H.2 Using company labels instead of section enum values
+
+**Bad:**
+
+```yaml
+- section: "Current Assets"
+- section: "非流動資產"
+```
+
+**Good:**
+
+The section field is a closed vocabulary:
+`current_assets` / `non_current_assets` / `total_assets` /
+`current_liabilities` / `non_current_liabilities` /
+`total_liabilities` / `equity`. CF: `operating` / `investing` /
+`financing` / `fx_effect` / `subtotal`. IS: leave unset.
+
+### H.3 Forgetting the cross-section grand totals
+
+The BS has "Total current assets" (current_assets subtotal), "Total
+non-current assets" (non_current_assets subtotal), AND "Total
+assets" (cross-section grand total). Each needs its own LineItem
+with the appropriate section + `is_subtotal: true`:
+
+```yaml
+- section: "current_assets"      # in a current_assets section
+  label: "Total current assets"
+  is_subtotal: true
+- section: "non_current_assets"
+  label: "Total non-current assets"
+  is_subtotal: true
+- section: "total_assets"        # grand total → its own section
+  label: "Total assets"
+  is_subtotal: true
+```
 
 ## Closing
 

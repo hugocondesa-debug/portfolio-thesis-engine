@@ -7,6 +7,40 @@ interpret something.**
 
 **Extract everything. Classify nothing. Judge nothing.**
 
+## The EuroEyes D&A case study (Phase 1.5.3 motivation)
+
+The Phase 1.5 schema had typed fields: `revenue`, `cost_of_sales`,
+`selling_marketing`, `general_administrative`,
+`depreciation_amortization`, etc. To populate the YAML, the extractor
+had to **map** the company's reported lines onto those fields.
+
+During the first real EuroEyes extraction, Claude Opus:
+
+1. Saw the IS with an aggregated "Selling expenses" line that already
+   included D&A.
+2. Separately saw Note 5 breaking out D&A.
+3. Decided to populate `depreciation_amortization` from Note 5 —
+   "more information is better".
+
+Result: D&A was **counted once in the opex aggregate** AND **once in
+the dedicated `depreciation_amortization` field**. The strict
+validator's IS-identity check caught it with a 119 % delta. Hours
+wasted.
+
+**The bug wasn't a typo. It was a schema-design flaw.** Any fixed-field
+schema pushes the extractor into classification decisions: "which
+pre-defined slot does this reported line map to?". Every such
+decision is a coin-flip the validator can't always catch.
+
+Phase 1.5.3 eliminated the pressure: the schema captures what the
+company actually printed, in order. Module A / B / C do the
+classification downstream where they can be audited, tested, and
+iterated without re-extraction.
+
+The catch-all principle is the cultural counterpart to that
+schema choice: **even within a forgiving schema, resist the urge to
+editorialise.**
+
 Extraction produces a YAML of **facts as reported by the company**.
 It does not produce analysis, interpretation, or evaluation. Those
 happen downstream, in the Phase 2 modules, the Ficha composer, and

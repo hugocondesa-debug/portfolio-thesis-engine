@@ -1,6 +1,11 @@
-# EuroEyes Medical Group — Annual Report FY2024
-# ==============================================
-# Few-shot example for the P1 Industrial Claude.ai Project.
+# EuroEyes Medical Group — Annual Report FY2024 (LEGACY — Phase 1.5 schema)
+# ==========================================================================
+# LEGACY SCHEMA — superseded by the Phase 1.5.3 as-reported structured
+# schema. Kept for comparison and migration reference ONLY. Do NOT use as
+# a few-shot example. The current few-shot lives at
+# tests/fixtures/euroeyes/raw_extraction.yaml.
+#
+# Original intent: Few-shot example for the P1 Industrial Claude.ai Project.
 # Synthetic numbers based on plausible EuroEyes scale (HKD millions,
 # 38 clinics, ~850 staff). All arithmetic identities hold by
 # construction so `pte validate-extraction --profile P1` is clean.
