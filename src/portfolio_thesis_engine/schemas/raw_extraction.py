@@ -207,6 +207,16 @@ class LineItem(BaseSchema):
     label: str = Field(min_length=1)
     value: Decimal | None = None
     is_subtotal: bool = False
+    skip_in_waterfall: bool = False
+    """True for **nested subtotals** that are sub-sums of adjacent
+    lines and should NOT reset the waterfall running sum — e.g. IFRS
+    IS "Finance income/(expenses), net" which sums the preceding
+    finance lines but doesn't participate in the OP→PBT→NI waterfall.
+
+    The validator still verifies the nested subtotal equals the sum
+    of its component lines (via running_sum − last_waterfall_anchor);
+    it just doesn't reset the waterfall anchor.
+    """
     section: str | None = None
     source_note: str | None = None
     """Note reference as reported. Free-form string so composite /

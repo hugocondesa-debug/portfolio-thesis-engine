@@ -219,6 +219,55 @@ def _find_subtotal(
     return None
 
 
+def _find_last_equity_subtotal(items: list[LineItem]) -> LineItem | None:
+    """Phase 1.5.5: return the LAST ``is_subtotal=True`` line in
+    ``section="equity"``. Typical pattern in IFRS balance sheets:
+    "Total equity attributable to owners" (TEP) appears first, then
+    "Non-controlling interests", then "Total equity" (TEP + NCI) last.
+    The grand total — the last subtotal — is what belongs in the
+    A = L + E identity."""
+    equity_subtotals = [
+        item for item in items
+        if item.is_subtotal and item.section == "equity"
+    ]
+    if not equity_subtotals:
+        return None
+    return equity_subtotals[-1]
+
+
+def _find_cf_net_change(items: list[LineItem]) -> LineItem | None:
+    """Phase 1.5.5: find the CF Δcash anchor line.
+
+    Priority:
+    1. ``is_subtotal=True`` + label matches /net (increase|decrease|
+       change) in cash/ + no memo marker in ``notes``.
+    2. Fallback: the legacy "net_change_in_cash" category token (now
+       maps to section="subtotal" on Phase 1.5.3 schema).
+
+    Memo lines (opening / closing cash balances tagged in ``notes``
+    as "memo" or "reconciliation") are explicitly excluded — they
+    often carry ``is_subtotal=True`` and the raw section
+    ``"subtotal"``, which otherwise confuses the heuristic.
+    """
+    for item in items:
+        if not item.is_subtotal or item.value is None:
+            continue
+        if item.notes and _MEMO_NOTE_PATTERN.search(item.notes):
+            continue
+        if _NET_CHANGE_IN_CASH_LABEL.search(item.label):
+            return item
+    # Fallback: any non-memo subtotal in the "subtotal" section.
+    for item in items:
+        if not item.is_subtotal or item.value is None:
+            continue
+        if item.section != "subtotal":
+            continue
+        if item.notes and _MEMO_NOTE_PATTERN.search(item.notes):
+            continue
+        return item
+    return None
+
+
 # Common subtotal / line patterns
 _PPE_LABEL = re.compile(
     r"property,? plant|property and equipment|plant and equipment", re.IGNORECASE
@@ -240,6 +289,28 @@ _TOTAL_ASSETS_LABEL = re.compile(r"total assets", re.IGNORECASE)
 _TOTAL_LIAB_LABEL = re.compile(r"total liabilities", re.IGNORECASE)
 _TOTAL_EQUITY_LABEL = re.compile(r"total equity|total shareholders'?\s?equity",
                                  re.IGNORECASE)
+
+# Phase 1.5.5: IFRS IS patterns
+_OCI_HEADER_LABEL = re.compile(
+    r"other comprehensive (income|loss|\(loss\)/income|\(income\)/loss)",
+    re.IGNORECASE,
+)
+_OCI_SUBHEADER_LABEL = re.compile(
+    r"items that (may|will) (not )?be reclassified", re.IGNORECASE
+)
+_TCI_LABEL = re.compile(
+    r"total comprehensive (income|loss)", re.IGNORECASE
+)
+_PFY_LABEL = re.compile(
+    r"profit for the (year|period)|net (income|profit|earnings)",
+    re.IGNORECASE,
+)
+
+# CF Δcash identification
+_NET_CHANGE_IN_CASH_LABEL = re.compile(
+    r"net (increase|decrease|change) in cash", re.IGNORECASE
+)
+_MEMO_NOTE_PATTERN = re.compile(r"memo|reconciliation", re.IGNORECASE)
 
 
 # ======================================================================
@@ -365,9 +436,23 @@ class ExtractionValidator:
     def _check_is_arithmetic(
         self, is_data: IncomeStatementPeriod | None, period: str
     ) -> list[ValidationResult]:
-        """Walking subtotals on the IS. Each subtotal resets the running
-        sum (subsequent lines are typically deductions from the new
-        anchor, e.g. finance expenses after Operating Profit)."""
+        """Walking subtotals on the IS with IFRS-aware handling.
+
+        Three behaviours:
+
+        - **Waterfall subtotals** (default) — Σ preceding non-subtotal
+          items. Resets the running sum to the subtotal's reported
+          value (Gross profit → Operating profit → PBT → PFY).
+        - **Nested subtotals** (``skip_in_waterfall=True``) — sub-sum
+          of adjacent lines (e.g. "Finance income/(expenses), net").
+          Verified against ``running_sum − last_waterfall_anchor``.
+          Does NOT reset the anchor.
+        - **OCI section** — detected by header label pattern. OCI
+          items accumulate to an independent ``oci_sum`` starting
+          from zero. OCI subtotal (``S.IS.OCI``) verifies oci_sum.
+          TCI subtotal (``S.IS.TCI``) verifies PFY + OCI subtotal
+          (not cumulative).
+        """
         if is_data is None or not is_data.line_items:
             return [
                 ValidationResult(
@@ -375,13 +460,249 @@ class ExtractionValidator:
                     f"No IS line_items for primary period {period}.",
                 )
             ]
-        return self._walk_subtotals(
-            _ordered(is_data.line_items),
-            period_label=period,
-            check_id_prefix="S.IS",
-            tolerance=_IS_TOL,
-            scope_name="IS",
-        )
+
+        items = _ordered(is_data.line_items)
+        results: list[ValidationResult] = []
+        waterfall_running = Decimal("0")
+        waterfall_anchor = Decimal("0")
+        saw_waterfall_non_subtotal = False
+        pfy_value: Decimal | None = None  # value of the last PFY-style subtotal before OCI
+        oci_running = Decimal("0")
+        oci_subtotal_value: Decimal | None = None
+        in_oci = False
+        subtotal_idx = 0
+        oci_sub_emitted = False
+
+        for item in items:
+            # OCI section entry — detect by header (null value is
+            # expected but we don't strictly require it).
+            if _OCI_HEADER_LABEL.search(item.label) and item.value is None:
+                in_oci = True
+                # Snapshot PFY = last waterfall anchor (= last
+                # subtotal value = PFY)
+                pfy_value = waterfall_anchor
+                oci_running = Decimal("0")
+                continue
+            if in_oci and _OCI_SUBHEADER_LABEL.search(item.label) and item.value is None:
+                # Sub-header inside OCI — no value, skip
+                continue
+
+            if item.is_subtotal:
+                if item.value is None:
+                    continue
+
+                # TCI check — dedicated
+                if in_oci and _TCI_LABEL.search(item.label):
+                    if pfy_value is None or oci_subtotal_value is None:
+                        results.append(
+                            ValidationResult(
+                                "S.IS.TCI", "SKIP",
+                                (
+                                    f"IS {period}: TCI line found but "
+                                    f"PFY snapshot or OCI subtotal missing."
+                                ),
+                            )
+                        )
+                    else:
+                        expected = pfy_value + oci_subtotal_value
+                        delta = _pct_delta(expected, item.value)
+                        status: ValidationStatus = (
+                            "OK" if delta <= _IS_TOL else "FAIL"
+                        )
+                        results.append(
+                            ValidationResult(
+                                "S.IS.TCI",
+                                status,
+                                (
+                                    f"IS {period}: TCI check — "
+                                    f"PFY {pfy_value} + OCI subtotal "
+                                    f"{oci_subtotal_value} = {expected} vs "
+                                    f"reported {item.value} "
+                                    f"(Δ = {delta:.4%}; tolerance "
+                                    f"{_IS_TOL:.1%})."
+                                ),
+                                data={
+                                    "pfy": str(pfy_value),
+                                    "oci_subtotal": str(oci_subtotal_value),
+                                    "computed": str(expected),
+                                    "reported": str(item.value),
+                                    "delta": str(delta),
+                                },
+                            )
+                        )
+                    # TCI ends the IS; continue but nothing more
+                    # to accumulate.
+                    continue
+
+                # OCI subtotal — first non-TCI subtotal inside OCI
+                # that has a value.
+                if in_oci and not oci_sub_emitted:
+                    delta = _pct_delta(oci_running, item.value)
+                    status = "OK" if delta <= _IS_TOL else "FAIL"
+                    results.append(
+                        ValidationResult(
+                            "S.IS.OCI",
+                            status,
+                            (
+                                f"IS {period}: OCI subtotal — "
+                                f"Σ OCI items = {oci_running} vs reported "
+                                f"{item.label!r} = {item.value} "
+                                f"(Δ = {delta:.4%}; tolerance "
+                                f"{_IS_TOL:.1%})."
+                            ),
+                            data={
+                                "subtotal_label": item.label,
+                                "computed_sum": str(oci_running),
+                                "reported_subtotal": str(item.value),
+                                "delta": str(delta),
+                            },
+                        )
+                    )
+                    oci_subtotal_value = item.value
+                    oci_sub_emitted = True
+                    continue
+
+                # PnL subtotal
+                if not saw_waterfall_non_subtotal:
+                    # Cross-section grand total before any leaves —
+                    # skip (handled by dedicated identity checks).
+                    continue
+
+                if item.skip_in_waterfall:
+                    # Extractor flagged nested — verify via nested sum.
+                    nested_sum = waterfall_running - waterfall_anchor
+                    delta = _pct_delta(nested_sum, item.value)
+                    status = "OK" if delta <= _IS_TOL else "FAIL"
+                    subtotal_idx += 1
+                    results.append(
+                        ValidationResult(
+                            f"S.IS.NESTED{subtotal_idx}",
+                            status,
+                            (
+                                f"IS {period}: nested subtotal "
+                                f"{item.label!r} — Σ items since last "
+                                f"waterfall anchor = {nested_sum} vs "
+                                f"reported {item.value} "
+                                f"(Δ = {delta:.4%}; tolerance "
+                                f"{_IS_TOL:.1%})."
+                            ),
+                            data={
+                                "subtotal_label": item.label,
+                                "computed_sum": str(nested_sum),
+                                "reported_subtotal": str(item.value),
+                                "delta": str(delta),
+                            },
+                        )
+                    )
+                    continue
+
+                # Waterfall subtotal — check arithmetic. Two candidate
+                # interpretations: (a) waterfall (running_sum) or (b)
+                # auto-detected nested (running_sum − anchor). Prefer
+                # waterfall; fall back to nested if waterfall delta
+                # exceeds tolerance AND nested delta is within it.
+                subtotal_idx += 1
+                waterfall_delta = _pct_delta(waterfall_running, item.value)
+                nested_candidate = waterfall_running - waterfall_anchor
+                nested_delta = _pct_delta(nested_candidate, item.value)
+
+                if waterfall_delta <= _IS_TOL:
+                    # Accept as waterfall subtotal.
+                    results.append(
+                        ValidationResult(
+                            f"S.IS.SUB{subtotal_idx}",
+                            "OK",
+                            (
+                                f"IS {period}: Σ preceding = "
+                                f"{waterfall_running} vs subtotal "
+                                f"{item.label!r} = {item.value} "
+                                f"(Δ = {waterfall_delta:.4%}; tolerance "
+                                f"{_IS_TOL:.1%})."
+                            ),
+                            data={
+                                "subtotal_label": item.label,
+                                "computed_sum": str(waterfall_running),
+                                "reported_subtotal": str(item.value),
+                                "delta": str(waterfall_delta),
+                            },
+                        )
+                    )
+                    waterfall_running = item.value
+                    waterfall_anchor = item.value
+                elif nested_delta <= _IS_TOL:
+                    # Auto-detected nested subtotal: waterfall check
+                    # fails but sum-since-anchor matches. Examples:
+                    # "Finance income/(expenses), net" sums adjacent
+                    # finance lines without resetting the waterfall.
+                    results.append(
+                        ValidationResult(
+                            f"S.IS.NESTED{subtotal_idx}",
+                            "OK",
+                            (
+                                f"IS {period}: auto-detected nested "
+                                f"subtotal {item.label!r} — Σ items since "
+                                f"last waterfall anchor = {nested_candidate}"
+                                f" vs reported {item.value} "
+                                f"(Δ = {nested_delta:.4%}; tolerance "
+                                f"{_IS_TOL:.1%}). Not resetting waterfall. "
+                                f"Mark ``skip_in_waterfall: true`` in the "
+                                f"extraction to make this explicit."
+                            ),
+                            data={
+                                "subtotal_label": item.label,
+                                "computed_sum": str(nested_candidate),
+                                "reported_subtotal": str(item.value),
+                                "delta": str(nested_delta),
+                                "auto_detected_nested": "true",
+                            },
+                        )
+                    )
+                    # DO NOT reset waterfall state.
+                else:
+                    # Genuine FAIL — neither interpretation matches.
+                    results.append(
+                        ValidationResult(
+                            f"S.IS.SUB{subtotal_idx}",
+                            "FAIL",
+                            (
+                                f"IS {period}: subtotal {item.label!r} = "
+                                f"{item.value} doesn't match waterfall "
+                                f"(Σ preceding = {waterfall_running}, "
+                                f"Δ = {waterfall_delta:.4%}) nor nested "
+                                f"sum since last anchor "
+                                f"({nested_candidate}, "
+                                f"Δ = {nested_delta:.4%}); tolerance "
+                                f"{_IS_TOL:.1%}."
+                            ),
+                            data={
+                                "subtotal_label": item.label,
+                                "waterfall_sum": str(waterfall_running),
+                                "waterfall_delta": str(waterfall_delta),
+                                "nested_sum": str(nested_candidate),
+                                "nested_delta": str(nested_delta),
+                                "reported_subtotal": str(item.value),
+                            },
+                        )
+                    )
+                    waterfall_running = item.value
+                    waterfall_anchor = item.value
+            else:
+                if item.value is not None:
+                    if in_oci:
+                        oci_running += item.value
+                    else:
+                        waterfall_running += item.value
+                        saw_waterfall_non_subtotal = True
+
+        if not results:
+            results.append(
+                ValidationResult(
+                    "S.IS.SUB0",
+                    "SKIP",
+                    f"IS {period}: no verifiable subtotal.",
+                )
+            )
+        return results
 
     def _check_bs_sections(
         self, bs_data: BalanceSheetPeriod | None, period: str
@@ -411,6 +732,14 @@ class ExtractionValidator:
     def _check_bs_identity(
         self, bs_data: BalanceSheetPeriod | None, period: str
     ) -> ValidationResult:
+        """BS identity: Assets = Liabilities + Total equity (incl. NCI).
+
+        Phase 1.5.5: when the BS has both "Total equity attributable to
+        owners" (TEP) and "Total equity" (TEP + NCI) as subtotals in
+        the equity section, we pick the **last** equity subtotal —
+        which is the grand total including NCI — for the identity
+        check. Picking TEP would fail by exactly the NCI amount.
+        """
         if bs_data is None or not bs_data.line_items:
             return ValidationResult(
                 "S.BS.IDENTITY", "SKIP",
@@ -418,7 +747,8 @@ class ExtractionValidator:
             )
         total_assets = _find_subtotal(bs_data.line_items, _TOTAL_ASSETS_LABEL)
         total_liab = _find_subtotal(bs_data.line_items, _TOTAL_LIAB_LABEL)
-        total_equity = _find_subtotal(bs_data.line_items, _TOTAL_EQUITY_LABEL)
+        # Find the LAST equity subtotal (grand total incl. NCI).
+        total_equity = _find_last_equity_subtotal(bs_data.line_items)
         if (
             total_assets is None or total_liab is None or total_equity is None
             or total_assets.value is None or total_liab.value is None
@@ -444,6 +774,7 @@ class ExtractionValidator:
             data={
                 "assets": str(total_assets.value),
                 "liab_plus_equity": str(rhs),
+                "equity_subtotal_label": total_equity.label,
                 "delta": str(delta),
             },
         )
@@ -552,43 +883,48 @@ class ExtractionValidator:
     def _check_cf_identity(
         self, cf_data: CashFlowPeriod | None, period: str
     ) -> ValidationResult:
+        """CF Δcash identity.
+
+        Phase 1.5.5: the Δcash anchor is identified by label match on
+        /net (increase|decrease|change) in cash/, and lines flagged as
+        memo / reconciliation in ``notes`` are skipped. This avoids
+        confusing opening / closing cash balances (which some filings
+        carry as subtotals in ``section="subtotal"``) with the real
+        Δcash line.
+        """
         if cf_data is None or not cf_data.line_items:
             return ValidationResult(
                 "W.CF", "SKIP", f"No CF for primary period {period}."
             )
         items = _ordered(cf_data.line_items)
-        # Sum every subtotal whose section is one of operating/investing/
-        # financing/fx_effect. Look for a final subtotal (Δcash) — if
-        # present, compare; otherwise skip.
         section_totals: dict[str, Decimal] = {}
-        final_subtotal: LineItem | None = None
         for item in items:
             if not item.is_subtotal or item.value is None:
                 continue
             if item.section in ("operating", "investing", "financing", "fx_effect"):
                 section_totals[item.section] = item.value
-            elif item.section == "subtotal":
-                final_subtotal = item
 
-        if final_subtotal is None or final_subtotal.value is None:
+        net_change = _find_cf_net_change(cf_data.line_items)
+        if net_change is None or net_change.value is None:
             return ValidationResult(
                 "W.CF", "SKIP",
-                "No overall Δcash subtotal line to verify.",
+                "No Δcash subtotal line to verify (memo lines filtered).",
             )
         computed = sum(section_totals.values(), start=Decimal("0"))
-        delta = _pct_delta(computed, final_subtotal.value)
+        delta = _pct_delta(computed, net_change.value)
         status: ValidationStatus = "OK" if delta <= _CF_TOL else "WARN"
         return ValidationResult(
             "W.CF",
             status,
             (
                 f"CF identity: Σ sections {computed} vs reported Δcash "
-                f"{final_subtotal.value} (Δ = {delta:.2%}; tolerance "
-                f"{_CF_TOL:.1%})."
+                f"{net_change.label!r} = {net_change.value} "
+                f"(Δ = {delta:.2%}; tolerance {_CF_TOL:.1%})."
             ),
             data={
                 "computed": str(computed),
-                "reported": str(final_subtotal.value),
+                "reported": str(net_change.value),
+                "net_change_label": net_change.label,
                 "delta": str(delta),
             },
         )

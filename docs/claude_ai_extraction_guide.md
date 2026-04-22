@@ -43,6 +43,111 @@ The three-page schema reference
 ([`raw_extraction_schema.md`](raw_extraction_schema.md)) is the contract
 — if the YAML validates, the pipeline processes it.
 
+## 1c. IFRS IS patterns (Phase 1.5.5)
+
+The walking-subtotals validator handles four IFRS patterns the
+real EuroEyes extraction surfaced. You don't need to flag them
+manually — the validator auto-detects by arithmetic. But marking
+them explicitly keeps the extraction audit-friendly.
+
+### Nested subtotals ("X, net")
+
+IFRS income statements often include sub-sums like
+**"Finance income/(expenses), net"** between Operating profit and
+Profit before tax. These are sub-sums of the preceding 1-2 lines
+and do **NOT** participate in the Op → PBT → PFY waterfall.
+
+Mark with `skip_in_waterfall: true`:
+
+```yaml
+- {order: 9, label: "Finance income", value: "26472"}
+- {order: 10, label: "Finance expenses", value: "-15785"}
+- order: 11
+  label: "Finance income/(expenses), net"
+  value: "10687"
+  is_subtotal: true
+  skip_in_waterfall: true
+- {order: 12, label: "Profit before tax", value: "126466", is_subtotal: true}
+```
+
+The validator verifies the nested sum (26472 + -15785 = 10687)
+AND still verifies the waterfall (OP + Finance income + Finance
+expenses = PBT) without resetting on the nested line.
+
+If you forget `skip_in_waterfall`, the validator auto-detects by
+matching arithmetic; the audit output will say "auto-detected
+nested" and suggest adding the flag.
+
+### OCI section + TCI
+
+IFRS splits the IS into PnL (ending at Profit for the year) then
+OCI (Other Comprehensive Income). Flag OCI subsection headers with
+`value: null` (no `is_subtotal`); OCI items accumulate
+independently; OCI subtotal = Σ OCI items; TCI = PFY + OCI subtotal
+(not cumulative).
+
+```yaml
+- {order: 14, label: "Profit for the year", value: "84359", is_subtotal: true}
+- {order: 15, label: "Other comprehensive (loss)/income", value: null}
+- {order: 16, label: "Items that may be reclassified to profit or loss", value: null}
+- {order: 17, label: "Exchange differences on translation of foreign operations", value: "-21358"}
+- {order: 18, label: "Items that will not be reclassified to profit or loss", value: null}
+- {order: 19, label: "Exchange differences on translation to presentation currency", value: "-40647"}
+- {order: 20, label: "Other comprehensive loss for the year", value: "-62005", is_subtotal: true}
+- {order: 21, label: "Total comprehensive income for the year", value: "22354", is_subtotal: true}
+```
+
+The validator detects the OCI header by label
+(`/other comprehensive (income|loss)/i`), snapshots PFY, resets the
+sum, then emits dedicated checks:
+
+- `S.IS.OCI` — OCI subtotal = Σ OCI items.
+- `S.IS.TCI` — TCI = PFY + OCI subtotal.
+
+### Multi-level equity subtotals
+
+IFRS balance sheets usually present:
+
+1. Components of equity (share capital, retained earnings, reserves).
+2. "Total equity attributable to owners of the Company" (TEP).
+3. "Non-controlling interests" (NCI).
+4. "Total equity" (TEP + NCI) — **the grand total used in the BS
+   identity**.
+
+The validator uses the **last** equity subtotal for the identity
+check (Assets = Liab + Total equity). Capture all three subtotals
+with `is_subtotal: true` and `section: "equity"`.
+
+### CF memo lines (opening / closing cash balances)
+
+Many filings append opening + closing cash balances after the CF
+proper. They're subtotals structurally (no component leaves above)
+but they're **memo** / reconciliation lines — not the real Δcash.
+
+Mark them with `notes: "memo"` to keep them out of the W.CF
+identity check:
+
+```yaml
+- {order: 17, label: "Net decrease in cash", value: "-22899", section: "subtotal", is_subtotal: true}
+- order: 18
+  label: "Cash at beginning of year"
+  value: "720216"
+  section: "subtotal"
+  is_subtotal: true
+  notes: "memo"
+- {order: 19, label: "Effect of foreign exchange rate changes", value: "-44085", section: "fx_effect", is_subtotal: true}
+- order: 20
+  label: "Cash at end of year"
+  value: "653232"
+  section: "subtotal"
+  is_subtotal: true
+  notes: "memo"
+```
+
+The validator's W.CF check prefers lines matching
+`/net (increase|decrease|change) in cash/` and skips lines whose
+`notes` field contains `/memo|reconciliation/`.
+
 ## 1b. Flexible containers (Phase 1.5.4)
 
 The schema permits **extra fields** on flexible containers —
