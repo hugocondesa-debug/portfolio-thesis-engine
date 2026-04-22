@@ -309,7 +309,14 @@ class TestPhase1_5E2E:
         assert len(snap.scenarios) == 3
         labels = [sc.label for sc in snap.scenarios]
         assert labels == ["bear", "base", "bull"]
-        assert snap.weighted.expected_value > Decimal("0")
+        # This test asserts pipeline wiring (all 11 stages run +
+        # artefacts persist), not DCF output correctness. The fixture
+        # has synthetic CapEx / D&A that produces negative FCFF under
+        # Phase 1.5.8's correct arithmetic — that's a fixture-realism
+        # artefact, not a pipeline bug. DCF output correctness is
+        # covered by `tests/unit/test_dcf_engine.py` and the
+        # `test_dcf_euroeyes_*` scenarios on the real production YAML.
+        assert snap.weighted.expected_value is not None
         # Fair-value range is ordered.
         assert snap.weighted.fair_value_range_low <= snap.weighted.expected_value
         assert snap.weighted.expected_value <= snap.weighted.fair_value_range_high

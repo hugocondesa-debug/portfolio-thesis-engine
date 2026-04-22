@@ -39,6 +39,7 @@ arriving in a single year-end lump.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -48,6 +49,22 @@ from portfolio_thesis_engine.valuation.base import DCFResult, ValuationEngine
 
 _ONE = Decimal("1")
 _HUNDRED = Decimal("100")
+
+# Phase 1.5.8 — label patterns for base-year lookups. Matches the same
+# regex conventions used by the validator, AnalysisDeriver, and the
+# pipeline coordinator's cross-check helpers.
+_REVENUE_LABEL = re.compile(
+    r"^revenue$|^total revenue$|^sales$|^turnover$", re.IGNORECASE
+)
+_OPERATING_INCOME_LABEL = re.compile(
+    r"^operating (profit|income)$|^profit from operations",
+    re.IGNORECASE,
+)
+_CAPEX_LABEL = re.compile(
+    r"purchas[ae]s? of (property|plant|equipment|intangib)|"
+    r"capital expenditure|additions? to (property|ppe|intangib)",
+    re.IGNORECASE,
+)
 
 
 class FCFFDCFEngine(ValuationEngine):
@@ -205,10 +222,19 @@ class FCFFDCFEngine(ValuationEngine):
         """Pull the base-year revenue, margin, capex/revenue, D&A/revenue,
         and operating tax rate off the canonical state.
 
+        Phase 1.5.8: label lookups use **regex patterns** instead of
+        exact-string / Phase-1 category matches. Previous code read
+        category=="capex" (Phase-1 convention) and label=="Operating
+        income" (US-GAAP style); the Phase-1.5.3 coordinator passes
+        categories from sections ("investing"/"operating"/etc.) and
+        IFRS filings report "Operating profit", "Purchases of property
+        plant and equipment" etc. The exact-string lookups silently
+        returned 0, collapsing CapEx to 0 and margin to 0 → FCFF
+        inflated by the full D&A addback → EV multiplied 3-4×.
+
         Falls back to ``0`` for ratios when denominators are missing so
-        the engine never divides-by-zero. An all-zero base obviously
-        produces an all-zero projection, which the composer surfaces as
-        a WARN rather than crashing.
+        the engine never divides-by-zero. An all-zero base produces an
+        all-zero projection, which the composer surfaces as a WARN.
         """
         rs_list = canonical_state.reclassified_statements
         if not rs_list:
@@ -217,25 +243,29 @@ class FCFFDCFEngine(ValuationEngine):
                 "canonical_state.reclassified_statements"
             )
         rs = rs_list[0]
-        revenue = _sum_by_label(rs.income_statement, "Revenue")
 
-        # Operating income: pick the line with that label (parser emits
-        # a subtotal line labelled "Operating income").
-        operating_income = _sum_by_label(rs.income_statement, "Operating income")
+        # Revenue.
+        revenue = _sum_by_regex(rs.income_statement, _REVENUE_LABEL)
+
+        # Operating income / profit.
+        operating_income = _sum_by_regex(
+            rs.income_statement, _OPERATING_INCOME_LABEL
+        )
         base_margin = _safe_frac(operating_income, revenue)
 
-        # CapEx: pick from CF by category.
-        capex = abs(_sum_by_category(rs.cash_flow, "capex"))
+        # CapEx — CF line whose label matches the purchase-of-PPE
+        # pattern. Absolute value since CF reports outflows as
+        # negative.
+        capex = abs(_sum_by_regex(rs.cash_flow, _CAPEX_LABEL))
         capex_ratio = _safe_frac(capex, revenue)
 
-        # D&A: pull from the IS. We intentionally look only at the
-        # ``d_and_a`` category since the IS line-item schema doesn't
-        # carry categories — but the NOPAT bridge does carry EBITDA
-        # which is operating_income + |D&A|, so back out D&A from that.
+        # D&A: the NOPAT bridge carries EBITDA = operating_income +
+        # |D&A|. Backing out D&A from that is equivalent to reading
+        # the PP&E and Intangibles notes the AnalysisDeriver already
+        # walked in Phase 1.5.6.
         bridge_list = canonical_state.analysis.nopat_bridge_by_period
         if bridge_list:
             bridge = bridge_list[0]
-            # |D&A| ≈ EBITDA − Operating Income.
             da_absolute = bridge.ebitda - operating_income
             if da_absolute < 0:
                 da_absolute = Decimal("0")
@@ -274,6 +304,17 @@ def _sum_by_label(lines, label_lower_match: str) -> Decimal:  # type: ignore[no-
     total = Decimal("0")
     for ln in lines:
         if ln.label.strip().lower() == target:
+            total += ln.value
+    return total
+
+
+def _sum_by_regex(  # type: ignore[no-untyped-def]
+    lines, pattern: re.Pattern[str]
+) -> Decimal:
+    """Phase 1.5.8: sum line values whose label matches ``pattern``."""
+    total = Decimal("0")
+    for ln in lines:
+        if pattern.search(ln.label):
             total += ln.value
     return total
 

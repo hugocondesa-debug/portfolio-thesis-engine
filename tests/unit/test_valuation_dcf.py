@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -298,3 +299,256 @@ class TestEngineConfig:
             "engine": "FCFFDCFEngine",
             "n_years": 7,
         }
+
+
+# ======================================================================
+# Phase 1.5.8 regression — label-regex base-year lookups on IFRS
+# labels ("Operating profit", "Purchases of property plant and
+# equipment") that the Phase-1 exact-string lookups missed.
+# ======================================================================
+
+
+class TestPhase1_5_8_IFRSLabels:
+    """Regression: DCF engine must pick up Operating profit /
+    Purchase[s] of property plant and equipment by label-regex, not
+    exact string or Phase-1 category."""
+
+    def test_operating_profit_label_matches(self) -> None:
+        """Previously _sum_by_label("Operating income") returned 0 on
+        IFRS filings that report "Operating profit" — collapsing
+        base-margin to 0 and D&A ratio to (EBITDA − 0)/revenue."""
+        state = _canonical()
+        # Swap the "Operating income" label for IFRS "Operating profit".
+        rs = state.reclassified_statements[0]
+        new_is = [
+            IncomeStatementLine(label="Revenue", value=Decimal("1000")),
+            IncomeStatementLine(label="Operating profit", value=Decimal("200")),
+            IncomeStatementLine(label="Net income", value=Decimal("50")),
+        ]
+        rs.income_statement.clear()
+        rs.income_statement.extend(new_is)
+
+        engine = FCFFDCFEngine(n_years=3)
+        base = engine._extract_base_year(state)
+        # Margin = 200 / 1000 = 0.20. Before Phase 1.5.8 would return 0.
+        assert base["base_operating_margin_fraction"] == Decimal("0.2")
+
+    def test_capex_label_purchases_plural(self) -> None:
+        """EuroEyes reports "Purchases of property, plant and equipment"
+        — Phase-1 `category == "capex"` missed it (category is now
+        "investing" under the new schema). Regex accepts singular +
+        plural."""
+        state = _canonical()
+        rs = state.reclassified_statements[0]
+        rs.cash_flow.clear()
+        rs.cash_flow.append(
+            CashFlowLine(
+                label="Purchases of property, plant and equipment",
+                value=Decimal("-60"),
+                category="investing",  # new schema category
+            )
+        )
+        engine = FCFFDCFEngine(n_years=3)
+        base = engine._extract_base_year(state)
+        # CapEx ratio = 60 / 1000 = 0.06.
+        assert base["capex_to_revenue_fraction"] == Decimal("0.06")
+
+    def test_capex_label_singular(self) -> None:
+        """Fixtures (and some filings) use "Purchase of property…"
+        singular. Regex must match both."""
+        state = _canonical()
+        rs = state.reclassified_statements[0]
+        rs.cash_flow.clear()
+        rs.cash_flow.append(
+            CashFlowLine(
+                label="Purchase of property, plant and equipment",
+                value=Decimal("-80"),
+                category="investing",
+            )
+        )
+        engine = FCFFDCFEngine(n_years=3)
+        base = engine._extract_base_year(state)
+        assert base["capex_to_revenue_fraction"] == Decimal("0.08")
+
+
+class TestPhase1_5_8_FCFFComposition:
+    """Phase 1.5.8 — FCFF must deduct CapEx from NOPAT (and add back
+    D&A). Regression for the 'CapEx ratio = 0 → FCFF = NOPAT + D&A'
+    inflation bug."""
+
+    @staticmethod
+    def _retag_capex_label(
+        state: CanonicalCompanyState, new_label: str
+    ) -> None:
+        """The pre-existing _canonical() helper uses a Phase-1 label
+        'CapEx' that Phase 1.5.8's label-regex doesn't match. Swap in
+        a real-world label so the test exercises the regex path."""
+        rs = state.reclassified_statements[0]
+        old = rs.cash_flow[:]
+        rs.cash_flow.clear()
+        for ln in old:
+            if ln.label == "CapEx":
+                rs.cash_flow.append(
+                    CashFlowLine(
+                        label=new_label,
+                        value=ln.value,
+                        category=ln.category,
+                    )
+                )
+            else:
+                rs.cash_flow.append(ln)
+
+    def test_fcff_includes_capex_deduction(self) -> None:
+        """FCFF = NOPAT + D&A − CapEx − ΔWC (ΔWC = 0 in Phase 1).
+        With revenue 1000, margin 20%, tax 25%, CapEx 60, D&A 80:
+        NOPAT = 200 × 0.75 = 150; FCFF = 150 + 80 − 60 = 170."""
+        state = _canonical(
+            revenue=Decimal("1000"),
+            op_income=Decimal("200"),
+            d_and_a=Decimal("80"),
+            capex=Decimal("-60"),
+            op_tax_rate=Decimal("25"),
+        )
+        self._retag_capex_label(state, "Purchases of property, plant and equipment")
+        # Use a flat scenario (no growth, margin stays at base).
+        scenario = _scenario(cagr=Decimal("0"), tg=Decimal("1"), tm=Decimal("20"))
+        engine = FCFFDCFEngine(n_years=1)
+        projected, detail = engine.project_fcff(scenario, state)
+        y1 = detail[1]
+        # Y1: revenue 1000, margin 20%, EBITDA 200, NOPAT 150,
+        # CapEx 60, D&A 80, reinvestment = 60 − 80 = −20, FCFF = 170.
+        assert y1["capex"] == Decimal("60.00")
+        assert y1["d_and_a"] == Decimal("80.00")
+        assert y1["reinvestment"] == Decimal("-20.00")
+        assert y1["fcff"] == Decimal("170.00")
+
+    def test_fcff_drops_when_capex_ratio_increases(self) -> None:
+        """Regression: earlier bug had CapEx = 0 always → FCFF = NOPAT
+        + D&A (inflated). Two states, differing only in CapEx,
+        must produce different FCFF values."""
+        low_capex = _canonical(capex=Decimal("-20"))
+        high_capex = _canonical(capex=Decimal("-100"))
+        self._retag_capex_label(low_capex, "Purchases of property, plant and equipment")
+        self._retag_capex_label(high_capex, "Purchases of property, plant and equipment")
+        scenario = _scenario(cagr=Decimal("0"), tg=Decimal("1"), tm=Decimal("20"))
+        engine = FCFFDCFEngine(n_years=1)
+        low_fcff = engine.project_fcff(scenario, low_capex)[0][0]
+        high_fcff = engine.project_fcff(scenario, high_capex)[0][0]
+        # Higher CapEx → lower FCFF (80 difference in CapEx → 80
+        # difference in FCFF).
+        assert low_fcff - high_fcff == Decimal("80.00")
+
+
+class TestPhase1_5_8_EquityBridgeLeases:
+    """Lease liabilities flow through InvestedCapital.financial_liabilities
+    in Phase 1.5.3+ (the AnalysisDeriver's classifier includes the
+    /lease liabilit/ pattern). The equity bridge subtracts net_debt
+    (financial_liabilities − financial_assets), so leases are
+    subtracted from EV to reach equity."""
+
+    def test_leases_in_net_debt_reduce_equity(self) -> None:
+        """Two states: one with lease liability, one without (all else
+        equal). Equity value differs by the lease amount."""
+        from portfolio_thesis_engine.valuation.base import DCFResult
+        from portfolio_thesis_engine.valuation.equity_bridge import EquityBridge
+
+        def _with_lease(lease_liab: Decimal) -> CanonicalCompanyState:
+            state = _canonical()
+            period = state.analysis.invested_capital_by_period[0].period
+            state.analysis.invested_capital_by_period.clear()
+            state.analysis.invested_capital_by_period.append(
+                InvestedCapital(
+                    period=period,
+                    operating_assets=Decimal("500"),
+                    operating_liabilities=Decimal("0"),
+                    invested_capital=Decimal("500"),
+                    financial_assets=Decimal("50"),
+                    # financial_liabilities includes debt + leases (same
+                    # classification AnalysisDeriver uses).
+                    financial_liabilities=Decimal("150") + lease_liab,
+                    equity_claims=Decimal("400"),
+                    cross_check_residual=Decimal("0"),
+                )
+            )
+            return state
+
+        dcf = DCFResult(
+            enterprise_value=Decimal("2000"),
+            pv_explicit=Decimal("500"),
+            pv_terminal=Decimal("1500"),
+            terminal_value=Decimal("1500"),
+            wacc_used=Decimal("8"),
+            implied_g=Decimal("2"),
+            projected_fcff=(Decimal("100"),),
+            n_years=1,
+            projection_detail={},
+        )
+        no_leases = _with_lease(Decimal("0"))
+        with_leases = _with_lease(Decimal("300"))
+        eq_no = EquityBridge().compute(dcf, no_leases).equity_value
+        eq_with = EquityBridge().compute(dcf, with_leases).equity_value
+        # Equity with leases = equity_no_leases − 300 (leases counted
+        # as debt-like claim on EV).
+        assert eq_no - eq_with == Decimal("300")
+
+
+class TestPhase1_5_8_EuroEyesRealisticRange:
+    """End-to-end DCF on the real 4288-line EuroEyes extraction.
+    After Phase 1.5.8, per-share targets fall in the user-predicted
+    HK$ 3-12 range (vs pre-fix HK$ 13-27)."""
+
+    _REAL_CLAUDE_AI_FIXTURE = (
+        Path(__file__).parent.parent / "fixtures" / "euroeyes"
+        / "raw_extraction_real_claude_ai_2025.yaml"
+    )
+    _WACC_FIXTURE = (
+        Path(__file__).parent.parent / "fixtures" / "wacc" / "euroeyes_real.md"
+    )
+
+    @pytest.mark.asyncio
+    async def test_dcf_euroeyes_base_scenario_in_realistic_range(self) -> None:
+        """Base scenario per-share in HK$ 3-10 (architect's sanity
+        check produced ~5.18; CLI uses n_years=5 vs architect's 3, so
+        a slightly wider range is acceptable)."""
+        from unittest.mock import MagicMock
+
+        from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
+        from portfolio_thesis_engine.ingestion.raw_extraction_parser import (
+            parse_raw_extraction,
+        )
+        from portfolio_thesis_engine.ingestion.wacc_parser import parse_wacc_inputs
+        from portfolio_thesis_engine.llm.cost_tracker import CostTracker
+        from portfolio_thesis_engine.pipeline.coordinator import _identity_from
+        from portfolio_thesis_engine.valuation.equity_bridge import EquityBridge
+        from portfolio_thesis_engine.valuation.scenarios import ScenarioComposer
+
+        raw = parse_raw_extraction(self._REAL_CLAUDE_AI_FIXTURE)
+        wacc = parse_wacc_inputs(self._WACC_FIXTURE)
+        identity = _identity_from(None, wacc, raw)
+        tracker = CostTracker(log_path=Path("/tmp/t_p158.jsonl"))
+        coord = ExtractionCoordinator(
+            profile=Profile.P1_INDUSTRIAL,
+            llm=MagicMock(),
+            cost_tracker=tracker,
+        )
+        state = (
+            await coord.extract_canonical(
+                raw_extraction=raw, wacc_inputs=wacc, identity=identity
+            )
+        ).canonical_state
+        assert state is not None
+
+        engine = FCFFDCFEngine(n_years=5)
+        composer = ScenarioComposer(dcf_engine=engine)
+        scenarios = composer.compose(wacc_inputs=wacc, canonical_state=state)
+        base = next(s for s in scenarios if s.label == "base")
+        dcf = engine.compute_target(base, wacc.wacc, state)
+        bridge = EquityBridge().compute(dcf, state)
+        assert bridge.per_share is not None
+        # Pre-1.5.8: ~HK$ 19.92 (inflated by ~3.8×). Post-fix: ~HK$ 7.66.
+        # Assert the realistic range; catches if the bug reappears.
+        assert Decimal("3") < bridge.per_share < Decimal("10"), (
+            f"Base-scenario target HK${bridge.per_share} outside realistic "
+            f"range [3, 10] — likely a DCF regression (CapEx=0, margin=0, "
+            f"or D&A ratio wrong)."
+        )

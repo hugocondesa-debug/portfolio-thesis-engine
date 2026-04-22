@@ -133,6 +133,16 @@ class ValuationComposer:
                 if market.price != 0
                 else Decimal("0")
             )
+            # Phase 1.5.8 — clamp upside to the schema floor (-100%).
+            # Under pathological DCF inputs (CapEx ≫ D&A + terminal
+            # margin) FCFF can turn negative, producing equity < 0.
+            # "Upside < -100 %" is financially meaningless (max loss is
+            # your invested capital). Reporting -100 % keeps the
+            # composer within schema constraints while still signalling
+            # "fair value below zero" — the scenario range + asymmetry
+            # ratio capture the distress-case detail.
+            if upside < Decimal("-100"):
+                upside = Decimal("-100")
             asymmetry = self._asymmetry(fv_low, fv_high, market.price)
             weighted_irr = prob_weighted_irr / prob_total if prob_total != 0 else None
 
