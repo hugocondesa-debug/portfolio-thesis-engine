@@ -1,0 +1,4288 @@
+# ===========================================================================
+# EuroEyes International Eye Clinic Limited (1846.HK)
+# Annual Report FY2024 — raw_extraction.yaml
+# Schema: Phase 1.5.3 as-reported structured schema
+# Assembled: 2026-04-22 from Passes 2-6 fragments
+# ===========================================================================
+
+metadata:
+  ticker: 1846.HK
+  company_name: EuroEyes International Eye Clinic Limited
+  document_type: annual_report
+  extraction_type: numeric
+  reporting_currency: HKD
+  unit_scale: thousands
+  fiscal_year: 2024
+  extraction_date: '2026-04-22'
+  extractor: human + Claude.ai Project
+  source_file_sha256: f127ead24316202241c7cba50281f5202de96fb0a5e15b47f70e826013339a75
+  source_file_name: 1846_2024_text_v3_clean.md
+  extraction_version: 2
+  extraction_notes: "FY2024 Annual Report (year ended 31 December 2024) with FY2023 comparative. Schema:\
+    \ Phase 1.5.3 as-reported. Source: v3.2 markdown converter output (pdftotext + pdfplumber, anti-hallucination\
+    \ compliant). Auditor: PwC Hong Kong, report signed 31 March 2025. Standard: IFRS as issued by IASB.\
+    \ Incorporated in Cayman Islands; listed on HKEX Main Board since 15 October 2019. \n\nKey structural\
+    \ decisions documented inline in source fields:\n- BS face 'Property, plant and equipment' HK$567,413\
+    \ (FY2024) bundles   PP&E (HK$269,306) + Right-of-use assets (HK$298,107). Breakdown in   Note 13\
+    \ / Note 29.\n- IS has no separate D&A line; D&A bundled within Cost of sales,   Selling, and Admin\
+    \ expenses. Allocation in Note 13(a): HK$87,583 +   HK$5,764 + HK$14,008 = HK$107,355 PPE depreciation,\
+    \ plus HK$4,859   intangibles amortisation (Note 14(a)) = HK$112,214 total D&A,   reconciling to Note\
+    \ 5(a) EBITDA→PBT bridge.\n- 'Finance income/(expenses), net' preserved as nested display   subtotal\
+    \ (is_subtotal: true with inline note) — does not enter IS   waterfall; finance income and finance\
+    \ expenses are the leaf items.\n- OCI sub-headers 'Items that may be reclassified...' / 'Items that\
+    \   will not be reclassified...' preserved as line_items with value:   null and is_subtotal: false.\n\
+    - Note 5(b) FY2023 segment comparative flagged as partial extraction   by source converter — only\
+    \ group totals preserved; per-segment CoS,   GP, and EBITDA for FY2023 not available.\n- No discrete\
+    \ provisions note in source. ECL allowance on trade   receivables (HK$731 FY2024) is the only loss\
+    \ allowance disclosed —   captured under Note 19; synthesized absence entry added to notes.\n- No\
+    \ defined-benefit pensions. DC-scheme contributions HK$24,012   (FY2024) disclosed in Note 8; synthesized\
+    \ absence entry added.\n- Goodwill impairment HK$11,000 recognised against LVC CGU (UK) in   FY2024.\
+    \ LVC goodwill headroom exhausted; recoverable amount equals   carrying amount at 31 Dec 2024.\n-\
+    \ Note 6(b) Germany (external customers) vs sum of Note 6(c) Germany   external columns: +1 HK$'000\
+    \ FY2024 rounding; -43 HK$'000 FY2023   partial re-classification. Preserved verbatim per source.\n\
+    - Effective tax rate row in Note 11 flagged as *calc in source   markdown — not preserved (derived;\
+    \ downstream recomputes).\n- LASIK Germany GmbH marked N/A for FY2024 Group interest (vs 100%   FY2023)\
+    \ in Note 31 — potential disposal/merger during 2024, flagged   for follow-up.\n- Notes 25 (SBC),\
+    \ 31 (Subsidiaries), 37 (Related Parties), 38   (Parent-only BS) flagged as partial extraction by\
+    \ source converter —   narrative disclosures and fair-value assumption tables preserved as   prose\
+    \ in source, not extracted as structured tables in this pass."
+  fiscal_periods:
+  - period: FY2024
+    end_date: '2024-12-31'
+    is_primary: true
+    period_type: FY
+  - period: FY2023
+    end_date: '2023-12-31'
+    is_primary: false
+    period_type: FY
+income_statement:
+  FY2024:
+    reporting_period_label: Year ended 31 December 2024
+    line_items:
+    - order: 1
+      label: Revenue
+      value: '715682'
+      is_subtotal: false
+      source_note: 6
+    - order: 2
+      label: Cost of sales
+      value: '-429089'
+      is_subtotal: false
+      source_note: 7
+    - order: 3
+      label: Gross profit
+      value: '286593'
+      is_subtotal: true
+    - order: 4
+      label: Selling expenses
+      value: '-80770'
+      is_subtotal: false
+      source_note: 7
+    - order: 5
+      label: Administrative expenses
+      value: '-115706'
+      is_subtotal: false
+      source_note: 7
+    - order: 6
+      label: Net impairment losses on financial assets
+      value: '-339'
+      is_subtotal: false
+      source_note: 19
+    - order: 7
+      label: Other gains, net
+      value: '26001'
+      is_subtotal: false
+      source_note: 9
+    - order: 8
+      label: Operating profit
+      value: '115779'
+      is_subtotal: true
+    - order: 9
+      label: Finance income
+      value: '26472'
+      is_subtotal: false
+      source_note: 10
+    - order: 10
+      label: Finance expenses
+      value: '-15785'
+      is_subtotal: false
+      source_note: 10
+    - order: 11
+      label: Finance income/(expenses), net
+      value: '10687'
+      is_subtotal: true
+      source_note: 10
+      notes: Company-reported nested subtotal of lines 9+10; does not enter IS waterfall.
+    - order: 12
+      label: Profit before tax
+      value: '126466'
+      is_subtotal: true
+    - order: 13
+      label: Income tax expense
+      value: '-42107'
+      is_subtotal: false
+      source_note: 11
+    - order: 14
+      label: Profit for the year
+      value: '84359'
+      is_subtotal: true
+    - order: 15
+      label: Other comprehensive (loss)/income
+      value: null
+      is_subtotal: false
+      notes: Section header — no value reported.
+    - order: 16
+      label: Items that may be subsequently reclassified to profit or loss
+      value: null
+      is_subtotal: false
+      notes: IFRS OCI sub-header — no value reported.
+    - order: 17
+      label: – Exchange differences on translation of foreign operations
+      value: '-21358'
+      is_subtotal: false
+    - order: 18
+      label: Items that will not be reclassified to profit or loss
+      value: null
+      is_subtotal: false
+      notes: IFRS OCI sub-header — no value reported.
+    - order: 19
+      label: – Exchange differences on translation to presentation currency
+      value: '-40647'
+      is_subtotal: false
+    - order: 20
+      label: Other comprehensive (loss)/income for the year
+      value: '-62005'
+      is_subtotal: true
+    - order: 21
+      label: Total comprehensive income for the year
+      value: '22354'
+      is_subtotal: true
+    profit_attribution:
+      parent: '82285'
+      non_controlling_interests: '2074'
+      total: '84359'
+    total_comprehensive_income_attribution:
+      parent: '20337'
+      non_controlling_interests: '2017'
+      total: '22354'
+    earnings_per_share:
+      basic_value: '24.929'
+      basic_unit: HK cents
+      diluted_value: '24.915'
+      diluted_unit: HK cents
+      basic_weighted_avg_shares: '330079'
+      diluted_weighted_avg_shares: '330269'
+      shares_unit: thousands
+  FY2023:
+    reporting_period_label: Year ended 31 December 2023
+    line_items:
+    - order: 1
+      label: Revenue
+      value: '714289'
+      is_subtotal: false
+      source_note: 6
+    - order: 2
+      label: Cost of sales
+      value: '-378768'
+      is_subtotal: false
+      source_note: 7
+    - order: 3
+      label: Gross profit
+      value: '335521'
+      is_subtotal: true
+    - order: 4
+      label: Selling expenses
+      value: '-72918'
+      is_subtotal: false
+      source_note: 7
+    - order: 5
+      label: Administrative expenses
+      value: '-89303'
+      is_subtotal: false
+      source_note: 7
+    - order: 6
+      label: Net impairment losses on financial assets
+      value: '-221'
+      is_subtotal: false
+      source_note: 19
+    - order: 7
+      label: Other gains, net
+      value: '20435'
+      is_subtotal: false
+      source_note: 9
+    - order: 8
+      label: Operating profit
+      value: '193514'
+      is_subtotal: true
+    - order: 9
+      label: Finance income
+      value: '19331'
+      is_subtotal: false
+      source_note: 10
+    - order: 10
+      label: Finance expenses
+      value: '-22235'
+      is_subtotal: false
+      source_note: 10
+    - order: 11
+      label: Finance income/(expenses), net
+      value: '-2904'
+      is_subtotal: true
+      source_note: 10
+      notes: Company-reported nested subtotal of lines 9+10; does not enter IS waterfall.
+    - order: 12
+      label: Profit before tax
+      value: '190610'
+      is_subtotal: true
+    - order: 13
+      label: Income tax expense
+      value: '-57356'
+      is_subtotal: false
+      source_note: 11
+    - order: 14
+      label: Profit for the year
+      value: '133254'
+      is_subtotal: true
+    - order: 15
+      label: Other comprehensive (loss)/income
+      value: null
+      is_subtotal: false
+      notes: Section header — no value reported.
+    - order: 16
+      label: Items that may be subsequently reclassified to profit or loss
+      value: null
+      is_subtotal: false
+      notes: IFRS OCI sub-header — no value reported.
+    - order: 17
+      label: – Exchange differences on translation of foreign operations
+      value: '5971'
+      is_subtotal: false
+    - order: 18
+      label: Items that will not be reclassified to profit or loss
+      value: null
+      is_subtotal: false
+      notes: IFRS OCI sub-header — no value reported.
+    - order: 19
+      label: – Exchange differences on translation to presentation currency
+      value: '26623'
+      is_subtotal: false
+    - order: 20
+      label: Other comprehensive (loss)/income for the year
+      value: '32594'
+      is_subtotal: true
+    - order: 21
+      label: Total comprehensive income for the year
+      value: '165848'
+      is_subtotal: true
+    profit_attribution:
+      parent: '131242'
+      non_controlling_interests: '2012'
+      total: '133254'
+    total_comprehensive_income_attribution:
+      parent: '163602'
+      non_controlling_interests: '2246'
+      total: '165848'
+    earnings_per_share:
+      basic_value: '39.544'
+      basic_unit: HK cents
+      diluted_value: '39.501'
+      diluted_unit: HK cents
+      basic_weighted_avg_shares: '331885'
+      diluted_weighted_avg_shares: '332247'
+      shares_unit: thousands
+balance_sheet:
+  FY2024:
+    period_end_date: '2024-12-31'
+    line_items:
+    - order: 1
+      label: Property, plant and equipment
+      value: '567413'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 13
+      notes: Includes Right-of-use assets HK$298,107 per Note 13 / Note 29.
+    - order: 2
+      label: Intangible assets
+      value: '30297'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 14
+    - order: 3
+      label: Goodwill
+      value: '253407'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 15
+    - order: 4
+      label: Deferred tax assets
+      value: '31475'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 30
+    - order: 5
+      label: Deposits and other receivables
+      value: '3243'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 18
+    - order: 6
+      label: Total non-current assets
+      value: '885835'
+      is_subtotal: true
+      section: non_current_assets
+    - order: 7
+      label: Inventories
+      value: '17269'
+      is_subtotal: false
+      section: current_assets
+      source_note: 20
+    - order: 8
+      label: Prepayments
+      value: '8509'
+      is_subtotal: false
+      section: current_assets
+      source_note: 17
+    - order: 9
+      label: Income tax recoverable
+      value: '2308'
+      is_subtotal: false
+      section: current_assets
+    - order: 10
+      label: Deposits and other receivables
+      value: '27436'
+      is_subtotal: false
+      section: current_assets
+      source_note: 18
+    - order: 11
+      label: Trade receivables
+      value: '4738'
+      is_subtotal: false
+      section: current_assets
+      source_note: 19
+    - order: 12
+      label: Restricted cash
+      value: '108'
+      is_subtotal: false
+      section: current_assets
+      source_note: 23
+    - order: 13
+      label: Cash and cash equivalents
+      value: '653232'
+      is_subtotal: false
+      section: current_assets
+      source_note: 21
+    - order: 14
+      label: Total current assets
+      value: '713600'
+      is_subtotal: true
+      section: current_assets
+    - order: 15
+      label: Total assets
+      value: '1599435'
+      is_subtotal: true
+      section: total_assets
+    - order: 16
+      label: Share capital
+      value: '26004'
+      is_subtotal: false
+      section: equity
+      source_note: 22
+    - order: 17
+      label: Shares held for share scheme
+      value: '-30826'
+      is_subtotal: false
+      section: equity
+      source_note: 23
+    - order: 18
+      label: Share premium
+      value: '646423'
+      is_subtotal: false
+      section: equity
+      source_note: 38(b)
+    - order: 19
+      label: Other reserves
+      value: '2744'
+      is_subtotal: false
+      section: equity
+      source_note: 24
+    - order: 20
+      label: Retained earnings
+      value: '448620'
+      is_subtotal: false
+      section: equity
+    - order: 21
+      label: Total equity attributable to owners of the Company
+      value: '1092965'
+      is_subtotal: true
+      section: equity
+    - order: 22
+      label: Non-controlling interests
+      value: '32749'
+      is_subtotal: false
+      section: equity
+      source_note: 31
+    - order: 23
+      label: Total equity
+      value: '1125714'
+      is_subtotal: true
+      section: equity
+    - order: 24
+      label: Lease liabilities (non-current)
+      value: '250574'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 29
+    - order: 25
+      label: Contingent consideration payables (non-current)
+      value: '55108'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 3.3, 35
+    - order: 26
+      label: Deferred tax liabilities
+      value: '15864'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 30
+    - order: 27
+      label: Total non-current liabilities
+      value: '321546'
+      is_subtotal: true
+      section: non_current_liabilities
+    - order: 28
+      label: Trade payables
+      value: '25047'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 26
+    - order: 29
+      label: Contract liabilities
+      value: '14669'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 6
+    - order: 30
+      label: Income tax liabilities
+      value: '4494'
+      is_subtotal: false
+      section: current_liabilities
+    - order: 31
+      label: Accruals and other payables
+      value: '33450'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 27
+    - order: 32
+      label: Borrowings
+      value: '853'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 28
+    - order: 33
+      label: Contingent consideration payables (current)
+      value: '5803'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 3.3, 35
+    - order: 34
+      label: Lease liabilities (current)
+      value: '67859'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 29
+    - order: 35
+      label: Total current liabilities
+      value: '152175'
+      is_subtotal: true
+      section: current_liabilities
+    - order: 36
+      label: Total liabilities
+      value: '473721'
+      is_subtotal: true
+      section: total_liabilities
+  FY2023:
+    period_end_date: '2023-12-31'
+    line_items:
+    - order: 1
+      label: Property, plant and equipment
+      value: '622226'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 13
+      notes: Includes Right-of-use assets HK$363,699 per Note 13.
+    - order: 2
+      label: Intangible assets
+      value: '37300'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 14
+    - order: 3
+      label: Goodwill
+      value: '271352'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 15
+    - order: 4
+      label: Deferred tax assets
+      value: '31525'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 30
+    - order: 5
+      label: Deposits and other receivables
+      value: '3313'
+      is_subtotal: false
+      section: non_current_assets
+      source_note: 18
+    - order: 6
+      label: Total non-current assets
+      value: '965716'
+      is_subtotal: true
+      section: non_current_assets
+    - order: 7
+      label: Inventories
+      value: '16166'
+      is_subtotal: false
+      section: current_assets
+      source_note: 20
+    - order: 8
+      label: Prepayments
+      value: '10424'
+      is_subtotal: false
+      section: current_assets
+      source_note: 17
+    - order: 9
+      label: Income tax recoverable
+      value: '1561'
+      is_subtotal: false
+      section: current_assets
+    - order: 10
+      label: Deposits and other receivables
+      value: '32470'
+      is_subtotal: false
+      section: current_assets
+      source_note: 18
+    - order: 11
+      label: Trade receivables
+      value: '6877'
+      is_subtotal: false
+      section: current_assets
+      source_note: 19
+    - order: 12
+      label: Restricted cash
+      value: '168'
+      is_subtotal: false
+      section: current_assets
+      source_note: 23
+    - order: 13
+      label: Cash and cash equivalents
+      value: '720216'
+      is_subtotal: false
+      section: current_assets
+      source_note: 21
+    - order: 14
+      label: Total current assets
+      value: '787882'
+      is_subtotal: true
+      section: current_assets
+    - order: 15
+      label: Total assets
+      value: '1753598'
+      is_subtotal: true
+      section: total_assets
+    - order: 16
+      label: Share capital
+      value: '26138'
+      is_subtotal: false
+      section: equity
+      source_note: 22
+    - order: 17
+      label: Shares held for share scheme
+      value: '-10505'
+      is_subtotal: false
+      section: equity
+      source_note: 23
+    - order: 18
+      label: Share premium
+      value: '658371'
+      is_subtotal: false
+      section: equity
+      source_note: 38(b)
+    - order: 19
+      label: Other reserves
+      value: '63393'
+      is_subtotal: false
+      section: equity
+      source_note: 24
+    - order: 20
+      label: Retained earnings
+      value: '397379'
+      is_subtotal: false
+      section: equity
+    - order: 21
+      label: Total equity attributable to owners of the Company
+      value: '1134776'
+      is_subtotal: true
+      section: equity
+    - order: 22
+      label: Non-controlling interests
+      value: '30732'
+      is_subtotal: false
+      section: equity
+      source_note: 31
+    - order: 23
+      label: Total equity
+      value: '1165508'
+      is_subtotal: true
+      section: equity
+    - order: 24
+      label: Lease liabilities (non-current)
+      value: '313520'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 29
+    - order: 25
+      label: Contingent consideration payables (non-current)
+      value: '86213'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 3.3, 35
+    - order: 26
+      label: Deferred tax liabilities
+      value: '17891'
+      is_subtotal: false
+      section: non_current_liabilities
+      source_note: 30
+    - order: 27
+      label: Total non-current liabilities
+      value: '417624'
+      is_subtotal: true
+      section: non_current_liabilities
+    - order: 28
+      label: Trade payables
+      value: '22592'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 26
+    - order: 29
+      label: Contract liabilities
+      value: '15775'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 6
+    - order: 30
+      label: Income tax liabilities
+      value: '10693'
+      is_subtotal: false
+      section: current_liabilities
+    - order: 31
+      label: Accruals and other payables
+      value: '44481'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 27
+    - order: 32
+      label: Borrowings
+      value: '928'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 28
+    - order: 33
+      label: Contingent consideration payables (current)
+      value: '6183'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 3.3, 35
+    - order: 34
+      label: Lease liabilities (current)
+      value: '69814'
+      is_subtotal: false
+      section: current_liabilities
+      source_note: 29
+    - order: 35
+      label: Total current liabilities
+      value: '170466'
+      is_subtotal: true
+      section: current_liabilities
+    - order: 36
+      label: Total liabilities
+      value: '588090'
+      is_subtotal: true
+      section: total_liabilities
+cash_flow:
+  FY2024:
+    reporting_period_label: Year ended 31 December 2024
+    line_items:
+    - order: 1
+      label: Cash generated from operations
+      value: '225245'
+      is_subtotal: false
+      section: operating
+      source_note: 32(a)
+    - order: 2
+      label: Interest received
+      value: '23573'
+      is_subtotal: false
+      section: operating
+    - order: 3
+      label: Income tax paid
+      value: '-51068'
+      is_subtotal: false
+      section: operating
+    - order: 4
+      label: Net cash generated from operating activities
+      value: '197750'
+      is_subtotal: true
+      section: operating
+    - order: 5
+      label: Settlement of contingent consideration payables
+      value: '-6118'
+      is_subtotal: false
+      section: investing
+      source_note: 3.3(b)
+    - order: 6
+      label: Payments for acquisition of a subsidiary, net of cash acquired
+      value: null
+      is_subtotal: false
+      section: investing
+      source_note: 35
+      notes: Nil in FY2024; prior-year comparative in FY2023 = -71,904.
+    - order: 7
+      label: Purchases of property, plant and equipment
+      value: '-80337'
+      is_subtotal: false
+      section: investing
+    - order: 8
+      label: Purchases of intangible assets
+      value: null
+      is_subtotal: false
+      section: investing
+      notes: Nil in FY2024; prior-year comparative in FY2023 = -636.
+    - order: 9
+      label: Proceeds from disposal of property, plant and equipment
+      value: '2624'
+      is_subtotal: false
+      section: investing
+    - order: 10
+      label: Net cash used in investing activities
+      value: '-83831'
+      is_subtotal: true
+      section: investing
+    - order: 11
+      label: Capital contributions from non-controlling interests
+      value: null
+      is_subtotal: false
+      section: financing
+      notes: Nil in FY2024; prior-year comparative in FY2023 = 2,056.
+    - order: 12
+      label: Transactions with non-controlling interests
+      value: null
+      is_subtotal: false
+      section: financing
+      notes: Nil in FY2024; prior-year comparative in FY2023 = -5,836.
+    - order: 13
+      label: Dividends paid
+      value: '-27851'
+      is_subtotal: false
+      section: financing
+    - order: 14
+      label: Acquisition of shares for employee share scheme
+      value: '-35797'
+      is_subtotal: false
+      section: financing
+      source_note: 23
+    - order: 15
+      label: Lease payments
+      value: '-73170'
+      is_subtotal: false
+      section: financing
+      source_note: 29(d)
+    - order: 16
+      label: Net cash used in financing activities
+      value: '-136818'
+      is_subtotal: true
+      section: financing
+    - order: 17
+      label: Net decrease in cash and cash equivalents
+      value: '-22899'
+      is_subtotal: true
+      section: subtotal
+    - order: 18
+      label: Cash and cash equivalents at beginning of the year
+      value: '720216'
+      is_subtotal: true
+      section: subtotal
+      notes: Memo reconciliation line — opening balance.
+    - order: 19
+      label: Effects of exchange rate changes on cash and cash equivalents
+      value: '-44085'
+      is_subtotal: true
+      section: fx_effect
+    - order: 20
+      label: Cash and cash equivalents at end of the year
+      value: '653232'
+      is_subtotal: true
+      section: subtotal
+      notes: Memo reconciliation line — closing balance; ties to BS Cash and cash equivalents.
+  FY2023:
+    reporting_period_label: Year ended 31 December 2023
+    line_items:
+    - order: 1
+      label: Cash generated from operations
+      value: '265625'
+      is_subtotal: false
+      section: operating
+      source_note: 32(a)
+    - order: 2
+      label: Interest received
+      value: '19331'
+      is_subtotal: false
+      section: operating
+    - order: 3
+      label: Income tax paid
+      value: '-93101'
+      is_subtotal: false
+      section: operating
+    - order: 4
+      label: Net cash generated from operating activities
+      value: '191855'
+      is_subtotal: true
+      section: operating
+    - order: 5
+      label: Settlement of contingent consideration payables
+      value: '-18826'
+      is_subtotal: false
+      section: investing
+      source_note: 3.3(b)
+    - order: 6
+      label: Payments for acquisition of a subsidiary, net of cash acquired
+      value: '-71904'
+      is_subtotal: false
+      section: investing
+      source_note: 35
+    - order: 7
+      label: Purchases of property, plant and equipment
+      value: '-88919'
+      is_subtotal: false
+      section: investing
+    - order: 8
+      label: Purchases of intangible assets
+      value: '-636'
+      is_subtotal: false
+      section: investing
+    - order: 9
+      label: Proceeds from disposal of property, plant and equipment
+      value: null
+      is_subtotal: false
+      section: investing
+      notes: Nil in FY2023; disclosed in the line for symmetry with FY2024.
+    - order: 10
+      label: Net cash used in investing activities
+      value: '-180285'
+      is_subtotal: true
+      section: investing
+    - order: 11
+      label: Capital contributions from non-controlling interests
+      value: '2056'
+      is_subtotal: false
+      section: financing
+    - order: 12
+      label: Transactions with non-controlling interests
+      value: '-5836'
+      is_subtotal: false
+      section: financing
+    - order: 13
+      label: Dividends paid
+      value: '-39675'
+      is_subtotal: false
+      section: financing
+    - order: 14
+      label: Acquisition of shares for employee share scheme
+      value: null
+      is_subtotal: false
+      section: financing
+      source_note: 23
+      notes: Nil in FY2023; disclosed for symmetry with FY2024.
+    - order: 15
+      label: Lease payments
+      value: '-59309'
+      is_subtotal: false
+      section: financing
+      source_note: 29(d)
+    - order: 16
+      label: Net cash used in financing activities
+      value: '-102764'
+      is_subtotal: true
+      section: financing
+    - order: 17
+      label: Net decrease in cash and cash equivalents
+      value: '-91194'
+      is_subtotal: true
+      section: subtotal
+    - order: 18
+      label: Cash and cash equivalents at beginning of the year
+      value: '779567'
+      is_subtotal: true
+      section: subtotal
+      notes: Memo reconciliation line — opening balance.
+    - order: 19
+      label: Effects of exchange rate changes on cash and cash equivalents
+      value: '31843'
+      is_subtotal: true
+      section: fx_effect
+    - order: 20
+      label: Cash and cash equivalents at end of the year
+      value: '720216'
+      is_subtotal: true
+      section: subtotal
+      notes: Memo reconciliation line — closing balance; ties to BS Cash and cash equivalents.
+notes:
+- note_number: '4'
+  title: Critical accounting estimates and judgments
+  tables: []
+  narrative_summary: 'Key estimates with significant risk of material adjustment within the next financial
+    year: (a) Income taxes and deferred taxation (Notes 11, 30); (b) Goodwill impairment — recoverable
+    amounts via VIU with pre-tax cash flow projections (Note 15); (c) ECL on trade receivables — provision
+    matrix based on historical default rates (Note 19); (d) Fair value of contingent consideration payables
+    — DCF with Level 3 inputs (Note 35).
+
+    '
+- note_number: '5'
+  title: Segment information
+  tables:
+  - table_label: 5(a) Segment results — Year ended 31 December 2024
+    columns:
+    - Item
+    - Germany
+    - China
+    - Denmark
+    - UK
+    - Inter-segment elimination
+    - Unallocated items (i)
+    - Total
+    rows:
+    - - Segment total revenue
+      - '395996'
+      - '145468'
+      - '71638'
+      - '113431'
+      - '-10851'
+      - null
+      - '715682'
+    - - Cost of sales
+      - '-216200'
+      - '-104401'
+      - '-49623'
+      - '-69716'
+      - '10851'
+      - null
+      - '-429089'
+    - - – Raw materials and consumables (Note 7)
+      - '-46398'
+      - '-22023'
+      - '-9336'
+      - '-11485'
+      - null
+      - null
+      - '-89242'
+    - - – Employee benefit expenses (Note 8)
+      - '-96894'
+      - '-29014'
+      - '-24494'
+      - '-40220'
+      - null
+      - null
+      - '-190622'
+    - - Gross profit
+      - '179796'
+      - '41067'
+      - '22015'
+      - '43715'
+      - null
+      - null
+      - '286593'
+    - - Advertising and marketing (Note 7)
+      - '-22581'
+      - '-9615'
+      - '-6551'
+      - '-19340'
+      - null
+      - '-34'
+      - '-58121'
+    - - Employee benefit expenses (Note 8)
+      - '-17012'
+      - '-14008'
+      - '-2734'
+      - '-16318'
+      - null
+      - '-6238'
+      - '-56310'
+    - - EBITDA
+      - '158417'
+      - '49310'
+      - '17554'
+      - '17918'
+      - null
+      - '-15206'
+      - '227993'
+  - table_label: 5(a) Reconciliation of EBITDA to Profit for the Year 2024
+    columns:
+    - Item
+    - HK$'000
+    rows:
+    - - EBITDA (Group total)
+      - '227993'
+    - - Finance income
+      - '26472'
+    - - Finance expenses
+      - '-15785'
+    - - Depreciation and amortisation
+      - '-112214'
+    - - Profit before tax
+      - '126466'
+    - - Income tax expense
+      - '-42107'
+    - - Profit for the year
+      - '84359'
+  - table_label: 5(b) Segment results — Year ended 31 December 2023 (group totals only; source partial)
+    columns:
+    - Item
+    - HK$'000
+    rows:
+    - - Group revenue
+      - '714289'
+    - - Group gross profit
+      - '335521'
+    - - Group EBITDA
+      - '[n/a — not verified in extract]'
+    - - Profit before tax
+      - '190610'
+    - - Profit for the year
+      - '133254'
+  - table_label: 5(c) Segment assets — 31 December 2024
+    columns:
+    - Item
+    - Germany
+    - China
+    - Denmark
+    - UK
+    - Inter-segment elimination
+    - Total
+    rows:
+    - - Segment total assets
+      - '540699'
+      - '289908'
+      - '86875'
+      - '305201'
+      - '-750947'
+      - '471736'
+  - table_label: 5(c) Reconciliation to Total Assets
+    columns:
+    - Item
+    - HK$'000
+    rows:
+    - - Segment assets total
+      - '471736'
+    - - Corporate assets (unallocated)
+      - '1096224'
+    - - Deferred tax assets
+      - '31475'
+    - - Total assets
+      - '1599435'
+  narrative_summary: 'Management has determined operating segments based on reports reviewed by executive
+    directors. The Group operates in four reportable geographical segments: Germany, China, Denmark, and
+    UK. Performance is assessed based on revenue, cost of sales, gross profit and EBITDA. Unallocated
+    items include corporate-level expenses, finance items, and depreciation/amortisation not attributable
+    to operating segments. Note 5(b) FY2023 comparative table flagged by the source markdown converter
+    as partial extraction — verify detailed per-segment figures against source PDF pages 125-126 if required.
+
+    '
+- note_number: '6'
+  title: Revenue
+  tables:
+  - table_label: 6(a) Revenue by product category
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Vision correction services
+      - '710875'
+      - '707897'
+    - - Training services
+      - '3613'
+      - '5407'
+    - - Sales of pharmaceutical products
+      - '51'
+      - '17'
+    - - Rental of ophthalmic equipment and operating spaces
+      - '1143'
+      - '968'
+    - - Total
+      - '715682'
+      - '714289'
+  - table_label: 6(b) Revenue by geography (external customers)
+    columns:
+    - Country
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Germany
+      - '385195'
+      - '380916'
+    - - China
+      - '145468'
+      - '144036'
+    - - The UK
+      - '113381'
+      - '101418'
+    - - Denmark
+      - '71638'
+      - '87919'
+    - - Total
+      - '715682'
+      - '714289'
+  - table_label: 6(c) Disaggregation of revenue — Year ended 31 December 2024
+    columns:
+    - Item
+    - Vis.Corr. Germany
+    - Vis.Corr. China
+    - Vis.Corr. Denmark
+    - Vis.Corr. UK
+    - Train. Germany
+    - Train. China
+    - Train. Denmark
+    - Train. UK
+    - Others Germany
+    - Others China
+    - Others Denmark
+    - Others UK
+    - Total
+    rows:
+    - - Segment revenue
+      - '384409'
+      - '145468'
+      - '71638'
+      - '109360'
+      - null
+      - null
+      - null
+      - '3613'
+      - '11587'
+      - null
+      - null
+      - '458'
+      - '726533'
+    - - Inter-segment revenue
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - '-10800'
+      - null
+      - null
+      - '-51'
+      - '-10851'
+    - - Revenue from external customers
+      - '384409'
+      - '145468'
+      - '71638'
+      - '109360'
+      - null
+      - null
+      - null
+      - '3613'
+      - '787'
+      - null
+      - null
+      - '407'
+      - '715682'
+  - table_label: 6(c) Disaggregation of revenue — Year ended 31 December 2023
+    columns:
+    - Item
+    - Vis.Corr. Germany
+    - Vis.Corr. China
+    - Vis.Corr. Denmark
+    - Vis.Corr. UK
+    - Train. Germany
+    - Train. China
+    - Train. Denmark
+    - Train. UK
+    - Others Germany
+    - Others China
+    - Others Denmark
+    - Others UK
+    - Total
+    rows:
+    - - Segment revenue
+      - '378776'
+      - '144036'
+      - '87919'
+      - '97166'
+      - '1486'
+      - null
+      - null
+      - '3921'
+      - '5900'
+      - '280'
+      - null
+      - '399'
+      - '719883'
+    - - Inter-segment revenue
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - null
+      - '-5289'
+      - '-280'
+      - null
+      - '-25'
+      - '-5594'
+    - - Revenue from external customers
+      - '378776'
+      - '144036'
+      - '87919'
+      - '97166'
+      - '1486'
+      - null
+      - null
+      - '3921'
+      - '611'
+      - null
+      - null
+      - '374'
+      - '714289'
+  narrative_summary: 'No single external customer contributed more than 10% of Group revenue in either
+    2024 or 2023. Revenue recognised under IFRS 15. Vision correction services is the dominant category
+    (99.3% FY2024 / 99.1% FY2023 of total revenue); Training, Pharmaceutical products, and Rental are
+    ancillary. Training services concentration shifted: primarily UK (LVC) in both periods, with a small
+    German component (HK$1,486) in FY2023 that did not recur in FY2024. Intra-group revenue (inter-segment)
+    concentrated in Others/Germany (transfer of services to non-Germany entities); HK$10,800 FY2024 /
+    HK$5,289 FY2023. Source cross-reference caveat: Note 6(b) Germany (external customers) reports HK$385,195
+    FY2024 / HK$380,916 FY2023 vs sum of 6(c) external columns (Vis.Corr + Train + Others, Germany): HK$385,196
+    FY2024 (+1 HK$''000 rounding) and HK$380,873 FY2023 (−43 HK$''000, reflecting partial re-classification
+    between the two disclosures in the source AR). Preserved verbatim; not a transcription error.
+
+    '
+- note_number: '8'
+  title: Employee benefit expenses
+  tables:
+  - table_label: Total employee benefit expenses
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Wages and salaries
+      - '220370'
+      - '198512'
+    - - Contributions to defined contribution pension scheme (a)
+      - '24012'
+      - '21105'
+    - - Provision for employee benefits and housing scheme (b)
+      - '990'
+      - '883'
+    - - Share-based payments (Note 25)
+      - '1560'
+      - '2228'
+    - - Total
+      - '246932'
+      - '222728'
+  - table_label: 8(c) Five highest paid individuals — non-director portion
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Basic salaries, allowances and other benefits
+      - '18722'
+      - '15095'
+    - - Share-based payment
+      - null
+      - null
+    - - Total
+      - '18722'
+      - '15095'
+  - table_label: 8(c) Emolument bands of non-director top-paid individuals (number of people)
+    columns:
+    - Band
+    - '2024'
+    - '2023'
+    rows:
+    - - HK$3,000,001 – HK$3,500,000
+      - '1'
+      - null
+    - - HK$4,500,001 – HK$5,000,000
+      - '2'
+      - '1'
+    - - HK$5,000,001 – HK$5,500,000
+      - null
+      - '2'
+    - - HK$5,500,001 – HK$6,000,000
+      - '1'
+      - null
+    - - Total
+      - '4'
+      - '3'
+  - table_label: 8(d) Directors' emoluments — Year ended 31 December 2024
+    columns:
+    - Director
+    - Role
+    - Fees
+    - Salaries and bonus
+    - Share-based payment
+    - Allowances and benefits in kind
+    - Employer's contribution to pension scheme
+    - Total
+    rows:
+    - - Dr. Jørn Slot Jørgensen (Chairman)
+      - Executive
+      - '360'
+      - '2378'
+      - null
+      - null
+      - null
+      - '2738'
+    - - Dr. Markus Braun
+      - Executive
+      - '360'
+      - '1166'
+      - null
+      - null
+      - '120'
+      - '1646'
+    - - Mr. Jannik Jonas Slot Jørgensen
+      - Executive
+      - '360'
+      - null
+      - '947'
+      - null
+      - null
+      - '1307'
+    - - Prof. Dan Zoltan Reinstein
+      - Executive
+      - '360'
+      - '5628'
+      - null
+      - null
+      - null
+      - '5988'
+    - - Mr. Marcus Huascar Bracklo
+      - Non-executive
+      - '2539'
+      - null
+      - '90'
+      - null
+      - null
+      - '2629'
+    - - Mr. Hans Helmuth Hennig
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Ms. Katherine Rong Xin
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Mr. Philip Duncan Wright
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Total
+      - null
+      - '5059'
+      - '9172'
+      - '1037'
+      - null
+      - '120'
+      - '15388'
+  - table_label: 8(d) Directors' emoluments — Year ended 31 December 2023
+    columns:
+    - Director
+    - Role
+    - Fees
+    - Salaries and bonus
+    - Share-based payment
+    - Allowances
+    - Pension
+    - Total
+    rows:
+    - - Dr. Jørn Slot Jørgensen (Chairman)
+      - Executive
+      - '360'
+      - '2386'
+      - null
+      - null
+      - null
+      - '2746'
+    - - Dr. Markus Braun
+      - Executive
+      - '360'
+      - '1154'
+      - '10'
+      - null
+      - '119'
+      - '1643'
+    - - Mr. Jannik Jonas Slot Jørgensen
+      - Executive
+      - '360'
+      - null
+      - '540'
+      - null
+      - null
+      - '900'
+    - - Prof. Dan Zoltan Reinstein
+      - Executive
+      - '360'
+      - '5247'
+      - null
+      - null
+      - null
+      - '5607'
+    - - Mr. Marcus Huascar Bracklo
+      - Non-executive
+      - '360'
+      - null
+      - '1247'
+      - null
+      - null
+      - '1607'
+    - - Mr. Hans Helmuth Hennig
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Ms. Katherine Rong Xin
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Mr. Philip Duncan Wright
+      - Independent non-executive
+      - '360'
+      - null
+      - null
+      - null
+      - null
+      - '360'
+    - - Total
+      - null
+      - '2880'
+      - '8787'
+      - '1797'
+      - null
+      - '119'
+      - '13583'
+  narrative_summary: 'Pension scheme is defined-contribution only (German MPF + local schemes for other
+    subsidiaries); no defined-benefit obligations. Five highest paid individuals in FY2024 included one
+    director (FY2023: two). No directors waived emoluments; no retirement benefits, termination payments,
+    or loans to directors in either period.
+
+    '
+- note_number: '9'
+  title: Other gains, net
+  tables:
+  - table_label: Other gains — composition
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Gains on fair value change of contingent consideration payables (Note 3.3, 35)
+      - '23145'
+      - '15955'
+    - - Government subsidy for employee welfare
+      - '2691'
+      - '914'
+    - - Losses on disposal of property, plant and equipment
+      - '-1083'
+      - '-382'
+    - - Others
+      - '1248'
+      - '3948'
+    - - Total
+      - '26001'
+      - '20435'
+- note_number: '10'
+  title: Finance income / (expenses), net
+  tables:
+  - table_label: Finance income
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Interest income
+      - '23573'
+      - '19331'
+    - - Foreign exchange gains, net
+      - '2899'
+      - null
+    - - Total finance income
+      - '26472'
+      - '19331'
+  - table_label: Finance expenses
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Foreign exchange loss, net
+      - null
+      - '-8091'
+    - - Interest expenses on leases (Note 29)
+      - '-10037'
+      - '-9703'
+    - - Other finance expenses
+      - '-5748'
+      - '-4441'
+    - - Total finance expenses
+      - '-15785'
+      - '-22235'
+  - table_label: Net finance income / (expenses)
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Net finance income / (expenses)
+      - '10687'
+      - '-2904'
+- note_number: '11'
+  title: Income tax expense
+  tables:
+  - table_label: Statutory tax rates by jurisdiction (2024 and 2023)
+    columns:
+    - Jurisdiction
+    - Tax rate
+    rows:
+    - - Germany
+      - 32%
+    - - Mainland China
+      - 15%, 25%
+    - - Denmark
+      - 22%
+    - - The UK
+      - 25%
+    - - Hong Kong
+      - 8.25% – 16.5%
+  - table_label: Income tax expense
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Current income tax expenses
+      - '44121'
+      - '60396'
+    - - Deferred tax (Note 30)
+      - '-2014'
+      - '-3040'
+    - - Income tax expense
+      - '42107'
+      - '57356'
+  - table_label: Reconciliation of income tax expense
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Profit before tax
+      - '126466'
+      - '190610'
+    - - Tax calculated at the domestic tax rate applicable to profits in the respective jurisdictions
+      - '36004'
+      - '54003'
+    - - Preferential tax rates on income of certain group entities
+      - '-626'
+      - '-42'
+    - - Income not subject to income tax
+      - null
+      - '-560'
+    - - Expenses not deductible for tax purposes
+      - '449'
+      - '1562'
+    - - Reversal of deferred tax assets previously recognised
+      - '6246'
+      - '1681'
+    - - Tax losses of certain group entities for which no deferred tax assets were recognised
+      - '2218'
+      - '1409'
+    - - Previously unrecognised temporary differences now recouped to reduce current tax expenses
+      - '-2184'
+      - '-697'
+    - - Income tax expense
+      - '42107'
+      - '57356'
+  narrative_summary: 'Four operating jurisdictions (Germany, China, Denmark, UK) plus Cayman parent and
+    Hong Kong holding. The v3.2 markdown converter flagged a computed effective tax rate row (33.3% FY2024
+    / 30.1% FY2023); that row is derived (income tax expense / profit before tax) and is not preserved
+    in this extraction — downstream recomputes.
+
+    '
+- note_number: '13'
+  title: Property, plant and equipment
+  tables:
+  - table_label: Rollforward — Year ended 31 December 2023
+    columns:
+    - Item
+    - Right-of-use assets
+    - Machinery
+    - Leasehold improvements
+    - Vehicles
+    - Others
+    - Construction in progress
+    - Total
+    rows:
+    - - Opening net book amount
+      - '270592'
+      - '92230'
+      - '81220'
+      - null
+      - '4587'
+      - '3540'
+      - '452169'
+    - - Acquisition of a subsidiary (Note 35)
+      - '2382'
+      - '3089'
+      - null
+      - null
+      - '1213'
+      - null
+      - '6684'
+    - - Additions
+      - '133356'
+      - '44970'
+      - '22735'
+      - null
+      - '1078'
+      - '31599'
+      - '233738'
+    - - Transfer upon completion
+      - null
+      - '441'
+      - '323'
+      - null
+      - null
+      - '-764'
+      - null
+    - - Depreciation charge
+      - '-50031'
+      - '-21233'
+      - '-10680'
+      - null
+      - '-957'
+      - null
+      - '-82901'
+    - - Disposals
+      - '-1715'
+      - '-373'
+      - null
+      - null
+      - '-9'
+      - '-1273'
+      - '-3370'
+    - - Exchange differences
+      - '9115'
+      - '3253'
+      - '2910'
+      - null
+      - '193'
+      - '435'
+      - '15906'
+    - - Closing net book amount
+      - '363699'
+      - '122377'
+      - '96508'
+      - null
+      - '6105'
+      - '33537'
+      - '622226'
+  - table_label: At 31 December 2023 — Cost and Accumulated Depreciation
+    columns:
+    - Item
+    - Right-of-use assets
+    - Machinery
+    - Leasehold improvements
+    - Vehicles
+    - Others
+    - Construction in progress
+    - Total
+    rows:
+    - - Cost
+      - '578500'
+      - '265001'
+      - '181714'
+      - '2336'
+      - '17685'
+      - '33537'
+      - '1078773'
+    - - Accumulated depreciation
+      - '-214801'
+      - '-142624'
+      - '-85206'
+      - '-2336'
+      - '-11580'
+      - null
+      - '-456547'
+    - - Net book amount
+      - '363699'
+      - '122377'
+      - '96508'
+      - null
+      - '6105'
+      - '33537'
+      - '622226'
+  - table_label: Rollforward — Year ended 31 December 2024
+    columns:
+    - Item
+    - Right-of-use assets
+    - Machinery
+    - Leasehold improvements
+    - Vehicles
+    - Others
+    - Construction in progress
+    - Total
+    rows:
+    - - Opening net book amount
+      - '363699'
+      - '122377'
+      - '96508'
+      - null
+      - '6105'
+      - '33537'
+      - '622226'
+    - - Additions
+      - '9293'
+      - '37892'
+      - '4901'
+      - null
+      - '592'
+      - '26263'
+      - '78941'
+    - - Lease amendment
+      - '1905'
+      - null
+      - null
+      - null
+      - null
+      - null
+      - '1905'
+    - - Transfer upon completion
+      - null
+      - '2937'
+      - '36928'
+      - null
+      - '194'
+      - '-40059'
+      - null
+    - - Depreciation charge
+      - '-64934'
+      - '-24783'
+      - '-16665'
+      - null
+      - '-973'
+      - null
+      - '-107355'
+    - - Disposals
+      - '-339'
+      - '-3512'
+      - null
+      - null
+      - '-17'
+      - '-178'
+      - '-4046'
+    - - Exchange differences
+      - '-11517'
+      - '-6232'
+      - '-5101'
+      - null
+      - '-326'
+      - '-1082'
+      - '-24258'
+    - - Closing net book amount
+      - '298107'
+      - '128679'
+      - '116571'
+      - null
+      - '5575'
+      - '18481'
+      - '567413'
+  - table_label: At 31 December 2024 — Cost and Accumulated Depreciation
+    columns:
+    - Item
+    - Right-of-use assets
+    - Machinery
+    - Leasehold improvements
+    - Vehicles
+    - Others
+    - Construction in progress
+    - Total
+    rows:
+    - - Cost
+      - '577470'
+      - '292671'
+      - '218527'
+      - '2336'
+      - '18128'
+      - '18481'
+      - '1127613'
+    - - Accumulated depreciation
+      - '-279363'
+      - '-163992'
+      - '-101956'
+      - '-2336'
+      - '-12553'
+      - null
+      - '-560200'
+    - - Net book amount
+      - '298107'
+      - '128679'
+      - '116571'
+      - null
+      - '5575'
+      - '18481'
+      - '567413'
+  - table_label: 13(a) Depreciation allocation to profit or loss
+    columns:
+    - Line item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cost of sales
+      - '87583'
+      - '67993'
+    - - Selling expenses
+      - '5764'
+      - '5085'
+    - - Administrative expenses
+      - '14008'
+      - '9823'
+    - - Total depreciation
+      - '107355'
+      - '82901'
+  - table_label: 13(b) Useful lives
+    columns:
+    - Asset class
+    - Useful life
+    rows:
+    - - Right-of-use assets
+      - 2 to 25 years
+    - - Machinery
+      - 3 to 14 years
+    - - Leasehold improvements
+      - 4 to 25 years
+    - - Vehicles
+      - 4 to 6 years
+    - - Others
+      - 3 to 10 years
+  narrative_summary: 'RoU assets are bundled within the face BS "Property, plant and equipment" line of
+    HK$567,413. Total depreciation charge HK$107,355 (FY2024) allocated across Cost of sales (82%), Admin
+    expenses (13%), and Selling expenses (5%). Adds HK$4,859 amortisation of intangibles (Note 14) for
+    total D&A expense HK$112,214 reconciling to Note 5 EBITDA bridge.
+
+    '
+- note_number: '14'
+  title: Intangible assets
+  tables:
+  - table_label: At 1 January 2023 — Cost and Accumulated Amortisation
+    columns:
+    - Item
+    - Licence
+    - Software
+    - Trademark
+    - Total
+    rows:
+    - - Cost
+      - '6869'
+      - '2090'
+      - '32908'
+      - '41867'
+    - - Accumulated amortisation
+      - '-4127'
+      - '-1035'
+      - '-3283'
+      - '-8445'
+    - - Net book amount at 1 Jan 2023
+      - '2742'
+      - '1055'
+      - '29625'
+      - '33422'
+  - table_label: Rollforward — Year ended 31 December 2023
+    columns:
+    - Item
+    - Licence
+    - Software
+    - Trademark
+    - Total
+    rows:
+    - - Opening net book amount
+      - '2742'
+      - '1055'
+      - '29625'
+      - '33422'
+    - - Additions
+      - '458'
+      - '178'
+      - null
+      - '636'
+    - - Acquisition of a subsidiary (Note 35)
+      - null
+      - null
+      - '6278'
+      - '6278'
+    - - Amortisation charge
+      - '-680'
+      - '-144'
+      - '-3625'
+      - '-4449'
+    - - Exchange difference
+      - '99'
+      - '47'
+      - '1267'
+      - '1413'
+    - - Net book amount at 31 Dec 2023
+      - '2619'
+      - '1136'
+      - '33545'
+      - '37300'
+  - table_label: At 31 December 2023 — Cost and Accumulated Amortisation
+    columns:
+    - Item
+    - Licence
+    - Software
+    - Trademark
+    - Total
+    rows:
+    - - Cost
+      - '7426'
+      - '2315'
+      - '40453'
+      - '50194'
+    - - Accumulated amortisation
+      - '-4807'
+      - '-1179'
+      - '-6908'
+      - '-12894'
+    - - Net book amount
+      - '2619'
+      - '1136'
+      - '33545'
+      - '37300'
+  - table_label: Rollforward — Year ended 31 December 2024
+    columns:
+    - Item
+    - Licence
+    - Software
+    - Trademark
+    - Total
+    rows:
+    - - Opening net book amount
+      - '2619'
+      - '1136'
+      - '33545'
+      - '37300'
+    - - Amortisation charge
+      - '-103'
+      - '-152'
+      - '-4604'
+      - '-4859'
+    - - Exchange difference
+      - '-159'
+      - '-58'
+      - '-1927'
+      - '-2144'
+    - - Net book amount at 31 Dec 2024
+      - '2357'
+      - '926'
+      - '27014'
+      - '30297'
+  - table_label: At 31 December 2024 — Cost and Accumulated Amortisation
+    columns:
+    - Item
+    - Licence
+    - Software
+    - Trademark
+    - Total
+    rows:
+    - - Cost
+      - '7267'
+      - '2257'
+      - '38526'
+      - '48050'
+    - - Accumulated amortisation
+      - '-4910'
+      - '-1331'
+      - '-11512'
+      - '-17753'
+    - - Net book amount
+      - '2357'
+      - '926'
+      - '27014'
+      - '30297'
+  - table_label: 14(a) Amortisation allocation to profit or loss
+    columns:
+    - Line item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cost of sales
+      - '635'
+      - '637'
+    - - Selling expenses
+      - '144'
+      - '102'
+    - - Administrative expenses
+      - '4080'
+      - '3710'
+    - - Total amortisation
+      - '4859'
+      - '4449'
+- note_number: '15'
+  title: Goodwill
+  tables:
+  - table_label: Rollforward — Year ended 31 December 2024
+    columns:
+    - Item
+    - LVC (UK)
+    - FreeVis GmbH (Germany)
+    - Deshijia Shenzhen (China)
+    - Total
+    rows:
+    - - Opening book amount
+      - '172558'
+      - '91966'
+      - '6828'
+      - '271352'
+    - - Impairment charge
+      - '-11000'
+      - null
+      - null
+      - '-11000'
+    - - Exchange difference
+      - '-1012'
+      - '-5787'
+      - '-146'
+      - '-6945'
+    - - Net book amount at 31 Dec 2024
+      - '160546'
+      - '86179'
+      - '6682'
+      - '253407'
+  - table_label: 15(c) VIU key assumptions
+    columns:
+    - Assumption
+    - 2024 LVC
+    - 2024 FreeVis GmbH
+    - 2024 Deshijia Shenzhen
+    - 2023 LVC
+    - 2023 FreeVis GmbH
+    - 2023 Deshijia Shenzhen
+    rows:
+    - - Revenue growth rate
+      - 2%–10%
+      - 6%–7%
+      - 10%–15%
+      - 3%–12%
+      - 6%–7%
+      - 10%–30%
+    - - Long-term growth rate
+      - 2%
+      - 2%
+      - 2%
+      - 2%
+      - 2%
+      - 2%
+    - - Gross profit margin
+      - 51%–56%
+      - 44%–55%
+      - 20%–25%
+      - 53%–56%
+      - 60%–67%
+      - 36%–38%
+    - - Pre-tax discount rate
+      - 18.5%
+      - 17.5%
+      - 21.3%
+      - 18.6%
+      - 17.8%
+      - 18.2%
+  - table_label: 15(c) Recoverable amounts vs carrying amounts
+    columns:
+    - Item
+    - LVC
+    - FreeVis GmbH
+    - Deshijia Shenzhen
+    rows:
+    - - Recoverable amount at 31 Dec 2024
+      - '160546'
+      - '97299'
+      - '13854'
+    - - Headroom at 31 Dec 2024
+      - null
+      - '9291'
+      - '2475'
+    - - Recoverable amount at 31 Dec 2023
+      - '195137'
+      - '107653'
+      - '19242'
+    - - Headroom at 31 Dec 2023
+      - '22579'
+      - '15687'
+      - '3015'
+  narrative_summary: 'HK$11,000 impairment charge recognised against LVC goodwill in FY2024 (FY2023: nil).
+    LVC headroom exhausted; recoverable amount equals carrying amount at 31 Dec 2024. FreeVis GmbH break-even
+    sensitivities: impairment would arise if revenue CAGR drops by more than 1.2 pp, terminal growth by
+    more than 1.8 pp, GPM by more than 3 pp, or pre-tax discount rate rises by more than 1.4 pp (in isolation).
+    Deshijia Shenzhen break-even: revenue CAGR -2.5 pp, terminal growth -3.7 pp, GPM -1.8 pp, or discount
+    rate +1.0 pp. Opening FY2023 balances and impairment detail for FY2023 not extracted as a separate
+    rollforward table in the source markdown.
+
+    '
+- note_number: '16'
+  title: Financial instruments by category
+  tables:
+  - table_label: Financial assets
+    columns:
+    - Item
+    - Note
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cash and cash equivalents
+      - '21'
+      - '653232'
+      - '720216'
+    - - Deposits and other receivables
+      - '18'
+      - '30679'
+      - '35783'
+    - - Trade receivables
+      - '19'
+      - '4738'
+      - '6877'
+    - - Restricted cash
+      - '23'
+      - '108'
+      - '168'
+    - - Total financial assets
+      - null
+      - '688757'
+      - '763044'
+  - table_label: Financial liabilities (at amortised cost)
+    columns:
+    - Item
+    - Note
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Trade payables
+      - '26'
+      - '25047'
+      - '22592'
+    - - Other payables
+      - null
+      - '17074'
+      - '26971'
+    - - Borrowings
+      - '28'
+      - '853'
+      - '928'
+    - - Contingent consideration payables
+      - '3.3'
+      - '60911'
+      - '92396'
+    - - Lease liabilities
+      - '29'
+      - '318433'
+      - '383334'
+    - - Total financial liabilities
+      - null
+      - '422318'
+      - '526221'
+  - table_label: Cash by currency (from Note 21)
+    columns:
+    - Currency
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - EUR
+      - '586366'
+      - '633621'
+    - - RMB
+      - '42893'
+      - '53544'
+    - - DKK
+      - '11434'
+      - '18793'
+    - - GBP
+      - '10020'
+      - '6808'
+    - - HK$
+      - '2511'
+      - '7190'
+    - - US$
+      - '8'
+      - '260'
+    - - Total
+      - '653232'
+      - '720216'
+  narrative_summary: 'The Group is exposed to market risk (foreign exchange with respect to EUR, GBP,
+    RMB and DKK; cash flow interest rate risk; fair value interest rate risk), credit risk, and liquidity
+    risk. FX sensitivity analysis preserved as narrative prose in Note 3.1(a) (not as a structured table).
+    Credit risk applies IFRS 9 simplified approach for trade receivables (see Note 19 ECL movement). Capital
+    risk: gearing ratio immaterial — only HK$853 of bank overdrafts at FY2024 year-end (FY2023: HK$928).
+    Contingent consideration payables from LVC and FreeVis acquisitions are Level 3 fair value (Note 35).
+    Floating-rate bank interest on cash 0% to 3.55% p.a. in 2024 (2023: 0% to 0.30% p.a.). EUR concentration
+    in cash (89.8% of HK$653,232) is the material FX exposure point.
+
+    '
+- note_number: '19'
+  title: Trade receivables
+  tables:
+  - table_label: Trade receivables composition
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Trade receivables due from third parties
+      - '5298'
+      - '7228'
+    - - Trade receivables due from related parties
+      - '171'
+      - '69'
+    - - Total trade receivables, gross
+      - '5469'
+      - '7297'
+    - - 'Less: provision for impairment'
+      - '-731'
+      - '-420'
+    - - Total trade receivables, net
+      - '4738'
+      - '6877'
+  - table_label: Ageing analysis (based on invoice date)
+    columns:
+    - Bucket
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Within 6 months
+      - '5469'
+      - '7297'
+  - table_label: Currency breakdown
+    columns:
+    - Currency
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - EUR
+      - '2064'
+      - '2285'
+    - - GBP
+      - '2015'
+      - '2610'
+    - - RMB
+      - '1227'
+      - '1847'
+    - - DKK
+      - '163'
+      - '555'
+    - - Total
+      - '5469'
+      - '7297'
+  - table_label: Movement in provision for impairment (ECL)
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Balance at beginning of the year
+      - '420'
+      - '199'
+    - - Provision for impairment recognised during the year
+      - '339'
+      - '221'
+    - - Receivables written off during the year as uncollectible
+      - '-28'
+      - null
+    - - Balance at end of the year
+      - '731'
+      - '420'
+  narrative_summary: 'All trade receivables fall within the "Within 6 months" bucket in both periods.
+    ECL provision (HK$731 at FY2024 year-end) is the only discrete loss allowance the Group discloses
+    — see the "provisions" note entry below for broader context.
+
+    '
+- note_number: '20'
+  title: Inventories
+  tables:
+  - table_label: Inventory composition by category
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Lens
+      - '11597'
+      - '10261'
+    - - Lasik
+      - '3852'
+      - '4596'
+    - - Medication
+      - '553'
+      - '659'
+    - - Glasses
+      - '236'
+      - '338'
+    - - Others
+      - '1031'
+      - '312'
+    - - Total
+      - '17269'
+      - '16166'
+  narrative_summary: 'Cost of inventories recognised as expense in cost of sales: HK$89,242 (FY2023: HK$84,430).
+    No provision for impairment on inventory at 31 Dec 2024 or 2023.
+
+    '
+- note_number: '21'
+  title: Cash and cash equivalents
+  tables:
+  - table_label: Cash composition
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cash on hand
+      - '33'
+      - '217'
+    - - Cash at bank
+      - '653199'
+      - '719999'
+    - - Total
+      - '653232'
+      - '720216'
+  narrative_summary: 'Interest on cash at bank: floating rates from 0% to 3.55% p.a. in 2024 (2023: 0%
+    to 0.30% p.a.). Currency breakdown (6 currencies) disclosed in financial_instruments note and in the
+    cash-by-currency table captured under Note 16.
+
+    '
+- note_number: '22'
+  title: Share capital
+  tables:
+  - table_label: Share capital — Issued and authorised
+    columns:
+    - Item
+    - 2024 (Number of shares)
+    - 2023 (Number of shares)
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Authorised — balance at beginning and end of year
+      - '1000000000'
+      - '1000000000'
+      - '78451'
+      - '78451'
+    - - Issued — balance at beginning of year
+      - '333240000'
+      - '333240000'
+      - '26138'
+      - '26138'
+    - - Cancellation of shares
+      - '-1717000'
+      - null
+      - '-134'
+      - null
+    - - Issued — balance at end of year
+      - '331523000'
+      - '333240000'
+      - '26004'
+      - '26138'
+  narrative_summary: 'During FY2024 the Company cancelled 1,717,000 shares repurchased on market between
+    May 2024 and July 2024. Cancellation reduced share capital by HK$134 and share premium by HK$9,029
+    (see Note 24 for the share-premium side of the entry).
+
+    '
+- note_number: '23'
+  title: Shares held for share scheme
+  tables:
+  - table_label: Shares held for share scheme balance
+    columns:
+    - Item
+    - 2024 (Number of shares)
+    - 2023 (Number of shares)
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Shares held for share scheme
+      - '6803861'
+      - '1412650'
+      - '30826'
+      - '10505'
+  - table_label: Movement during 2024
+    columns:
+    - Item
+    - Number of shares
+    - Amount (HK$'000)
+    rows:
+    - - As at 1 January 2024
+      - '1412650'
+      - '10505'
+    - - Acquisition of shares by the Trustee
+      - '7731000'
+      - '35857'
+    - - Cancellation of shares
+      - '-1717000'
+      - '-9029'
+    - - Exercise of shares under employee share scheme
+      - '-622789'
+      - '-6507'
+    - - As at 31 December 2024
+      - '6803861'
+      - '30826'
+  narrative_summary: 'Company paid HK$35,797 to the Trustee during FY2024 (FY2023: nil). Restricted cash
+    balance HK$108 at 31 Dec 2024 (FY2023: HK$168) — appears on face BS as "Restricted cash" line.
+
+    '
+- note_number: '24'
+  title: Other reserves
+  tables:
+  - table_label: Other reserves — movement
+    columns:
+    - Item
+    - Capital reserve — contributed surplus (a)
+    - Capital reserve — share-based payment (a)
+    - Currency translation reserve (b)
+    - Others (c)
+    - Total
+    rows:
+    - - At 1 January 2023
+      - '92132'
+      - '7602'
+      - '-61250'
+      - '-3329'
+      - '35155'
+    - - Exchange differences on translation of foreign operations
+      - null
+      - null
+      - '32360'
+      - null
+      - '32360'
+    - - Appropriations to statutory surplus reserve
+      - null
+      - null
+      - null
+      - '442'
+      - '442'
+    - - Share-based payment
+      - null
+      - '2228'
+      - null
+      - null
+      - '2228'
+    - - Exercise of shares under employee share schemes
+      - null
+      - '-1587'
+      - null
+      - null
+      - '-1587'
+    - - Acquisitions of interests in subsidiaries from NCI (Note 31)
+      - null
+      - null
+      - null
+      - '-5205'
+      - '-5205'
+    - - At 31 December 2023
+      - '92132'
+      - '8243'
+      - '-28890'
+      - '-8092'
+      - '63393'
+    - - At 1 January 2024
+      - '92132'
+      - '8243'
+      - '-28890'
+      - '-8092'
+      - '63393'
+    - - Exchange differences on translation of foreign operations
+      - null
+      - null
+      - '-61948'
+      - null
+      - '-61948'
+    - - Appropriations to statutory surplus reserve
+      - null
+      - null
+      - null
+      - '3193'
+      - '3193'
+    - - Share-based payment
+      - null
+      - '1560'
+      - null
+      - null
+      - '1560'
+    - - Exercise of shares under employee share schemes
+      - null
+      - '-3454'
+      - null
+      - null
+      - '-3454'
+    - - At 31 December 2024
+      - '92132'
+      - '6349'
+      - '-90838'
+      - '-4899'
+      - '2744'
+  narrative_summary: 'CTA (Currency Translation Reserve) moved from HK$(28,890) to HK$(90,838) during
+    FY2024 — a HK$61,948 negative swing reflecting EUR/GBP/RMB/DKK translation headwinds against HKD reporting
+    currency. This is the structural reason Total comprehensive income (HK$22,354) fell far below Profit
+    for the year (HK$84,359).
+
+    '
+- note_number: '25'
+  title: Share-based payment
+  tables:
+  - table_label: Share-based payment expense recognised
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Share-based payment expense recognised (Note 8)
+      - '1560'
+      - '2228'
+  narrative_summary: 'Full scheme disclosure (grant dates, fair-value assumptions, Monte Carlo / binomial
+    model inputs) preserved as prose in the source PDF; not extracted as structured tables in this pass.
+    Expense reconciles to Note 8 Employee Benefit Expenses (Share-based payments line: HK$1,560 FY2024;
+    HK$2,228 FY2023) and to the Statement of Changes in Equity movement line (same values, booked against
+    the Capital reserve — share-based payment component of Other reserves per Note 24). Flagged for follow-up
+    extraction if Phase 2 peer-comparison work requires grant-date fair values.
+
+    '
+- note_number: '26'
+  title: Trade payables
+  tables:
+  - table_label: Trade payables balance
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Trade payables
+      - '25047'
+      - '22592'
+  narrative_summary: 'Ageing analysis of trade payables is preserved as narrative prose in the source
+    document (converter flagged as not present as a structured table); values not re-extracted here.
+
+    '
+- note_number: '27'
+  title: Accruals and other payables
+  tables:
+  - table_label: Accruals and other payables composition
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Salary and welfare payables
+      - '13288'
+      - '15533'
+    - - Professional service fee payables
+      - '5388'
+      - '6686'
+    - - Accrued operating expenses
+      - '3886'
+      - '2958'
+    - - Payables of value-added tax and other taxes
+      - '2592'
+      - '1977'
+    - - Payables of leasehold improvements
+      - '715'
+      - '11404'
+    - - Others
+      - '7581'
+      - '5923'
+    - - Total
+      - '33450'
+      - '44481'
+- note_number: '28'
+  title: Borrowings
+  tables:
+  - table_label: Borrowings balance
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Bank overdrafts (denominated in GBP, floating rate)
+      - '853'
+      - '928'
+  narrative_summary: 'Borrowings are repayable on demand. Undrawn borrowing facilities expiring beyond
+    one year: HK$8,127 (FY2023: HK$8,673). Gearing ratio immaterial per Note 3.2.
+
+    '
+- note_number: '29'
+  title: Lease
+  tables:
+  - table_label: 29(a) Right-of-use assets by class
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Properties
+      - '297555'
+      - '362849'
+    - - Medical equipment
+      - '325'
+      - '850'
+    - - Cars
+      - '227'
+      - null
+    - - Total RoU assets
+      - '298107'
+      - '363699'
+  - table_label: 29(a) Lease liabilities — current / non-current split
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Current
+      - '67859'
+      - '69814'
+    - - Non-current
+      - '250574'
+      - '313520'
+    - - Total lease liabilities
+      - '318433'
+      - '383334'
+  - table_label: 29(b) Depreciation charge of right-of-use assets
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Properties
+      - '64562'
+      - '49700'
+    - - Medical equipment
+      - '245'
+      - '331'
+    - - Cars
+      - '127'
+      - null
+    - - Total depreciation of RoU
+      - '64934'
+      - '50031'
+  - table_label: 29(b) Other P&L impacts of leases
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Interest expenses on leases included in finance expenses (Note 10)
+      - '10037'
+      - '9703'
+    - - Expenses relating to short-term leases (Note 7)
+      - '254'
+      - '688'
+  - table_label: 29(c) Undiscounted minimum lease payments — maturity
+    columns:
+    - Maturity bucket
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Within one year
+      - '70249'
+      - '72060'
+    - - Later than one year but not later than two years
+      - '57961'
+      - '67351'
+    - - Later than two years but not later than five years
+      - '129486'
+      - '154206'
+    - - Later than five years
+      - '89980'
+      - '128665'
+    - - Minimum lease payments
+      - '347676'
+      - '422282'
+    - - Future finance charge
+      - '-29243'
+      - '-38948'
+    - - Total lease liabilities (PV)
+      - '318433'
+      - '383334'
+  - table_label: 29(c) Present value of lease liabilities by maturity
+    columns:
+    - Maturity bucket
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Within one year
+      - '67859'
+      - '69814'
+    - - Later than one year but not later than two years
+      - '50500'
+      - '63682'
+    - - Later than two years but not later than five years
+      - '114791'
+      - '139238'
+    - - Later than five years
+      - '85283'
+      - '110600'
+    - - Total PV
+      - '318433'
+      - '383334'
+  - table_label: 29(d) Movement of lease liabilities
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Balance at beginning of the year
+      - '383334'
+      - '290128'
+    - - Acquisition of a subsidiary (Note 35)
+      - null
+      - '1823'
+    - - Lease amendments
+      - '1905'
+      - null
+    - - Lease payments
+      - '-73170'
+      - '-59309'
+    - - Accrued interest (Note 10)
+      - '10037'
+      - '9703'
+    - - Increase in right-of-use assets (Note 13)
+      - '9293'
+      - '133356'
+    - - Decrease in right-of-use assets (Note 13)
+      - '-339'
+      - '-1893'
+    - - Exchange differences
+      - '-12627'
+      - '9526'
+    - - Balance at end of the year
+      - '318433'
+      - '383334'
+  narrative_summary: 'Total cash outflow for leases FY2024: HK$73,170,000 (FY2023: HK$59,309,000). RoU
+    assets are bundled within face BS line "Property, plant and equipment" (HK$567,413 FY2024); RoU component
+    HK$298,107.
+
+    '
+- note_number: '30'
+  title: Deferred tax
+  tables:
+  - table_label: 30(a) Deferred tax assets — Movement
+    columns:
+    - Item
+    - Unused tax losses
+    - Accrued expenses
+    - Temporary differences — leasing
+    - Temporary differences — inter-company transaction
+    - Others
+    - Total
+    rows:
+    - - At 1 January 2023
+      - '16669'
+      - '1745'
+      - '43776'
+      - '1770'
+      - '1047'
+      - '65007'
+    - - Credited/(charged) to profit or loss
+      - '4033'
+      - '-434'
+      - '26581'
+      - '102'
+      - '-798'
+      - '29484'
+    - - Acquisition of a subsidiary (Note 35)
+      - null
+      - null
+      - '756'
+      - null
+      - null
+      - '756'
+    - - Exchange differences
+      - '-174'
+      - '-27'
+      - '2296'
+      - '71'
+      - '98'
+      - '2264'
+    - - At 31 December 2023
+      - '20528'
+      - '1284'
+      - '73409'
+      - '1943'
+      - '347'
+      - '97511'
+    - - Credited/(charged) to profit or loss
+      - '491'
+      - '-246'
+      - '-10394'
+      - '-59'
+      - '576'
+      - '-9632'
+    - - Exchange differences
+      - '-580'
+      - '-30'
+      - '-1395'
+      - '-120'
+      - '-45'
+      - '-2170'
+    - - At 31 December 2024
+      - '20439'
+      - '1008'
+      - '61620'
+      - '1764'
+      - '878'
+      - '85709'
+  - table_label: 30(a) Tax losses not recognised as DTA — expiry profile
+    columns:
+    - Expiry year
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - '2024'
+      - null
+      - '7104'
+    - - '2025'
+      - '8233'
+      - '4739'
+    - - '2026'
+      - '6873'
+      - '5421'
+    - - '2027'
+      - '12253'
+      - '5318'
+    - - '2028'
+      - '10413'
+      - '4936'
+    - - '2029'
+      - '8629'
+      - null
+    - - Total with expiry
+      - '46401'
+      - '27518'
+  - table_label: 30(b) Deferred tax liabilities — Movement
+    columns:
+    - Item
+    - Accelerated tax depreciation
+    - Intangibles fair-value uplift from acquisition
+    - Temporary differences — leasing
+    - Others
+    - Total
+    rows:
+    - - At 1 January 2023
+      - '2161'
+      - '6216'
+      - '42430'
+      - '265'
+      - '51072'
+    - - Credited to profit or loss
+      - '-526'
+      - '-878'
+      - '26590'
+      - '1259'
+      - '26445'
+    - - Acquisition of a subsidiary (Note 35)
+      - null
+      - '1872'
+      - '783'
+      - null
+      - '2655'
+    - - Exchange differences
+      - '91'
+      - '343'
+      - '3225'
+      - '46'
+      - '3705'
+    - - At 31 December 2023
+      - '1726'
+      - '7553'
+      - '73028'
+      - '1570'
+      - '83877'
+    - - Charged to profit or loss
+      - '271'
+      - '-1193'
+      - '-11495'
+      - '771'
+      - '-11646'
+    - - Exchange differences
+      - '-104'
+      - '-426'
+      - '-1472'
+      - '-131'
+      - '-2133'
+    - - At 31 December 2024
+      - '1893'
+      - '5934'
+      - '60061'
+      - '2210'
+      - '70098'
+  narrative_summary: 'Unrecognised DTA on tax losses: HK$49,093 at 31 Dec 2024 (FY2023: HK$31,090). BS
+    shows net positions: Deferred tax assets HK$31,475 and Deferred tax liabilities HK$15,864 at 31 Dec
+    2024 — these are net per entity after IFRS offset. Gross DTA HK$85,709 and gross DTL HK$70,098 disclosed
+    in this note.
+
+    '
+- note_number: '31'
+  title: Subsidiaries
+  tables:
+  - table_label: Principal subsidiaries — directly held (extracted subset)
+    columns:
+    - Entity name
+    - Place of incorporation / type
+    - Principal activities
+    - Issued/paid-in capital
+    - 2024 Group interest
+    - 2023 Group interest
+    - 2024 NCI
+    - 2023 NCI
+    rows:
+    - - EuroEyes Holdings Limited
+      - Cayman Islands / Limited liability company
+      - Investment holding
+      - USD 2
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes Holdings Asia Limited
+      - Cayman Islands / Limited liability company
+      - Investment holding
+      - USD 1
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes Deutschland Verwaltungs GmbH
+      - Germany / Limited liability company
+      - Investment holding
+      - EUR 25,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes UK Holding Limited
+      - UK / Private company limited by shares
+      - Investment holding
+      - GBP 1
+      - 100%
+      - 100%
+      - –
+      - –
+  - table_label: Principal subsidiaries — indirectly held (extracted subset)
+    columns:
+    - Entity name
+    - Place / type
+    - Principal activities
+    - Issued/paid-in capital
+    - 2024 Group
+    - 2023 Group
+    - 2024 NCI
+    - 2023 NCI
+    rows:
+    - - EuroEyes Deutschland Holding GmbH & Co. KG
+      - Germany / Limited partnership
+      - Investment holding and group admin
+      - EUR 25,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes Deutschland GmbH
+      - Germany / GmbH
+      - Investment holding and group admin
+      - EUR 34,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes AugenLaserZentrum Berlin GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 25,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes AugenLaserZentrum Betriebs GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 50,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes AugenLaserZentrum City Hamburg GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 25,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes ALZ Augenklinik München GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 51,129
+      - 100%
+      - 100%
+      - –
+      - –
+    - - LASIK Germany GmbH
+      - Germany / GmbH
+      - LASIK operations
+      - EUR 25,000
+      - N/A
+      - 100%
+      - –
+      - –
+    - - EuroEyes AugenLaserZentrum Bremen GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 25,000
+      - 74%
+      - 74%
+      - 26%
+      - 26%
+    - - FreeVis GmbH
+      - Germany / GmbH
+      - Clinic operations
+      - EUR 25,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EUROEYES Aps
+      - Denmark / ApS
+      - Clinic operations
+      - DKK 135,000
+      - 100%
+      - 100%
+      - –
+      - –
+    - - London Vision Clinic Partners Limited
+      - UK / Private company limited by shares
+      - Clinic operations
+      - GBP 100
+      - 100%
+      - 100%
+      - –
+      - –
+    - - London Vision Clinic Training Limited
+      - UK / Private company limited by shares
+      - Clinic operations
+      - GBP 100
+      - 100%
+      - 100%
+      - –
+      - –
+    - - EuroEyes London Knightsbridge Limited
+      - UK / Private company limited by shares
+      - Clinic operations
+      - GBP 1
+      - 100%
+      - 100%
+      - –
+      - –
+    - - Shanghai Deshijia Eye Medical Co., Ltd.
+      - Mainland China / Limited liability company (JV)
+      - Clinic operations
+      - RMB 66,000,000
+      - 70%
+      - 70%
+      - 30%
+      - 30%
+    - - Hangzhou Deshijia Eye Clinic Co., Ltd.
+      - Mainland China / Limited liability company (JV)
+      - Clinic operations
+      - RMB 14,000,000
+      - 70%
+      - 70%
+      - 30%
+      - 30%
+    - - Beijing Deshijia Eye Clinic Co., Ltd.
+      - Mainland China / Limited liability company (JV)
+      - Clinic operations
+      - RMB 20,000,000
+      - 70%
+      - 70%
+      - 30%
+      - 30%
+    - - Beijing Deshijia Dongbu Eye Clinic Co., Ltd.
+      - Mainland China / Limited liability company (JV)
+      - Clinic operations
+      - RMB 10,000,000
+      - 70%
+      - 70%
+      - 30%
+      - 30%
+    - - Guangzhou Deshijia Eye Clinic Co., Ltd.
+      - Mainland China / Limited liability company (JV)
+      - Clinic operations
+      - RMB 30,000,000
+      - 70%
+      - 70%
+      - 30%
+      - 30%
+    - - Deshijia (Shenzhen) Consulting Management Co., Ltd
+      - Mainland China / Limited liability company (JV)
+      - Investment holding
+      - RMB 30,000,000
+      - 71.33%
+      - 71.33%
+      - 28.67%
+      - 28.67%
+  - table_label: 31(a) Subsidiaries with material NCI — summarised cash flows
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cash flows from operating activities
+      - '24426'
+      - '24501'
+    - - Cash flows used in investing activities
+      - '-3775'
+      - '-3786'
+    - - Cash flows used in financing activities
+      - '-4257'
+      - '-4270'
+    - - Net increase in cash and cash equivalents
+      - '16394'
+      - '16445'
+  narrative_summary: 'Partial list — 4 directly-held + 20 indirectly-held subsidiaries extracted. Source
+    AR lists additional entities (continuation pages 164-166) not fully extracted. The two non-100% subsidiaries
+    are the Bremen clinic (26% NCI) and the six Deshijia JVs in Mainland China (30% NCI each, 28.67% for
+    the holding company). LASIK Germany GmbH marked N/A for FY2024 Group interest — flagged for follow-up:
+    may have been disposed, merged, or restructured during 2024.
+
+    '
+- note_number: '32'
+  title: Notes to the consolidated statement of cash flow
+  tables:
+  - table_label: 32(a) Cash generated from operations
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Profit before tax
+      - '126466'
+      - '190610'
+    - - Depreciation of property, plant and equipment (Note 13)
+      - '107355'
+      - '82901'
+    - - Goodwill impairment
+      - '11000'
+      - null
+    - - Amortisation of intangible assets (Note 14)
+      - '4859'
+      - '4449'
+    - - Share-based payment (Note 7, 25)
+      - '1560'
+      - '2228'
+    - - Finance (income) expenses, net
+      - '-11646'
+      - '2971'
+    - - Other gains, net (Note 9)
+      - '-26001'
+      - '-20435'
+    - - Operating profit before working capital changes
+      - '213593'
+      - '262724'
+    - - (Increase)/decrease in inventories
+      - '-3315'
+      - '29562'
+    - - Decrease in trade receivables
+      - '1415'
+      - '947'
+    - - Decrease in deposits, other receivables and prepayments
+      - '1547'
+      - '14963'
+    - - Increase/(decrease) in trade payables
+      - '5619'
+      - '-30610'
+    - - Increase/(decrease) in other payables
+      - '5516'
+      - '-14760'
+    - - Increase in contract liabilities
+      - '870'
+      - '2799'
+    - - Cash generated from operations
+      - '225245'
+      - '265625'
+  - table_label: 32(c) Net cash reconciliation
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Cash and cash equivalents
+      - '653232'
+      - '720216'
+    - - Lease liabilities (Note 29)
+      - '-318433'
+      - '-383334'
+    - - Net cash
+      - '334799'
+      - '336882'
+  - table_label: 32(c) Movement analysis — Net cash by component
+    columns:
+    - Item
+    - Cash and cash equivalents
+    - Lease liabilities
+    - Dividend payable
+    - Total
+    rows:
+    - - Net cash as at 1 January 2023
+      - '779567'
+      - '-290128'
+      - null
+      - '489439'
+    - - Cash flows
+      - '-91194'
+      - '59309'
+      - '39675'
+      - '7790'
+    - - Exchange differences
+      - '31843'
+      - '-8967'
+      - null
+      - '22876'
+    - - Acquisition of a subsidiary (Note 35)
+      - null
+      - '-2382'
+      - null
+      - '-2382'
+    - - Accrued interest
+      - null
+      - '-9703'
+      - null
+      - '-9703'
+    - - Increase in right-of-use assets
+      - null
+      - '-133356'
+      - null
+      - '-133356'
+    - - Decrease in right-of-use assets
+      - null
+      - '1893'
+      - null
+      - '1893'
+    - - Declared dividend paid
+      - null
+      - null
+      - '-39675'
+      - '-39675'
+    - - Net cash as at 31 December 2023
+      - '720216'
+      - '-383334'
+      - null
+      - '336882'
+    - - Cash flows
+      - '-22899'
+      - '73170'
+      - '27851'
+      - '78122'
+    - - Exchange differences
+      - '-44085'
+      - '12627'
+      - null
+      - '-31458'
+    - - Accrued interest
+      - null
+      - '-10037'
+      - null
+      - '-10037'
+    - - Increase in right-of-use assets
+      - null
+      - '-9293'
+      - null
+      - '-9293'
+    - - Decrease in right-of-use assets
+      - null
+      - '339'
+      - null
+      - '339'
+    - - Declared dividend paid
+      - null
+      - null
+      - '-27851'
+      - '-27851'
+    - - Lease modification
+      - null
+      - '-1905'
+      - null
+      - '-1905'
+    - - Net cash as at 31 December 2024
+      - '653232'
+      - '-318433'
+      - null
+      - '334799'
+- note_number: '33'
+  title: Dividends
+  tables:
+  - table_label: Dividend summary
+    columns:
+    - Item
+    - '2024'
+    - '2023'
+    rows:
+    - - Interim dividend per share
+      - HK$0.0349
+      - '[not extracted]'
+    - - Interim dividend total
+      - HK$11,570,153
+      - HK$17,028,564
+    - - Interim dividend — status
+      - Fully paid during 2024
+      - Fully paid during 2023
+    - - Proposed final dividend per share
+      - HK$0.0297
+      - HK$0.0489
+    - - Proposed final dividend total
+      - HK$9,524,968
+      - HK$16,295,436
+    - - Final dividend — status at year-end
+      - Not recognised as liability at 31 Dec 2024 (subject to AGM approval)
+      - Fully paid during 2024
+  narrative_summary: 'Interim 2024 dividend declared 29 August 2024 for H1 2024. Final 2024 dividend proposed
+    31 March 2025 by the Board; expected distribution mid-June 2025 subject to shareholder approval. Total
+    declared for FY2024 earnings: HK$21,095,121 (interim HK$11,570,153 + proposed final HK$9,524,968)
+    vs FY2023: HK$33,324,000 (interim HK$17,028,564 + final HK$16,295,436).
+
+    '
+- note_number: '34'
+  title: Commitments
+  tables:
+  - table_label: Capital commitments contracted but not provided for
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Leasehold improvements
+      - null
+      - '3736'
+  narrative_summary: 'Lease commitments disclosed separately in Note 29 (undiscounted minimum lease payments
+    maturity schedule). No capital commitments outstanding at 31 December 2024.
+
+    '
+- note_number: '35'
+  title: Business combination
+  tables:
+  - table_label: 35(a) LVC — Acquisition summary
+    columns:
+    - Item
+    - Value
+    rows:
+    - - Acquisition date
+      - 20 January 2022
+    - - Shares acquired
+      - 100%
+    - - Total consideration — fair value at acquisition (GBP'000)
+      - '25017'
+    - - Total consideration — fair value at acquisition (HK$'000)
+      - '265172'
+    - - Fair value of net identifiable assets (HK$'000)
+      - '62863'
+    - - Goodwill at acquisition (HK$'000)
+      - '202309'
+  - table_label: 35(a) LVC — Contingent consideration tranches (per SPA)
+    columns:
+    - Tranche
+    - Threshold
+    - Consideration
+    rows:
+    - - First earn out
+      - Cumulative adjusted EBIT 2022-2024 > GBP 7,629 (HK$71,690)
+      - GBP 1,560 (HK$14,659)
+    - - Second earn out
+      - Annual EBIT target each FY 2022-2025
+      - GBP 390 (HK$3,665) per year
+    - - Cash earn out
+      - Revenue + EBIT targets FY 2022-2025
+      - Up to GBP 14,625 (HK$137,431) undiscounted
+  - table_label: 35(a) LVC — Contingent consideration carrying amount & movement
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Balance at year-end
+      - '39192'
+      - '64403'
+    - - Fair value gain recognised in 'other gains, net' (Note 9)
+      - '24562'
+      - '16473'
+    - - FX loss recognised in 'finance expenses' (Note 3.3)
+      - '-2527'
+      - '-1625'
+    - - FX translation in OCI
+      - '3178'
+      - '-3457'
+  - table_label: 35(b) FreeVis GmbH — Acquisition summary
+    columns:
+    - Item
+    - Value
+    rows:
+    - - Acquisition date
+      - 17 August 2023
+    - - Shares acquired
+      - 100%
+    - - Aggregate consideration — fair value (EUR'000)
+      - '11683'
+    - - Aggregate consideration — fair value (HK$'000)
+      - '100473'
+    - - Segment allocation of goodwill
+      - Germany segment
+  - table_label: 35(b) FreeVis GmbH — Purchase consideration
+    columns:
+    - Item
+    - HK$'000
+    rows:
+    - - Cash paid
+      - '72897'
+    - - Other payables
+      - '344'
+    - - Contingent consideration (ii)
+      - '27232'
+    - - Total purchase consideration
+      - '100473'
+  - table_label: 35(b) FreeVis GmbH — Fair value of identifiable net assets
+    columns:
+    - Item
+    - HK$'000
+    rows:
+    - - Cash and cash equivalents
+      - '993'
+    - - Property, plant and equipment (Note 13)
+      - '6684'
+    - - Trademark (Note 14)
+      - '6278'
+    - - Inventories
+      - '1555'
+    - - Receivables
+      - '96'
+    - - Prepayments
+      - '785'
+    - - Deposits and other receivables
+      - '338'
+    - - Trade payables and other liabilities
+      - '-3759'
+    - - Lease liabilities (Note 29)
+      - '-1823'
+    - - Net deferred tax liabilities (Note 30)
+      - '-1872'
+    - - Net identifiable assets acquired
+      - '9275'
+    - - Goodwill
+      - '91198'
+    - - Total
+      - '100473'
+  - table_label: 35(b) FreeVis GmbH — Contingent consideration movements
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Balance at year-end
+      - '21719'
+      - '27991'
+    - - Fair value loss recognised in 'other gains, net' (Note 9)
+      - '-1417'
+      - '-518'
+    - - FX translation in OCI
+      - '1571'
+      - '-241'
+    - - Cash settlement during year
+      - '-6118'
+      - null
+  narrative_summary: 'Combined contingent consideration payables at FY2024 year-end: HK$39,192 (LVC) +
+    HK$21,719 (FreeVis) = HK$60,911, split between HK$5,803 current and HK$55,108 non-current per BS.
+    Trademark asset from FreeVis fair-value uplift: HK$6,278 initial + associated deferred tax liability
+    HK$1,946 (per Note 30). FreeVis contingent consideration originally measured using discount rate 5.26%
+    and revenue growth 6%-7% p.a. over 2023-2027 (EUR 723 / HK$6,266 per year up to five years). Both
+    acquisitions are classified Level 3 in fair-value hierarchy (Note 3.3).
+
+    '
+- note_number: '36'
+  title: Contingent liabilities
+  tables: []
+  narrative_summary: 'As at 31 December 2024, the Group did not anticipate that any material liabilities
+    will arise from contingent liabilities in respect of claims or other legal procedures arising in its
+    ordinary course of business.
+
+    '
+- note_number: '37'
+  title: Related party transactions
+  tables:
+  - table_label: Related parties identified
+    columns:
+    - Name
+    - Relationship
+    rows:
+    - - Dr Jørn Slot Jørgensen
+      - Ultimate controlling party
+    - - Dr Jørgensen und Kollegen GbR
+      - Partners are directors of the Company (Dr Jørn Slot Jørgensen and Dr Ralf-Christian Lerche)
+    - - London Vision Clinic Limited
+      - Controlled by an Executive Director of the Company
+  narrative_summary: 'Source flagged as partial extraction — specific transaction amounts, balances with
+    related parties, and key management personnel compensation tables not fully extracted. Related-party
+    receivables of HK$171 (FY2024) / HK$69 (FY2023) captured in Note 19 Trade Receivables composition.
+    Flagged for follow-up extraction if Phase 2 governance analysis is needed.
+
+    '
+- note_number: '38'
+  title: Statement of financial position and reserve movement of the Company
+  tables: []
+  narrative_summary: 'Company-level (parent-only) statement of financial position and reserve movement
+    preserved in source PDF but not extracted as structured tables in this pass. Structure mirrors consolidated
+    statements, with investment in subsidiaries replacing the net assets of operating subsidiaries. Not
+    required for downstream consolidated-financial-metric computations.
+
+    '
+- note_number: '39'
+  title: Summary of other material accounting policies
+  tables: []
+  narrative_summary: 'Principal accounting policies in prose: Basis of consolidation; Business combinations;
+    Property, plant and equipment; Intangible assets and goodwill; Leases (IFRS 16); Impairment of non-financial
+    assets; Financial instruments (IFRS 9); Inventories; Trade receivables (simplified approach ECL);
+    Cash and cash equivalents; Share capital; Borrowings; Provisions; Revenue recognition (IFRS 15); Current
+    and deferred income tax (IAS 12); Employee benefits including share-based compensation (IFRS 2); Foreign
+    currency translation (IAS 21); Dividend distribution. Significant estimation and judgement areas in
+    Note 4.
+
+    '
+- note_number: MD&A-15
+  title: Use of IPO net proceeds (listed 15 October 2019)
+  tables:
+  - table_label: Planned vs actual utilisation of net proceeds
+    columns:
+    - Use of net proceeds
+    - '% of net proceeds'
+    - Planned (HK$'000)
+    - Actual usage up to 31 Dec 2024 (HK$'000)
+    - Unutilised at 31 Dec 2024 (HK$'000)
+    - Expected fully-utilised by
+    rows:
+    - - For establishing clinics in major cities in the PRC
+      - '40.0'
+      - '264266'
+      - '198054'
+      - '66212'
+      - 31 December 2026
+    - - For potential acquisition of clinic groups in Europe
+      - '33.0'
+      - '218019'
+      - '207127'
+      - '10892'
+      - 31 December 2026
+    - - For expansion of marketing efforts
+      - '17.0'
+      - '112313'
+      - '11591'
+      - '100722'
+      - 31 December 2026
+    - - Working capital and general corporate purposes
+      - '10.0'
+      - '66066'
+      - '1503'
+      - '64563'
+      - 31 December 2026
+    - - Total
+      - '100.0'
+      - '660664'
+      - '418275'
+      - '242389'
+      - null
+  narrative_summary: 'IPO priced HK$7.50 per share, 91,234,000 shares issued. Net proceeds HK$660.66M.
+    Cumulative utilisation 63.3% at 31 Dec 2024 (HK$418.3M deployed; HK$242.4M unutilised). Largest unutilised
+    bucket: marketing expansion (HK$100.7M, 89.7% undrawn of HK$112.3M allocation) — suggests management
+    has prioritised clinic expansion and M&A over advertising scale-up. Expected full deployment by 31
+    December 2026.
+
+    '
+- note_number: MD&A-2
+  title: Cost of revenue breakdown
+  tables:
+  - table_label: Cost of revenue components
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    - YoY change %
+    rows:
+    - - Employee benefit expenses
+      - '190622'
+      - '171399'
+      - '11.2'
+    - - Raw materials and consumables
+      - '89242'
+      - '84430'
+      - '5.7'
+    - - Depreciation of property, plant and equipment
+      - '87583'
+      - '67993'
+      - '28.8'
+    - - Doctors' fee
+      - '4994'
+      - '1791'
+      - '178.8'
+    - - Others
+      - '56648'
+      - '53155'
+      - '6.6'
+    - - Total
+      - '429089'
+      - '378768'
+      - '13.3'
+  narrative_summary: 'Others includes clinic, office and consumption expenses, transportation costs, repair
+    and maintenance, electricity and other utility expenses. Employee benefit in CoS reconciles to segment
+    disclosure Note 5(a) — HK$190,622 FY2024 match. YoY increase driven by employee benefits (+11.2%)
+    and depreciation (+28.8% — reflecting new clinic fit-outs Wiesbaden/Kiel + London Knightsbridge +
+    Hong Kong flagship full-year impact).
+
+    '
+- note_number: MD&A-4
+  title: Selling expenses breakdown
+  tables:
+  - table_label: Selling expenses components
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    - YoY change %
+    rows:
+    - - Advertising and marketing expenditure
+      - '58121'
+      - '50641'
+      - '14.8'
+    - - Employee benefit expenses
+      - '11807'
+      - '11784'
+      - '0.2'
+    - - Depreciation of property, plant and equipment
+      - '5764'
+      - '5085'
+      - '13.4'
+    - - Others
+      - '5078'
+      - '5408'
+      - '-6.1'
+    - - Total
+      - '80770'
+      - '72918'
+      - '10.8'
+- note_number: MD&A-5
+  title: Administrative expenses breakdown
+  tables:
+  - table_label: Administrative expenses components
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    - YoY change %
+    rows:
+    - - Employee benefit expenses
+      - '44503'
+      - '39545'
+      - '12.5'
+    - - Legal, consulting and other service fee
+      - '16124'
+      - '11707'
+      - '37.7'
+    - - Depreciation of property, plant and equipment
+      - '14008'
+      - '9823'
+      - '42.6'
+    - - Goodwill impairment
+      - '11000'
+      - null
+      - null
+    - - Office and consumption expenses
+      - '10021'
+      - '10281'
+      - '-2.5'
+    - - Others
+      - '20050'
+      - '17947'
+      - '11.7'
+    - - Total
+      - '115706'
+      - '89303'
+      - '29.6'
+  narrative_summary: 'Goodwill impairment (HK$11,000) on LVC is included in Admin expenses per Note 15
+    and Note 32(a) CF reconciliation. Employee benefit in Admin reconciles to segment disclosure unallocated
+    items + country opex aggregation.
+
+    '
+- note_number: MD&A-Adj
+  title: Non-IFRS adjusted measures
+  tables:
+  - table_label: Adjusted gross profit
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Reported gross profit
+      - '286593'
+      - '335521'
+    - - Adjusted gross profit
+      - '298506'
+      - '339412'
+    - - Adjusted gross profit margin (%)
+      - '41.7'
+      - '47.5'
+  - table_label: Adjusted EBITDA summary
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    rows:
+    - - Reported EBITDA
+      - '227993'
+    - - Adjusted EBITDA
+      - '240500'
+    - - Adjusted EBITDA margin (%)
+      - '33.6'
+  - table_label: Adjusted net profit after tax summary
+    columns:
+    - Item
+    - 2024 (HK$'000)
+    - 2023 (HK$'000)
+    rows:
+    - - Reported profit for the year
+      - '84359'
+      - '133254'
+    - - Adjusted net profit after tax
+      - '100334'
+      - '141717'
+    - - Adjusted net profit margin (%)
+      - '14.0'
+      - '19.8'
+    - - Reported profit attributable to owners
+      - '82285'
+      - '131242'
+    - - Adjusted profit attributable to owners
+      - '98260'
+      - '139705'
+  - table_label: Adjusted EPS summary (HK cents)
+    columns:
+    - Item
+    - '2024'
+    - '2023'
+    rows:
+    - - Reported basic EPS
+      - '24.929'
+      - '39.544'
+    - - Adjusted basic EPS
+      - '29.769'
+      - '42.094'
+    - - Reported diluted EPS
+      - '24.915'
+      - '39.501'
+    - - Adjusted diluted EPS
+      - '29.752'
+      - '42.049'
+  narrative_summary: 'Adjusted measures are non-IFRS. Per company definition: adjusted net profit / margin
+    / EPS exclude significant one-off items attributable to owners. Detailed adjustment itemisation disclosed
+    in AR Non-IFRS Financial Measures section (narrative form only in source markdown, not captured as
+    structured table). The principal one-off items referenced are pre-opening expenses of new clinics
+    (Wiesbaden, Kiel, HK flagship) and the goodwill impairment (HK$11,000 on LVC) per cross-reference
+    with Note 15.
+
+    '
+- note_number: null
+  title: Provisions (synthesized absence entry)
+  tables: []
+  narrative_summary: 'No discrete provisions note disclosed in the AR. The only loss allowance recognised
+    is the expected credit loss (ECL) provision on trade receivables: HK$731 at 31 Dec 2024 (FY2023: HK$420)
+    — movement and composition in Note 19. No restructuring, impairment (other than goodwill HK$11,000
+    on LVC in Note 15), warranty, or legal provisions disclosed. No discrete impairment loss on inventory
+    (Note 20) or PP&E (Note 13) in either period. Module B downstream should recognise no provision classifications
+    beyond the ECL and goodwill impairment already surfaced.
+
+    '
+- note_number: null
+  title: Retirement benefit obligations (synthesized absence entry)
+  tables: []
+  narrative_summary: 'No defined-benefit pension obligations disclosed. The Group operates defined-contribution
+    pension schemes only — primarily the German statutory pension scheme for German operations and local
+    equivalents for UK, Denmark, and China subsidiaries. Contributions recognised in P&L: HK$24,012 (FY2024)
+    / HK$21,105 (FY2023) — disclosed within Note 8 Employee Benefit Expenses. No actuarial assumptions,
+    plan assets, or DBO reconciliation to capture.
+
+    '
+segments:
+- period: FY2024
+  segment_type: geography
+  source_note: 5
+  segments:
+  - segment_name: Germany
+    metrics:
+      revenue: '395996'
+      cost_of_sales: '-216200'
+      _raw_materials_in_cos: '-46398'
+      _employee_benefit_in_cos: '-96894'
+      gross_profit: '179796'
+      advertising_and_marketing: '-22581'
+      employee_benefit_expenses_opex: '-17012'
+      ebitda: '158417'
+  - segment_name: China
+    metrics:
+      revenue: '145468'
+      cost_of_sales: '-104401'
+      _raw_materials_in_cos: '-22023'
+      _employee_benefit_in_cos: '-29014'
+      gross_profit: '41067'
+      advertising_and_marketing: '-9615'
+      employee_benefit_expenses_opex: '-14008'
+      ebitda: '49310'
+  - segment_name: Denmark
+    metrics:
+      revenue: '71638'
+      cost_of_sales: '-49623'
+      _raw_materials_in_cos: '-9336'
+      _employee_benefit_in_cos: '-24494'
+      gross_profit: '22015'
+      advertising_and_marketing: '-6551'
+      employee_benefit_expenses_opex: '-2734'
+      ebitda: '17554'
+  - segment_name: UK
+    metrics:
+      revenue: '113431'
+      cost_of_sales: '-69716'
+      _raw_materials_in_cos: '-11485'
+      _employee_benefit_in_cos: '-40220'
+      gross_profit: '43715'
+      advertising_and_marketing: '-19340'
+      employee_benefit_expenses_opex: '-16318'
+      ebitda: '17918'
+  - segment_name: Unallocated items
+    metrics:
+      revenue: null
+      cost_of_sales: null
+      gross_profit: null
+      advertising_and_marketing: '-34'
+      employee_benefit_expenses_opex: '-6238'
+      ebitda: '-15206'
+  inter_segment_eliminations:
+    revenue: '-10851'
+    cost_of_sales: '10851'
+    gross_profit: null
+    advertising_and_marketing: null
+    employee_benefit_expenses_opex: null
+    ebitda: null
+  reconciliation_to_group:
+    total_revenue: '715682'
+    total_cost_of_sales: '-429089'
+    total_gross_profit: '286593'
+    total_advertising_and_marketing: '-58121'
+    total_employee_benefit_expenses_opex: '-56310'
+    total_ebitda: '227993'
+  reconciliation_ebitda_to_profit:
+    ebitda: '227993'
+    finance_income: '26472'
+    finance_expenses: '-15785'
+    depreciation_and_amortisation: '-112214'
+    profit_before_tax: '126466'
+    income_tax_expense: '-42107'
+    profit_for_the_year: '84359'
+- period: FY2023
+  segment_type: geography
+  source_note: 5(b) + 6(b)
+  segments:
+  - segment_name: Germany
+    metrics:
+      revenue: '380916'
+  - segment_name: China
+    metrics:
+      revenue: '144036'
+  - segment_name: UK
+    metrics:
+      revenue: '101418'
+  - segment_name: Denmark
+    metrics:
+      revenue: '87919'
+  reconciliation_to_group:
+    total_revenue: '714289'
+    group_gross_profit: '335521'
+    group_profit_before_tax: '190610'
+    group_profit_for_the_year: '133254'
+  extraction_caveat: 'Source markdown v3.2 flagged Note 5(b) as partial extraction. Only segment revenue
+    (from Note 6(b) external-customer view) and group- level totals are available. Segment gross profit,
+    EBITDA, and cost allocations per geography for FY2023 are not preserved in the extraction. Verify
+    against source PDF pages 125-126 if required for downstream comparability analysis.
+
+    '
+- period: FY2024
+  segment_type: product
+  source_note: 6
+  segments:
+  - segment_name: Vision correction services
+    metrics:
+      revenue: '710875'
+  - segment_name: Training services
+    metrics:
+      revenue: '3613'
+  - segment_name: Sales of pharmaceutical products
+    metrics:
+      revenue: '51'
+  - segment_name: Rental of ophthalmic equipment and operating spaces
+    metrics:
+      revenue: '1143'
+  reconciliation_to_group:
+    total_revenue: '715682'
+- period: FY2023
+  segment_type: product
+  source_note: 6
+  segments:
+  - segment_name: Vision correction services
+    metrics:
+      revenue: '707897'
+  - segment_name: Training services
+    metrics:
+      revenue: '5407'
+  - segment_name: Sales of pharmaceutical products
+    metrics:
+      revenue: '17'
+  - segment_name: Rental of ophthalmic equipment and operating spaces
+    metrics:
+      revenue: '968'
+  reconciliation_to_group:
+    total_revenue: '714289'
+historical:
+  source: Five-Year Financial Summary, AR p.4-5
+  years:
+  - 2020
+  - 2021
+  - 2022
+  - 2023
+  - 2024
+  metrics:
+    revenue:
+    - '473818'
+    - '632931'
+    - '610291'
+    - '714289'
+    - '715682'
+    gross_profit:
+    - '214100'
+    - '312545'
+    - '270844'
+    - '335521'
+    - '286593'
+    profit_for_the_year:
+    - '64073'
+    - '132384'
+    - '83518'
+    - '133254'
+    - '84359'
+    profit_attributable_to_owners:
+    - '65580'
+    - '133560'
+    - '89472'
+    - '131242'
+    - '82285'
+    gross_profit_margin_pct:
+    - '45.2'
+    - '49.4'
+    - '44.4'
+    - '47.0'
+    - '40.0'
+    net_profit_margin_pct:
+    - '13.5'
+    - '20.9'
+    - '13.7'
+    - '18.7'
+    - '11.8'
+    adjusted_net_profit_after_tax:
+    - '70614'
+    - '137278'
+    - '101232'
+    - '141717'
+    - '100334'
+    adjusted_profit_attributable_to_owners:
+    - '65898'
+    - '138454'
+    - '107186'
+    - '139705'
+    - '98260'
+    adjusted_net_profit_margin_pct:
+    - '14.9'
+    - '21.7'
+    - '16.6'
+    - '19.8'
+    - '14.0'
+    eps_basic_hk_cents:
+    - '19.935'
+    - '40.673'
+    - '26.958'
+    - '39.544'
+    - '24.929'
+    eps_diluted_hk_cents:
+    - '17.438'
+    - '40.577'
+    - '26.927'
+    - '39.501'
+    - '24.915'
+    adjusted_eps_basic_hk_cents:
+    - '21.859'
+    - '42.163'
+    - '32.295'
+    - '42.094'
+    - '29.769'
+    adjusted_eps_diluted_hk_cents:
+    - '19.143'
+    - '42.063'
+    - '32.258'
+    - '42.049'
+    - '29.752'
+    total_assets:
+    - '1314181'
+    - '1369022'
+    - '1541040'
+    - '1753598'
+    - '1599435'
+    total_liabilities:
+    - '-324569'
+    - '-328545'
+    - '-497947'
+    - '-588090'
+    - '-473721'
+    equity_attributable_to_owners:
+    - '953292'
+    - '1005552'
+    - '1014266'
+    - '1134776'
+    - '1092965'
+    non_controlling_interests:
+    - '36320'
+    - '34925'
+    - '28827'
+    - '30732'
+    - '32749'
+    total_equity:
+    - '989612'
+    - '1040477'
+    - '1043093'
+    - '1165508'
+    - '1125714'
+operational_kpis:
+- metric_label: Total clinics and consultation centres worldwide
+  source: MD&A — Financial Review Section 1
+  unit: count
+  values:
+    FY2024: '34'
+- metric_label: New clinics opened in Germany during FY2024 (Wiesbaden, Kiel)
+  source: MD&A — Performance by Geographic Regions
+  unit: count
+  values:
+    FY2024: '2'
+- metric_label: Revenue from lens exchange surgery
+  source: MD&A — Performance by Type of Surgeries
+  unit: HKD millions
+  values:
+    FY2024: '390.8'
+  notes: 'FY2024 disclosed verbatim: HK$390.8M. FY2023 figure not disclosed as an absolute number in the
+    source markdown; MD&A only reports the +5.1% YoY growth rate. Not populated to honour catch-all principle.
+
+    '
+- metric_label: Revenue from Presbyond® Laser Blended Vision
+  source: MD&A — Performance by Type of Surgeries
+  unit: HKD millions
+  values:
+    FY2024: '30.0'
+- metric_label: Revenue from Phakic lens (ICL) surgery
+  source: MD&A — Performance by Type of Surgeries
+  unit: HKD millions
+  values:
+    FY2024: '75.4'
+- metric_label: Revenue from Refractive laser surgery
+  source: MD&A — Performance by Type of Surgeries
+  unit: HKD millions
+  values:
+    FY2024: '189.8'
+- metric_label: Lens exchange share of overall revenue
+  source: MD&A — Performance by Type of Surgeries
+  unit: '%'
+  values:
+    FY2023: '52.8'
+    FY2024: '54.6'
+- metric_label: Presbyopia treatments share of total revenue (lens exchange + Presbyond)
+  source: MD&A — Business Review Highlights
+  unit: '%'
+  values:
+    FY2023: '56.6'
+    FY2024: '58.8'
+- metric_label: Presbyond share of overall revenue
+  source: MD&A — Performance by Type of Surgeries
+  unit: '%'
+  values:
+    FY2024: '4.2'
+- metric_label: ICL share of total revenue
+  source: MD&A — Performance by Type of Surgeries
+  unit: '%'
+  values:
+    FY2023: '11.4'
+    FY2024: '10.5'
+- metric_label: Refractive laser share of overall revenue
+  source: MD&A — Performance by Type of Surgeries
+  unit: '%'
+  values:
+    FY2023: '33.4'
+    FY2024: '26.5'
+- metric_label: Germany — lens exchange surgery revenue
+  source: MD&A — Performance in Europe / Germany
+  unit: HKD millions
+  values:
+    FY2024: '221.8'
+- metric_label: Germany — ICL surgery revenue
+  source: MD&A — Performance in Europe / Germany
+  unit: HKD millions
+  values:
+    FY2024: '42.1'
+- metric_label: Germany — refractive laser surgery revenue
+  source: MD&A — Performance in Europe / Germany
+  unit: HKD millions
+  values:
+    FY2024: '108.4'
+- metric_label: China — lens exchange surgery revenue
+  source: MD&A — Performance in Asia / PRC
+  unit: HKD millions
+  values:
+    FY2024: '89.5'
+- metric_label: China — refractive laser surgery revenue
+  source: MD&A — Performance in Asia / PRC
+  unit: HKD millions
+  values:
+    FY2024: '23.5'
+- metric_label: China — ICL surgery revenue
+  source: MD&A — Performance in Asia / PRC
+  unit: HKD millions
+  values:
+    FY2024: '26.8'
+- metric_label: Current ratio
+  source: MD&A — Financial Review Section 14 Liquidity
+  unit: ratio
+  values:
+    FY2023: '4.6'
+    FY2024: '4.7'
+- metric_label: Gearing ratio status
+  source: MD&A — Financial Review Section 14 Liquidity
+  unit: null
+  values:
+    FY2024: Immaterial (no long-term borrowings; only HK$853 short-term bank overdrafts in GBP)
+- metric_label: Cash and cash equivalents
+  source: MD&A — Financial Review Section 14 Liquidity
+  unit: HKD millions
+  values:
+    FY2024: '653.2'
+- metric_label: Adjusted gross profit
+  source: MD&A — Financial Review Section 3
+  unit: HKD millions
+  values:
+    FY2023: '339.4'
+    FY2024: '298.5'
+- metric_label: Adjusted gross profit margin
+  source: MD&A — Financial Review Section 3
+  unit: '%'
+  values:
+    FY2023: '47.5'
+    FY2024: '41.7'
+- metric_label: EBITDA (as reported)
+  source: Note 5(a) reconciliation + MD&A
+  unit: HKD millions
+  values:
+    FY2024: '228.0'
+  notes: 'FY2024 Group EBITDA HK$227,993 per Note 5(a); rounded to HK$228.0M in MD&A narrative ("EBITDA
+    fell by 18.8%"). FY2023 EBITDA not disclosed verbatim as an absolute number in the source markdown
+    (converter flagged Note 5(b) FY2023 comparative as partial; only 18.8% YoY change mentioned in MD&A).
+    Not populated to honour catch-all principle.
+
+    '
+- metric_label: Adjusted EBITDA
+  source: MD&A — Business Review Highlights
+  unit: HKD millions
+  values:
+    FY2024: '240.5'
+- metric_label: Adjusted EBITDA margin
+  source: MD&A — Business Review Highlights
+  unit: '%'
+  values:
+    FY2023: '40.5'
+    FY2024: '33.6'
+- metric_label: Net profit after tax impact from four new clinics not yet at breakeven (London, Hong Kong,
+    Wiesbaden, Kiel)
+  source: MD&A — Business Review Highlights
+  unit: HKD millions
+  values:
+    FY2024: '-43.8'
+- metric_label: Germany clinics EBITDA margin (mature clinics benchmark)
+  source: 'MD&A — Organic Growth Pillar #2'
+  unit: '% (up to)'
+  values:
+    FY2024: '50'
+- metric_label: 'Expansion outlook: expected breakeven year for Wiesbaden and Kiel clinics'
+  source: 'MD&A — Organic Growth Pillar #2 (forward-looking)'
+  unit: null
+  values:
+    FY2024: '2025'
+- metric_label: 'Forward-looking target 2028: organic revenue CAGR'
+  source: MD&A — Outlook and Future Strategies (forward-looking)
+  unit: '%'
+  values:
+    FY2024: Low to mid-teens
+- metric_label: 'Forward-looking target 2028: organic EBITDA CAGR'
+  source: MD&A — Outlook and Future Strategies (forward-looking)
+  unit: '%'
+  values:
+    FY2024: High teens
+- metric_label: 'Forward-looking target 2028: organic net profit CAGR'
+  source: MD&A — Outlook and Future Strategies (forward-looking)
+  unit: '%'
+  values:
+    FY2024: High-teens to low-twenties
+- metric_label: Zeiss award for highest number of trifocal lens procedures — consecutive years
+  source: 'MD&A — Organic Growth Pillar #1'
+  unit: years
+  values:
+    FY2024: '9'

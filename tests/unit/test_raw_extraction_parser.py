@@ -20,11 +20,39 @@ from portfolio_thesis_engine.schemas.raw_extraction import (
 )
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction_ar_2024.yaml"
+_REAL_CLAUDE_AI_FIXTURE = (
+    Path(__file__).parent.parent / "fixtures" / "euroeyes"
+    / "raw_extraction_real_claude_ai_2025.yaml"
+)
 
 
 # ======================================================================
 # Happy path — real fixture
 # ======================================================================
+
+
+class TestParseRealClaudeAIFixture:
+    """Phase 1.5.4 regression: the real 4288-line EuroEyes extraction
+    produced by Hugo's Claude.ai Project must continue to parse after
+    the schema-rigidity relaxations.
+
+    Business-logic validation (walking subtotals, BS identity, etc.)
+    may flag real issues — that's orthogonal to schema rigidity.
+    This test asserts only that Pydantic + unit-scale normalisation
+    succeed.
+    """
+
+    def test_real_yaml_parses_after_relaxation(self) -> None:
+        raw = parse_raw_extraction(_REAL_CLAUDE_AI_FIXTURE)
+        assert raw.metadata.ticker == "1846.HK"
+        # Composite source_note round-trips as string
+        is_data = raw.primary_is
+        assert is_data is not None
+        # At least one line should use the string form (e.g. "3.3, 35",
+        # "29(d)", or similar in the real extraction).
+        string_sn = [li for li in is_data.line_items if li.source_note]
+        assert string_sn, "expected at least one line with source_note set"
+        assert all(isinstance(li.source_note, str) for li in string_sn)
 
 
 class TestParseRealFixture:

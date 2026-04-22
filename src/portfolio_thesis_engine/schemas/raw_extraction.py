@@ -47,7 +47,7 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from portfolio_thesis_engine.schemas.base import BaseSchema
+from portfolio_thesis_engine.schemas.base import BaseSchema, FlexibleSchema
 from portfolio_thesis_engine.schemas.common import (
     Currency,
     ISODate,
@@ -165,8 +165,13 @@ class FiscalPeriodData(BaseSchema):
     period_type: PeriodType = "FY"
 
 
-class DocumentMetadata(BaseSchema):
-    """Identity + provenance for one source document."""
+class DocumentMetadata(FlexibleSchema):
+    """Identity + provenance for one source document.
+
+    Flexible — extractors may add arbitrary metadata fields
+    (``source_file_name``, upstream-ingestion IDs, etc.) without
+    schema edits.
+    """
 
     ticker: Ticker
     company_name: str = Field(min_length=1)
@@ -203,9 +208,29 @@ class LineItem(BaseSchema):
     value: Decimal | None = None
     is_subtotal: bool = False
     section: str | None = None
-    source_note: int | None = Field(default=None, ge=0)
+    source_note: str | None = None
+    """Note reference as reported. Free-form string so composite /
+    sub-note identifiers round-trip verbatim: ``"13"``, ``"3.3, 35"``,
+    ``"29(d)"``, ``"32(a)"``, ``"38(b)"``, etc.
+
+    A YAML-scalar integer (``source_note: 5``) is coerced to
+    ``"5"`` so legacy extractions parse without edits.
+    """
     source_page: int | None = Field(default=None, ge=0)
     notes: str | None = None
+
+    @field_validator("source_note", mode="before")
+    @classmethod
+    def _coerce_source_note(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):  # bool is int — exclude
+            return str(value)
+        if isinstance(value, int | float):
+            return str(value)
+        return value
 
 
 class ProfitAttribution(BaseSchema):
@@ -231,8 +256,10 @@ class EarningsPerShare(BaseSchema):
     shares_unit: str | None = None
 
 
-class IncomeStatementPeriod(BaseSchema):
-    """Income statement for one fiscal period."""
+class IncomeStatementPeriod(FlexibleSchema):
+    """Income statement for one fiscal period. Flexible — allows
+    extras like ``total_comprehensive_income_attribution``,
+    ``continuing_vs_discontinued_split``, etc."""
 
     reporting_period_label: str | None = None
     line_items: list[LineItem] = Field(default_factory=list)
@@ -240,19 +267,22 @@ class IncomeStatementPeriod(BaseSchema):
     earnings_per_share: EarningsPerShare | None = None
 
 
-class BalanceSheetPeriod(BaseSchema):
+class BalanceSheetPeriod(FlexibleSchema):
     """Balance sheet for one fiscal period. Items are grouped by
     ``section`` (current_assets / non_current_assets / equity / etc.)
-    so the validator can verify section-level sums."""
+    so the validator can verify section-level sums. Flexible — extras
+    like ``as_at_date_note`` / ``currency_translation_disclosure``
+    survive."""
 
     period_end_date: ISODate | None = None
     line_items: list[LineItem] = Field(default_factory=list)
 
 
-class CashFlowPeriod(BaseSchema):
+class CashFlowPeriod(FlexibleSchema):
     """Cash flow statement for one fiscal period. Items are grouped by
     ``section`` (operating / investing / financing / fx_effect /
-    subtotal)."""
+    subtotal). Flexible — extras like ``cash_reconciliation_note``
+    survive."""
 
     reporting_period_label: str | None = None
     line_items: list[LineItem] = Field(default_factory=list)
@@ -289,13 +319,14 @@ class NoteTable(BaseSchema):
         return coerced
 
 
-class Note(BaseSchema):
+class Note(FlexibleSchema):
     """One note from the document, verbatim.
 
     ``note_number`` preserves the issuer's numbering ("5", "5(a)",
     "3.1"). Modules find relevant notes by matching ``title``
     against regex patterns and iterate the ``tables`` list looking
-    for known row labels.
+    for known row labels. Flexible — allows extra fields like
+    ``narrative_summary_fr`` or sector-specific annotations.
     """
 
     note_number: str | None = None
@@ -317,14 +348,20 @@ class SegmentMetrics(BaseSchema):
     metrics: dict[str, Decimal | None] = Field(default_factory=dict)
 
 
-class SegmentReporting(BaseSchema):
+class SegmentReporting(FlexibleSchema):
     """All segment data for one reporting period along one axis
-    (geography / product / business_line / ...)."""
+    (geography / product / business_line / ...).
+
+    Flexible — allows extras like ``source_note``,
+    ``reconciliation_to_group``, ``extraction_caveat``,
+    ``reconciliation_ebitda_to_profit`` that some filings
+    provide alongside the segment tables.
+    """
 
     period: str = Field(min_length=1)
     segment_type: str = Field(min_length=1)
     segments: list[SegmentMetrics] = Field(default_factory=list)
-    inter_segment_eliminations: dict[str, Decimal] | None = None
+    inter_segment_eliminations: dict[str, Decimal | None] | None = None
 
 
 class HistoricalDataSeries(BaseSchema):
@@ -337,13 +374,14 @@ class HistoricalDataSeries(BaseSchema):
     metrics: dict[str, list[Decimal | None]] = Field(default_factory=dict)
 
 
-class OperationalKPI(BaseSchema):
+class OperationalKPI(FlexibleSchema):
     """One operational KPI. Free-form so companies can disclose
     sector-specific metrics without a schema change.
 
     ``values`` entries are coerced: numeric-looking strings become
     :class:`Decimal`; non-numeric strings stay as strings; ``None``
-    passes through."""
+    passes through. Flexible — extras like per-metric ``notes``
+    or ``methodology`` commentary survive."""
 
     metric_label: str = Field(min_length=1)
     source: str = Field(min_length=1)

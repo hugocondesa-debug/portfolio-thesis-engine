@@ -47,6 +47,8 @@ narrative:           # NarrativeContent (required when extraction_type = narrati
 ## 2. `LineItem`
 
 The atomic building block. Every statement is a list of these.
+**Core structural fields only — `extra="forbid"`** so typos are caught
+early.
 
 | Field           | Type                 | Notes                                                                 |
 | --------------- | -------------------- | --------------------------------------------------------------------- |
@@ -55,7 +57,7 @@ The atomic building block. Every statement is a list of these.
 | `value`         | Decimal \| None      | Signed (parentheses → `-`). `None` for items the issuer doesn't report. |
 | `is_subtotal`   | bool (default false) | True for Gross profit / Operating profit / PBT / NI / section totals. |
 | `section`       | str \| None          | BS: `current_assets` / `non_current_assets` / `total_assets` / `current_liabilities` / `non_current_liabilities` / `total_liabilities` / `equity`. CF: `operating` / `investing` / `financing` / `fx_effect` / `subtotal`. IS: typically unset. |
-| `source_note`   | int \| None          | Cross-reference to note number in the PDF.                            |
+| `source_note`   | str \| None          | Cross-reference to note — **free-form string** so composite / sub-note identifiers round-trip verbatim: `"13"`, `"3.3, 35"`, `"29(d)"`, `"32(a)"`, `"38(b)"`. YAML-scalar ints are coerced to strings automatically. |
 | `source_page`   | int \| None          | Page in the PDF.                                                      |
 | `notes`         | str \| None          | Extractor comment (e.g. "originally in EUR, translated at 8.31").     |
 
@@ -244,7 +246,42 @@ extraction workflow remains the same as Phase 1.5.
 | BS `section` + labels                 | AnalysisDeriver IC computation           |
 | Segments / historical / KPIs          | Pass through to canonical state         |
 
-## 13. Migration from Phase 1.5 fixed-field schema
+## 13. Strict vs flexible models (Phase 1.5.4)
+
+The schema mixes two configurations to balance typo-detection with
+the catch-all philosophy:
+
+**Strict (`extra="forbid"`)** — typos in these models raise a schema
+error, which is what you want for core structural types:
+
+- `LineItem` — atomic statement row. Typos on `order`/`label`/`value`
+  would silently lose data.
+- `NoteTable` — table structure (columns + rows). Typos in
+  `columns`/`rows` would lose row data.
+- `ProfitAttribution`, `EarningsPerShare` — standard footers.
+- `FiscalPeriodData`, `SegmentMetrics`, `HistoricalDataSeries`,
+  `GuidanceChangeItem`, `QAItem`, `NarrativeContent`.
+
+**Flexible (`extra="allow"`)** — extras round-trip without errors,
+preserving issuer-specific or extractor-specific fields:
+
+- `DocumentMetadata` — issuer or pipeline may add `source_file_name`,
+  upstream-ingest IDs, etc.
+- `IncomeStatementPeriod` — IFRS filings often add
+  `total_comprehensive_income_attribution`, continuing-vs-discontinued
+  footers.
+- `BalanceSheetPeriod`, `CashFlowPeriod` — reconciliation notes,
+  currency-translation disclosures.
+- `Note` — narrative-summary variants, translations.
+- `SegmentReporting` — `source_note`, `reconciliation_to_group`,
+  `extraction_caveat`, `reconciliation_ebitda_to_profit`.
+- `OperationalKPI` — per-metric `notes`, `methodology`.
+
+Extras land on `model.model_extra` dict and round-trip through YAML.
+Downstream consumers don't have to handle them — they're preserved
+metadata, not part of the typed API.
+
+## 14. Migration from Phase 1.5 fixed-field schema
 
 The Phase 1.5 schema had typed fields like `revenue`, `cost_of_sales`,
 `operating_income` on `IncomeStatementPeriod`. Phase 1.5.3 replaces

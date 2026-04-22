@@ -43,6 +43,25 @@ The three-page schema reference
 ([`raw_extraction_schema.md`](raw_extraction_schema.md)) is the contract
 — if the YAML validates, the pipeline processes it.
 
+## 1b. Flexible containers (Phase 1.5.4)
+
+The schema permits **extra fields** on flexible containers —
+`metadata`, IS/BS/CF periods, `notes[]`, `segments[]`,
+`operational_kpis[]`. If the company discloses
+`total_comprehensive_income_attribution`, `source_note: "32(a)"`,
+`reconciliation_to_group`, `extraction_caveat`, or any other field
+that doesn't fit the typed schema but is semantically relevant —
+write it. It round-trips via `model_extra` and is preserved for
+downstream review.
+
+**Core structural types** (`LineItem`, `NoteTable`, `ProfitAttribution`,
+`EarningsPerShare`) stay strict — typos on `order` / `label` / `value`
+would silently lose data, so those models still reject extras.
+
+`LineItem.source_note` is a **free-form string**: `"13"`, `"3.3, 35"`,
+`"29(d)"`, `"32(a)"`, `"38(b)"`. Composite and sub-note identifiers
+round-trip verbatim.
+
 ## 1a. The catch-all principle (read this every session)
 
 **Extraction captures what the company reported. Downstream decides

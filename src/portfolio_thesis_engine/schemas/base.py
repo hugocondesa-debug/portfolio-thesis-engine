@@ -45,6 +45,24 @@ class BaseSchema(BaseModel):
         return cls.model_validate(data)
 
 
+class FlexibleSchema(BaseSchema):
+    """Variant of :class:`BaseSchema` that **permits extra fields**.
+
+    Used by `RawExtraction` flexible containers (document metadata,
+    statement periods, notes, segments, operational KPIs) so
+    company-reported extensions survive without triggering schema
+    validation errors — aligned with the catch-all extraction
+    philosophy. Extra fields are preserved on the model via
+    ``model_extra`` and round-trip through YAML.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        str_strip_whitespace=True,
+        validate_assignment=True,
+    )
+
+
 class ImmutableSchema(BaseSchema):
     """Base for snapshots / append-only records — frozen after creation."""
 

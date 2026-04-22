@@ -248,7 +248,8 @@ def _scale_segment_reporting(
     }
     if s.inter_segment_eliminations is not None:
         updates["inter_segment_eliminations"] = {
-            k: v * factor for k, v in s.inter_segment_eliminations.items()
+            k: (v * factor if v is not None else None)
+            for k, v in s.inter_segment_eliminations.items()
         }
     return s.model_copy(update=updates)
 
