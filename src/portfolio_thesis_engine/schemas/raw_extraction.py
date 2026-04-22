@@ -58,6 +58,20 @@ from portfolio_thesis_engine.schemas.common import (
 # ======================================================================
 # Enums
 # ======================================================================
+class AuditStatus(StrEnum):
+    """Audit status of the source document.
+
+    Phase 1.5.11: drives validator relaxation, cross-check skip, and
+    confidence downgrade. Defaults to :attr:`AUDITED` for backwards
+    compatibility — every extraction produced pre-1.5.11 is treated
+    as audited.
+    """
+
+    AUDITED = "audited"
+    REVIEWED = "reviewed"  # auditor reviewed but not full audit
+    UNAUDITED = "unaudited"
+
+
 class DocumentType(StrEnum):
     """Source-document kind. Drives which sections the extractor
     expects and which validation checks apply."""
@@ -72,6 +86,9 @@ class DocumentType(StrEnum):
     INTERIM_REPORT = "interim_report"
     QUARTERLY_UPDATE = "quarterly_update"
     PRELIMINARY_ANNOUNCEMENT = "preliminary_announcement"
+    # Phase 1.5.11 — investor-presentation / pre-audit preliminary
+    # figures (broader than the formal regulatory announcement).
+    PRELIMINARY_RESULTS = "preliminary_results"
     AIF = "aif"
     HKEX_ANNOUNCEMENT = "hkex_announcement"
     PRESS_RELEASE = "press_release"
@@ -165,12 +182,40 @@ class FiscalPeriodData(BaseSchema):
     period_type: PeriodType = "FY"
 
 
+class PreliminaryFlag(BaseSchema):
+    """Phase 1.5.11 — preliminary / pre-audit provenance for display +
+    restatement tracking."""
+
+    pending_audit: bool = True
+    expected_audit_date: ISODate | None = None
+    source_document: str = Field(
+        default="",
+        description=(
+            "Where the preliminary data came from — e.g. "
+            "'Investor presentation dated 2026-03-15', "
+            "'HKEX announcement 2026-03-10'."
+        ),
+    )
+    caveat_text: str = Field(
+        default="",
+        description=(
+            "Human-readable caveat to surface in the display banner. "
+            "Pulled verbatim from the source presentation where possible."
+        ),
+    )
+
+
 class DocumentMetadata(FlexibleSchema):
     """Identity + provenance for one source document.
 
     Flexible — extractors may add arbitrary metadata fields
     (``source_file_name``, upstream-ingestion IDs, etc.) without
     schema edits.
+
+    Phase 1.5.11 — :attr:`audit_status` drives validator relaxation,
+    cross-check skip, confidence downgrade and the unaudited display
+    banner. Default is :attr:`AuditStatus.AUDITED` so Phase-1
+    extractions keep their behaviour unchanged.
     """
 
     ticker: Ticker
@@ -186,6 +231,8 @@ class DocumentMetadata(FlexibleSchema):
     extraction_version: int = Field(default=1, ge=1)
     extraction_notes: str = ""
     fiscal_periods: list[FiscalPeriodData] = Field(default_factory=list)
+    audit_status: AuditStatus = AuditStatus.AUDITED
+    preliminary_flag: PreliminaryFlag | None = None
 
 
 # ======================================================================

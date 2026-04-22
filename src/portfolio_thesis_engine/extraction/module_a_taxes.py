@@ -280,9 +280,22 @@ class ModuleATaxes(ExtractionModule):
         self, context: ExtractionContext, *, reason: str
     ) -> None:
         statutory = context.wacc_inputs.cost_of_capital.tax_rate_for_wacc
+        # Phase 1.5.11 — augment the note when the underlying source is
+        # unaudited so the analyst knows the fallback is expected (not
+        # an extraction bug) and will auto-upgrade once the AR lands.
+        from portfolio_thesis_engine.schemas.raw_extraction import AuditStatus
+
+        audit = context.raw_extraction.metadata.audit_status
+        suffix = ""
+        if audit == AuditStatus.UNAUDITED:
+            suffix = (
+                " Preliminary / unaudited source — full tax reconciliation "
+                "will appear in the formal annual report; re-run the "
+                "pipeline then to upgrade from statutory."
+            )
         context.estimates_log.append(
             f"Module A: falling back to statutory tax rate {statutory}% "
-            f"from WACCInputs ({reason})."
+            f"from WACCInputs ({reason}).{suffix}"
         )
         context.adjustments.append(
             ModuleAdjustment(

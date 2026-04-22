@@ -384,9 +384,21 @@ class ExtractionValidator:
     def validate_completeness(
         self, extraction: RawExtraction, profile: Profile
     ) -> ValidationReport:
+        """Walk required + recommended note patterns for the profile.
+
+        Phase 1.5.11: when the source is unaudited (investor
+        presentation, preliminary announcement, pre-audit disclosure),
+        required notes demote from ``FAIL`` to ``WARN`` — pre-audit
+        sources disclose fewer notes by design and should not be
+        blocked by their absence. Strict arithmetic checks (IS / BS /
+        CF identities) remain unchanged.
+        """
+        from portfolio_thesis_engine.schemas.raw_extraction import AuditStatus
+
         report = ValidationReport(tier="completeness")
         required = REQUIRED_NOTE_PATTERNS.get(profile, {})
         recommended = RECOMMENDED_NOTE_PATTERNS.get(profile, {})
+        unaudited = extraction.metadata.audit_status == AuditStatus.UNAUDITED
         if not required and not recommended:
             report.add(
                 ValidationResult(
@@ -402,15 +414,25 @@ class ExtractionValidator:
 
         for name, pattern in required.items():
             present = self._note_present(extraction.notes, pattern)
-            status: ValidationStatus = "OK" if present else "FAIL"
+            # Phase 1.5.11 — unaudited sources demote required→WARN.
+            if present:
+                status: ValidationStatus = "OK"
+                msg_suffix = "present"
+            elif unaudited:
+                status = "WARN"
+                msg_suffix = (
+                    "MISSING (expected absence — unaudited source)"
+                )
+            else:
+                status = "FAIL"
+                msg_suffix = "MISSING"
             report.add(
                 ValidationResult(
                     check_id=f"C.R.{name}",
                     status=status,
                     message=(
-                        f"Required note {name!r} "
-                        + ("present" if present else "MISSING")
-                        + f" for profile {profile.value}."
+                        f"Required note {name!r} {msg_suffix} "
+                        f"for profile {profile.value}."
                     ),
                 )
             )

@@ -311,7 +311,13 @@ class VintageAndCascade(BaseSchema):
 
 
 class MethodologyMetadata(BaseSchema):
-    """What methodology was used to produce this state."""
+    """What methodology was used to produce this state.
+
+    Phase 1.5.11: :attr:`audit_status` + :attr:`preliminary_flag`
+    mirror the source :class:`DocumentMetadata` so the display layer
+    can render the unaudited banner + confidence caveats without
+    re-reading the raw extraction.
+    """
 
     extraction_system_version: str
     profile_applied: Profile
@@ -320,6 +326,9 @@ class MethodologyMetadata(BaseSchema):
     tiers: dict[str, int] = Field(default_factory=dict)
     llm_calls_summary: dict[str, int] = Field(default_factory=dict)
     total_api_cost_usd: Decimal | None = None
+    audit_status: str = "audited"
+    preliminary_flag: dict[str, Any] | None = None
+    source_document_type: str | None = None
 
 
 class CanonicalCompanyState(ImmutableSchema):

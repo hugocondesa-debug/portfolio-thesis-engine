@@ -75,6 +75,9 @@ def build_raw(
     second_period: str | None = None,
     second_period_end: str | None = None,
     second_bs_lines: list[dict] | None = None,
+    audit_status: str = "audited",
+    document_type: str | None = None,
+    preliminary_flag: dict | None = None,
 ) -> RawExtraction:
     """Build a minimal valid :class:`RawExtraction` for tests."""
     periods: list[dict] = [
@@ -106,12 +109,14 @@ def build_raw(
         "metadata": {
             "ticker": ticker,
             "company_name": "Test Co",
-            "document_type": DocumentType.ANNUAL_REPORT,
+            "document_type": document_type or DocumentType.ANNUAL_REPORT,
             "extraction_type": ExtractionType.NUMERIC,
             "reporting_currency": Currency.USD,
             "unit_scale": "units",
             "extraction_date": "2025-01-01",
             "fiscal_periods": periods,
+            "audit_status": audit_status,
+            "preliminary_flag": preliminary_flag,
         },
         "income_statement": {
             period: {"line_items": is_lines if is_lines is not None else default_is_lines},

@@ -199,7 +199,12 @@ class ExtractionCoordinator:
                 ),
             ],
             profile_specific_checksums=[],
-            confidence_rating="MEDIUM",
+            # Phase 1.5.11 — confidence caps on audit status.
+            # AUDITED default is MEDIUM (Phase-1 behaviour);
+            # REVIEWED caps at MEDIUM; UNAUDITED caps at MEDIUM-LOW.
+            confidence_rating=_confidence_for_audit_status(
+                context.raw_extraction.metadata.audit_status
+            ),
         )
 
         # Phase 1.5.6: report THIS run's cost, not the cumulative JSONL
@@ -213,6 +218,13 @@ class ExtractionCoordinator:
             ),
             start=Decimal("0"),
         )
+        # Phase 1.5.11 — mirror audit_status + preliminary_flag onto
+        # the methodology so the display layer can render the unaudited
+        # banner without reading the raw extraction.
+        raw_metadata = context.raw_extraction.metadata
+        prelim_payload: dict[str, Any] | None = None
+        if raw_metadata.preliminary_flag is not None:
+            prelim_payload = raw_metadata.preliminary_flag.model_dump()
         methodology = MethodologyMetadata(
             extraction_system_version=_EXTRACTION_SYSTEM_VERSION,
             profile_applied=identity.profile,
@@ -223,6 +235,9 @@ class ExtractionCoordinator:
             tiers={},
             llm_calls_summary={},
             total_api_cost_usd=session_ticker_cost,
+            audit_status=raw_metadata.audit_status.value,
+            preliminary_flag=prelim_payload,
+            source_document_type=raw_metadata.document_type.value,
         )
 
         as_of_date = (
@@ -373,3 +388,19 @@ def _render_cf_lines(
             )
         )
     return out
+
+
+# ----------------------------------------------------------------------
+# Phase 1.5.11 — audit-status aware confidence cap
+# ----------------------------------------------------------------------
+def _confidence_for_audit_status(audit_status: Any) -> str:
+    """Map :class:`AuditStatus` → confidence tag persisted on
+    :class:`ValidationResults`. Defaults preserved for AUDITED so
+    Phase-1 canonical states are unchanged."""
+    from portfolio_thesis_engine.schemas.raw_extraction import AuditStatus
+
+    if audit_status == AuditStatus.UNAUDITED:
+        return "MEDIUM-LOW"
+    if audit_status == AuditStatus.REVIEWED:
+        return "MEDIUM"
+    return "MEDIUM"

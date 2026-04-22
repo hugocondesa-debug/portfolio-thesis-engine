@@ -825,6 +825,8 @@ class PipelineCoordinator:
         *,
         skip_cross_check: bool,
     ) -> CrossCheckReport | None:
+        from portfolio_thesis_engine.schemas.raw_extraction import AuditStatus
+
         t0 = perf_counter()
         if skip_cross_check:
             outcome.stages.append(
@@ -833,6 +835,29 @@ class PipelineCoordinator:
                     status="skip",
                     duration_ms=_ms_since(t0),
                     message="Cross-check gate bypassed via --skip-cross-check.",
+                )
+            )
+            return None
+
+        # Phase 1.5.11 — unaudited sources (preliminary investor
+        # presentation, pre-audit announcement) won't be in FMP /
+        # yfinance yet. Skipping is the honest outcome — SKIP not
+        # WARN, because the external source doesn't *disagree*, it
+        # doesn't exist.
+        if raw_extraction.metadata.audit_status == AuditStatus.UNAUDITED:
+            outcome.stages.append(
+                StageOutcome(
+                    stage=PipelineStage.CROSS_CHECK,
+                    status="skip",
+                    duration_ms=_ms_since(t0),
+                    message=(
+                        "cross_check skipped — unaudited period, no external "
+                        "source available (FMP / yfinance populate after "
+                        "audited release)."
+                    ),
+                    data={
+                        "audit_status": raw_extraction.metadata.audit_status.value,
+                    },
                 )
             )
             return None
@@ -904,10 +929,18 @@ class PipelineCoordinator:
             )
             return {}, None
 
+        from portfolio_thesis_engine.schemas.raw_extraction import AuditStatus
+
         is_total = coverage.is_total
         is_not_decomposable = coverage.is_not_decomposable
         status: str = "ok"
-        if is_total > 0 and is_not_decomposable * 2 > is_total:
+        unaudited = raw_extraction.metadata.audit_status == AuditStatus.UNAUDITED
+        if unaudited:
+            # Phase 1.5.11 — preliminary sources carry few notes by
+            # design; a low decomposition rate is expected and
+            # shouldn't be annotated as a warning.
+            note_suffix = " (preliminary source — note disclosure limited)"
+        elif is_total > 0 and is_not_decomposable * 2 > is_total:
             status = "ok"  # elevated fallback rate but not blocking
             note_suffix = " (high fallback rate — review note references)"
         else:

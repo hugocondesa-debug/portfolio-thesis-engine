@@ -52,6 +52,44 @@ def _format_pct(value: Any) -> str:
     return f"{value:.2f}%"
 
 
+def _unaudited_banner(bundle: FichaBundle) -> Any:
+    """Phase 1.5.11 — prominent banner rendered at the top of every
+    ``pte show`` view when the underlying canonical state was derived
+    from an unaudited source. Returns ``None`` when the source is
+    audited (no banner)."""
+    from rich.panel import Panel
+
+    state = bundle.canonical_state
+    if state is None:
+        return None
+    audit = getattr(state.methodology, "audit_status", "audited") or "audited"
+    if audit == "audited":
+        return None
+
+    prelim = getattr(state.methodology, "preliminary_flag", None) or {}
+    source = prelim.get("source_document") if isinstance(prelim, dict) else None
+    expected = prelim.get("expected_audit_date") if isinstance(prelim, dict) else None
+    caveat = prelim.get("caveat_text") if isinstance(prelim, dict) else None
+
+    lines: list[str] = [f"[bold yellow]⚠  {audit.upper()} PRELIMINARY RESULTS[/bold yellow]", ""]
+    if source:
+        lines.append(f"[dim]Based on:[/dim] {source}")
+    if expected:
+        lines.append(f"[dim]Expected audit:[/dim] {expected}")
+    elif prelim.get("pending_audit"):
+        lines.append("[dim]Expected audit:[/dim] TBD")
+    if caveat:
+        lines.append("")
+        lines.append(f"[dim]Caveat:[/dim] {caveat}")
+    lines.append("")
+    lines.append(
+        "[dim]Confidence: "
+        f"{state.validation.confidence_rating}. Re-run pipeline when formal "
+        "AR released for restatement detection.[/dim]"
+    )
+    return Panel("\n".join(lines), border_style="yellow", expand=False)
+
+
 def _identity_table(bundle: FichaBundle) -> Table:
     ficha = bundle.ficha
     state = bundle.canonical_state
@@ -69,7 +107,30 @@ def _identity_table(bundle: FichaBundle) -> Table:
     table.add_row("Exchange", identity.exchange)
     if identity.shares_outstanding is not None:
         table.add_row("Shares outstanding", _format_money(identity.shares_outstanding))
+    # Phase 1.5.11 — audit status + source row when canonical carries it.
+    audit_status, source = _audit_status_for_display(bundle)
+    if audit_status and audit_status != "audited":
+        table.add_row("Audit status", f"[yellow]{audit_status.upper()}[/yellow]")
+        if source:
+            table.add_row("Source", source)
+    elif audit_status == "audited":
+        table.add_row("Audit status", "[green]AUDITED[/green]")
     return table
+
+
+def _audit_status_for_display(bundle: FichaBundle) -> tuple[str | None, str | None]:
+    """Phase 1.5.11 — pull ``(audit_status, source_document)`` from the
+    canonical state's methodology. Returns ``(None, None)`` when the
+    bundle has no canonical state."""
+    state = bundle.canonical_state
+    if state is None:
+        return None, None
+    status = getattr(state.methodology, "audit_status", "audited") or "audited"
+    prelim = getattr(state.methodology, "preliminary_flag", None)
+    source: str | None = None
+    if isinstance(prelim, dict):
+        source = prelim.get("source_document") or None
+    return status, source
 
 
 def _valuation_table(bundle: FichaBundle) -> Table | None:
@@ -646,6 +707,9 @@ def _render_rich(bundle: FichaBundle) -> None:
         )
         return
 
+    banner = _unaudited_banner(bundle)
+    if banner is not None:
+        console.print(banner)
     console.print(_identity_table(bundle))
     val_table = _valuation_table(bundle)
     if val_table is not None:
@@ -667,6 +731,9 @@ def _render_detail(bundle: FichaBundle, scenario_filter: str | None = None) -> N
         )
         return
 
+    banner = _unaudited_banner(bundle)
+    if banner is not None:
+        console.print(banner)
     console.print(_identity_table(bundle))
     snap = bundle.valuation_snapshot
     if snap is not None:

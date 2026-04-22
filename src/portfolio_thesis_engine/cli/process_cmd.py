@@ -118,6 +118,114 @@ def _resolve_extraction_path(ticker: str, explicit: str | None) -> Path:
 
 
 # ----------------------------------------------------------------------
+# Phase 1.5.11 — multi-extraction base-period selection
+# ----------------------------------------------------------------------
+_BASE_PERIOD_AUTO = "AUTO"
+_BASE_PERIOD_LATEST_AUDITED = "LATEST-AUDITED"
+
+
+def _candidate_extraction_files(ticker: str) -> list[Path]:
+    """Return every ``raw_extraction*.yaml`` file we can find for a
+    ticker, across the DocumentRepository + the ``~/data_inputs`` layout.
+    Sorted by mtime descending so "latest" ordering is easy."""
+    import re
+
+    seen: set[Path] = set()
+    pattern = re.compile(r"^raw_extraction.*\.yaml$", re.IGNORECASE)
+    for path in DocumentRepository().list_documents(ticker):
+        if pattern.match(path.name):
+            seen.add(path)
+    base = Path.home() / "data_inputs" / normalise_ticker(ticker)
+    if base.exists():
+        for path in base.glob("raw_extraction*.yaml"):
+            seen.add(path)
+    return sorted(seen, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def _peek_audit_metadata(path: Path) -> tuple[str, str, str]:
+    """Cheap YAML peek: return ``(audit_status, document_type, period)``
+    without parsing the whole extraction. Falls back to ``"audited"`` /
+    ``"unknown"`` / ``""`` when any field is missing."""
+    import yaml
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return "audited", "unknown", ""
+    metadata = raw.get("metadata") or {}
+    audit = str(metadata.get("audit_status") or "audited").lower()
+    doc_type = str(metadata.get("document_type") or "unknown")
+    # primary_period label — first entry in fiscal_periods list.
+    fps = metadata.get("fiscal_periods") or []
+    period = ""
+    if fps and isinstance(fps, list) and isinstance(fps[0], dict):
+        period = str(fps[0].get("period") or "")
+    return audit, doc_type, period
+
+
+def _select_extraction_by_base_period(
+    ticker: str,
+    explicit: str | None,
+    base_period: str,
+) -> Path:
+    """Phase 1.5.11 — pick the right ``raw_extraction*.yaml`` for the
+    requested ``--base-period``.
+
+    Values:
+
+    - ``AUTO`` (default): first candidate by mtime; warn if it's unaudited.
+    - ``LATEST-AUDITED``: skip unaudited entries, pick the first audited.
+    - ``<period>`` (e.g. ``FY2024`` or ``FY2025-preliminary``): exact
+      match on the extraction's primary period label or file stem.
+
+    Falls back to :func:`_resolve_extraction_path` behaviour when no
+    multiple candidates exist — keeps backward compat with the
+    single-file layout.
+    """
+    if explicit:
+        return _resolve_extraction_path(ticker, explicit)
+
+    candidates = _candidate_extraction_files(ticker)
+    if not candidates:
+        return _resolve_extraction_path(ticker, None)
+    if len(candidates) == 1:
+        return candidates[0]
+
+    metadata = [(p, *_peek_audit_metadata(p)) for p in candidates]
+
+    if base_period == _BASE_PERIOD_AUTO:
+        chosen = metadata[0]
+        if chosen[1] == "unaudited":
+            console.print(
+                f"[yellow]AUTO selected an unaudited extraction "
+                f"({chosen[0].name}).[/yellow] Pass "
+                "--base-period LATEST-AUDITED to skip preliminary sources."
+            )
+        return chosen[0]
+
+    if base_period == _BASE_PERIOD_LATEST_AUDITED:
+        for path, audit, _doc, _period in metadata:
+            if audit == "audited":
+                return path
+        raise typer.BadParameter(
+            f"No audited extraction found for {ticker} "
+            f"(checked {len(metadata)} candidate file(s))."
+        )
+
+    # Explicit period label — match on primary period OR filename stem.
+    target = base_period.lower()
+    for path, _audit, _doc, period in metadata:
+        if period.lower() == target or target in path.stem.lower():
+            return path
+    raise typer.BadParameter(
+        f"--base-period {base_period!r} did not match any extraction for "
+        f"{ticker}. Candidates: "
+        + ", ".join(f"{p.name} (period={per}, audit={aud})"
+                    for p, aud, _doc, per in metadata)
+    )
+
+
+# ----------------------------------------------------------------------
 # Build coordinator
 # ----------------------------------------------------------------------
 def _build_coordinator(ticker: str) -> PipelineCoordinator:
@@ -246,12 +354,25 @@ def process(
         help="Temporarily raise the per-company cost cap for this run "
         "(emergency only).",
     ),
+    base_period: str = typer.Option(
+        _BASE_PERIOD_AUTO,
+        "--base-period",
+        help=(
+            "Which extraction to process when multiple exist for the "
+            "ticker. AUTO (default): most recent by mtime (warns if "
+            "unaudited). LATEST-AUDITED: most recent audited, skipping "
+            "preliminary sources. Or pass an explicit label like "
+            "'FY2024' / 'FY2025-preliminary' to match a specific file."
+        ),
+    ),
 ) -> None:
     """Run the Phase 1.5 pipeline end-to-end for ``ticker``."""
     try:
         wacc_resolved = _resolve_wacc_path(ticker, wacc_path or None)
-        extraction_resolved = _resolve_extraction_path(
-            ticker, extraction_path or None
+        extraction_resolved = _select_extraction_by_base_period(
+            ticker,
+            extraction_path or None,
+            base_period or _BASE_PERIOD_AUTO,
         )
     except typer.BadParameter as e:
         console.print(f"[red]{e}[/red]")
