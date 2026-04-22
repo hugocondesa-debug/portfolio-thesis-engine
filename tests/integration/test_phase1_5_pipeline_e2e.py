@@ -55,8 +55,9 @@ _WACC_FIXTURE = Path(__file__).parent.parent / "fixtures" / "wacc" / "euroeyes_r
 # ----------------------------------------------------------------------
 def _fake_providers() -> tuple[MagicMock, MagicMock]:
     """FMP + yfinance mocks returning values that match the EuroEyes
-    fixture (580M revenue, 75M NI, etc. — all in base units since the
-    fixture's unit_scale was 'millions' and the parser normalised)."""
+    AR 2024 fixture (Revenue 715.68M, NI 84.36M, Total Assets 3.75B
+    — all in base units since the fixture's unit_scale was 'thousands'
+    and the parser normalised)."""
     fmp = MagicMock()
     fmp.__aenter__ = AsyncMock(return_value=fmp)
     fmp.__aexit__ = AsyncMock(return_value=None)
@@ -64,22 +65,22 @@ def _fake_providers() -> tuple[MagicMock, MagicMock]:
         return_value={
             "income_statement": [
                 {
-                    "revenue": 580_000_000,
-                    "operatingIncome": 110_000_000,
-                    "netIncome": 75_000_000,
+                    "revenue": 715_682_000,
+                    "operatingIncome": 130_682_000,
+                    "netIncome": 84_359_000,
                 }
             ],
             "balance_sheet": [
                 {
-                    "totalAssets": 3_200_000_000,
-                    "totalStockholdersEquity": 1_900_000_000,
-                    "cashAndCashEquivalents": 450_000_000,
+                    "totalAssets": 3_750_000_000,
+                    "totalStockholdersEquity": 2_210_000_000,
+                    "cashAndCashEquivalents": 550_000_000,
                 }
             ],
             "cash_flow": [
                 {
-                    "operatingCashFlow": 135_000_000,
-                    "capitalExpenditure": -75_000_000,
+                    "operatingCashFlow": 145_000_000,
+                    "capitalExpenditure": -120_000_000,
                 }
             ],
         }
@@ -107,22 +108,22 @@ def _fake_providers() -> tuple[MagicMock, MagicMock]:
         return_value={
             "income_statement": [
                 {
-                    "Total Revenue": 581_000_000,
-                    "Operating Income": 109_000_000,
-                    "Net Income": 75_000_000,
+                    "Total Revenue": 716_000_000,
+                    "Operating Income": 131_000_000,
+                    "Net Income": 84_000_000,
                 }
             ],
             "balance_sheet": [
                 {
-                    "Total Assets": 3_195_000_000,
-                    "Stockholders Equity": 1_895_000_000,
-                    "Cash And Cash Equivalents": 449_000_000,
+                    "Total Assets": 3_745_000_000,
+                    "Stockholders Equity": 2_205_000_000,
+                    "Cash And Cash Equivalents": 548_000_000,
                 }
             ],
             "cash_flow": [
                 {
-                    "Operating Cash Flow": 134_000_000,
-                    "Capital Expenditure": -74_000_000,
+                    "Operating Cash Flow": 144_000_000,
+                    "Capital Expenditure": -119_000_000,
                 }
             ],
         }
@@ -153,9 +154,9 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
     # Copy fixtures to a simulated analyst workspace.
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    extraction_path = workspace / "raw_extraction.yaml"
+    extraction_path = workspace / "raw_extraction_ar_2024.yaml"
     wacc_path = workspace / "wacc_inputs.md"
-    shutil.copyfile(_FIXTURE_DIR / "raw_extraction.yaml", extraction_path)
+    shutil.copyfile(_FIXTURE_DIR / "raw_extraction_ar_2024.yaml", extraction_path)
     shutil.copyfile(_WACC_FIXTURE, wacc_path)
 
     # Real ingestion: register the two files under 1846.HK.

@@ -19,7 +19,7 @@ from portfolio_thesis_engine.schemas.raw_extraction import (
     RawExtraction,
 )
 
-_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
+_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction_ar_2024.yaml"
 
 
 # ======================================================================
@@ -35,8 +35,9 @@ class TestParseRealFixture:
         revenue_line = next(
             li for li in raw.primary_is.line_items if li.label == "Revenue"
         )
-        # Fixture declares "millions"; parser multiplies.
-        assert revenue_line.value == Decimal("580000000.0")
+        # Fixture declares "thousands"; parser multiplies by 1000.
+        # Revenue 715,682 thousand → 715,682,000 base units.
+        assert revenue_line.value == Decimal("715682000")
         assert raw.metadata.unit_scale == "units"
 
     def test_returns_pydantic_object(self) -> None:

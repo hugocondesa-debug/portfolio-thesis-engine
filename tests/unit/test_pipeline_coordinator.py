@@ -49,7 +49,7 @@ from portfolio_thesis_engine.schemas.company import (
 )
 
 _EXTRACTION_FIXTURE = (
-    Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
+    Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction_ar_2024.yaml"
 )
 _WACC_FIXTURE = (
     Path(__file__).parent.parent / "fixtures" / "wacc" / "euroeyes_real.md"
@@ -178,7 +178,7 @@ def _setup(tmp_path: Path) -> dict[str, object]:
     # hit real parsers (validator also exercised).
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    extraction_path = workspace / "raw_extraction.yaml"
+    extraction_path = workspace / "raw_extraction_ar_2024.yaml"
     wacc_path = workspace / "wacc_inputs.md"
     shutil.copyfile(_EXTRACTION_FIXTURE, extraction_path)
     shutil.copyfile(_WACC_FIXTURE, wacc_path)

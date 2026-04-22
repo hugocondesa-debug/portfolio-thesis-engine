@@ -1,0 +1,227 @@
+# EuroEyes Medical Group — Interim Report H1 2025 (Phase 1.5.3 as-reported)
+# ============================================================================
+# Few-shot example demonstrating the schema's support for interim periods
+# with reduced note coverage (consistent with what most interims disclose).
+# All figures in HKD thousands.
+
+metadata:
+  ticker: "1846.HK"
+  company_name: "EuroEyes Medical Group"
+  document_type: "interim_report"
+  extraction_type: "numeric"
+  reporting_currency: "HKD"
+  unit_scale: "thousands"
+  fiscal_year: 2025
+  extraction_date: "2025-09-10"
+  extractor: "human + Claude.ai Project"
+  source_file_sha256: "placeholder-phase-1-5-3-euroeyes-h1-2025"
+  extraction_version: 1
+  extraction_notes: >
+    H1 2025 (six months to 30 June 2025) interim report. Condensed
+    statements as reviewed (not audited). Comparative H1 2024
+    disclosed on the IS; BS is a 30 Jun 2025 snapshot.
+  fiscal_periods:
+    - period: "H1 2025"
+      end_date: "2025-06-30"
+      is_primary: true
+      period_type: "H1"
+    - period: "H1 2024"
+      end_date: "2024-06-30"
+      is_primary: false
+      period_type: "H1"
+
+# =======================================================================
+# INCOME STATEMENT
+# =======================================================================
+income_statement:
+  "H1 2025":
+    reporting_period_label: "Six months ended 30 June 2025"
+    line_items:
+      - {order: 1, label: "Revenue", value: "385000"}
+      - {order: 2, label: "Cost of sales", value: "-190000"}
+      - {order: 3, label: "Gross profit", value: "195000", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-64000"}
+      - {order: 5, label: "General and administrative expenses", value: "-45000"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-12000"}
+      - {order: 7, label: "Operating profit", value: "74000", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "2700"}
+      - {order: 9, label: "Finance costs", value: "-12500"}
+      - {order: 10, label: "Profit before taxation", value: "64200", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-15300"}
+      - {order: 12, label: "Profit for the period", value: "48900", is_subtotal: true}
+    profit_attribution:
+      parent: "48900"
+      non_controlling_interests: "0"
+      total: "48900"
+    earnings_per_share:
+      basic_value: "0.2445"
+      basic_unit: "HKD"
+      basic_weighted_avg_shares: "200000"
+      shares_unit: "thousands"
+  "H1 2024":
+    reporting_period_label: "Six months ended 30 June 2024"
+    line_items:
+      - {order: 1, label: "Revenue", value: "335000"}
+      - {order: 2, label: "Cost of sales", value: "-168000"}
+      - {order: 3, label: "Gross profit", value: "167000", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-56000"}
+      - {order: 5, label: "General and administrative expenses", value: "-40000"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-10500"}
+      - {order: 7, label: "Operating profit", value: "60500", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "2200"}
+      - {order: 9, label: "Finance costs", value: "-11000"}
+      - {order: 10, label: "Profit before taxation", value: "51700", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-12800"}
+      - {order: 12, label: "Profit for the period", value: "38900", is_subtotal: true}
+
+# =======================================================================
+# BALANCE SHEET
+# =======================================================================
+balance_sheet:
+  "H1 2025":
+    period_end_date: "2025-06-30"
+    line_items:
+      - {order: 1, label: "Cash and cash equivalents", value: "585000", section: "current_assets"}
+      - {order: 2, label: "Trade and other receivables", value: "165000", section: "current_assets"}
+      - {order: 3, label: "Inventories", value: "102000", section: "current_assets"}
+      - {order: 4, label: "Total current assets", value: "852000", section: "current_assets", is_subtotal: true}
+      - {order: 5, label: "Property, plant and equipment", value: "1185000", section: "non_current_assets"}
+      - {order: 6, label: "Right-of-use assets", value: "470000", section: "non_current_assets"}
+      - {order: 7, label: "Goodwill", value: "650000", section: "non_current_assets"}
+      - {order: 8, label: "Other intangible assets", value: "475000", section: "non_current_assets"}
+      - {order: 9, label: "Other non-current assets", value: "238000", section: "non_current_assets"}
+      - {order: 10, label: "Total non-current assets", value: "3018000", section: "non_current_assets", is_subtotal: true}
+      - {order: 11, label: "Total assets", value: "3870000", section: "total_assets", is_subtotal: true}
+      - {order: 12, label: "Trade and other payables", value: "120000", section: "current_liabilities"}
+      - {order: 13, label: "Short-term borrowings", value: "180000", section: "current_liabilities"}
+      - {order: 14, label: "Lease liabilities (current)", value: "72000", section: "current_liabilities"}
+      - {order: 15, label: "Total current liabilities", value: "372000", section: "current_liabilities", is_subtotal: true}
+      - {order: 16, label: "Long-term borrowings", value: "660000", section: "non_current_liabilities"}
+      - {order: 17, label: "Lease liabilities (non-current)", value: "390000", section: "non_current_liabilities"}
+      - {order: 18, label: "Other non-current liabilities", value: "130000", section: "non_current_liabilities"}
+      - {order: 19, label: "Total non-current liabilities", value: "1180000", section: "non_current_liabilities", is_subtotal: true}
+      - {order: 20, label: "Total liabilities", value: "1552000", section: "total_liabilities", is_subtotal: true}
+      - {order: 21, label: "Share capital", value: "600000", section: "equity"}
+      - {order: 22, label: "Retained earnings", value: "1553259", section: "equity"}
+      - {order: 23, label: "Other reserves", value: "164741", section: "equity"}
+      - {order: 24, label: "Equity attributable to owners of the Company", value: "2318000", section: "equity", is_subtotal: true}
+      - {order: 25, label: "Non-controlling interests", value: "0", section: "equity"}
+      - {order: 26, label: "Total equity", value: "2318000", section: "equity", is_subtotal: true}
+
+# =======================================================================
+# CASH FLOW — H1 2025 only (comparative condensed, not extracted)
+# =======================================================================
+cash_flow:
+  "H1 2025":
+    reporting_period_label: "Six months ended 30 June 2025"
+    line_items:
+      - {order: 1, label: "Profit before taxation", value: "64200", section: "operating"}
+      - {order: 2, label: "Depreciation and amortisation", value: "12000", section: "operating"}
+      - {order: 3, label: "Changes in working capital", value: "-10000", section: "operating"}
+      - {order: 4, label: "Other operating adjustments", value: "18800", section: "operating"}
+      - {order: 5, label: "Net cash generated from operating activities", value: "85000", section: "operating", is_subtotal: true}
+      - {order: 6, label: "Purchase of property, plant and equipment", value: "-42000", section: "investing"}
+      - {order: 7, label: "Net cash used in investing activities", value: "-42000", section: "investing", is_subtotal: true}
+      - {order: 8, label: "Dividends paid", value: "-30000", section: "financing"}
+      - {order: 9, label: "Proceeds from borrowings", value: "0", section: "financing"}
+      - {order: 10, label: "Repayment of borrowings", value: "-20000", section: "financing"}
+      - {order: 11, label: "Other financing activities", value: "42000", section: "financing"}
+      - {order: 12, label: "Net cash used in financing activities", value: "-8000", section: "financing", is_subtotal: true}
+      - {order: 13, label: "Effect of foreign exchange rate changes", value: "0", section: "fx_effect", is_subtotal: true}
+      - {order: 14, label: "Net increase in cash and cash equivalents", value: "35000", section: "subtotal", is_subtotal: true}
+
+# =======================================================================
+# NOTES — interim reports typically disclose a subset of the full AR
+# =======================================================================
+notes:
+  - note_number: "6"
+    title: "Income tax expense"
+    source_pages: [22]
+    narrative_summary: >
+      H1 2025 effective tax rate 23.8% (H1 2024: 24.8%). No material
+      rate-reconciliation items disclosed on interim.
+
+  - note_number: "8"
+    title: "Leases"
+    source_pages: [26, 27]
+    tables:
+      - table_label: "Lease liabilities — movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening balance at 1 January 2025", "440000"]
+          - ["New leases recognised", "32000"]
+          - ["Principal payment of lease liabilities", "-20000"]
+          - ["Closing balance at 30 June 2025", "462000"]
+
+  - note_number: "13"
+    title: "Trade and other receivables"
+    source_pages: [29]
+    tables:
+      - columns: ["Period", "HKD thousands"]
+        rows:
+          - ["H1 2025", "165000"]
+          - ["FY2024", "150000"]
+
+  - note_number: "18"
+    title: "Trade and other payables"
+    source_pages: [30]
+    tables:
+      - columns: ["Period", "HKD thousands"]
+        rows:
+          - ["H1 2025", "120000"]
+          - ["FY2024", "115000"]
+
+  - note_number: "22"
+    title: "Financial instruments and financial risk management"
+    source_pages: [33]
+    narrative_summary: >
+      No material change from FY2024 disclosure. Cash +6 % since
+      year-end; revolver still undrawn.
+
+  - note_number: "24"
+    title: "Commitments and contingencies"
+    source_pages: [34]
+    tables:
+      - columns: ["Item", "HKD thousands"]
+        rows:
+          - ["Capital commitments", "48000"]
+          - ["Contingent liabilities", "4500"]
+
+  - note_number: "31"
+    title: "Events after the reporting period"
+    source_pages: [36]
+    narrative_summary: >
+      Completed HKD 100M debt refinancing at 4.25 % on 22 July 2025
+      (announced March 2025).
+
+# =======================================================================
+# OPERATIONAL KPIs — interim update
+# =======================================================================
+operational_kpis:
+  - metric_label: "Total clinics and consultation centres worldwide"
+    source: "MD&A"
+    unit: "count"
+    values:
+      "H1 2025": "47"
+      "FY2024": "45"
+
+  - metric_label: "Patient visits"
+    source: "MD&A"
+    unit: "thousands"
+    values:
+      "H1 2025": "188"
+      "H1 2024": "170"
+
+  - metric_label: "Surgeries performed"
+    source: "MD&A"
+    unit: "thousands"
+    values:
+      "H1 2025": "34"
+      "H1 2024": "31"
+
+  - metric_label: "Average revenue per surgery"
+    source: "MD&A"
+    unit: "HKD per surgery"
+    values:
+      "H1 2025": "7150"
+      "H1 2024": "6900"

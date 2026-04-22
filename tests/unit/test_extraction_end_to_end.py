@@ -31,7 +31,7 @@ from portfolio_thesis_engine.schemas.wacc import (
     WACCInputs,
 )
 
-_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
+_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction_ar_2024.yaml"
 
 
 @pytest.fixture

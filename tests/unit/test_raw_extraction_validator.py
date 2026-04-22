@@ -18,7 +18,7 @@ from portfolio_thesis_engine.schemas.raw_extraction import (
     RawExtraction,
 )
 
-_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
+_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction_ar_2024.yaml"
 
 
 def _minimal_payload() -> dict:

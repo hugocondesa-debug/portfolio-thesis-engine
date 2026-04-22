@@ -1,0 +1,499 @@
+# EuroEyes Medical Group — Annual Report FY2024 (Phase 1.5.3 as-reported)
+# =========================================================================
+# Primary P1 few-shot example for the Claude.ai Project knowledge base.
+# Values inspired by the real EuroEyes FY2024 AR (Revenue 715,682 thousand
+# HKD, Profit for the year 84,359 thousand HKD). Comparative FY2023 also
+# included. Arithmetic identities hold by construction so
+# `pte validate-extraction --profile P1` returns strict=OK · warn=OK ·
+# completeness=OK.
+
+metadata:
+  ticker: "1846.HK"
+  company_name: "EuroEyes Medical Group"
+  document_type: "annual_report"
+  extraction_type: "numeric"
+  reporting_currency: "HKD"
+  unit_scale: "thousands"
+  fiscal_year: 2024
+  extraction_date: "2025-04-15"
+  extractor: "human + Claude.ai Project"
+  source_file_sha256: "placeholder-phase-1-5-3-euroeyes-ar-2024"
+  extraction_version: 1
+  extraction_notes: >
+    FY2024 consolidated annual report + FY2023 comparative. Values are
+    reported in thousands of HKD. IFRS 16 lease accounting adopted
+    FY2019; prior-year rebased. Goodwill impairment of HKD 20M recorded
+    against Germany CGU in FY2024 following annual impairment test.
+  fiscal_periods:
+    - period: "FY2024"
+      end_date: "2024-12-31"
+      is_primary: true
+      period_type: "FY"
+    - period: "FY2023"
+      end_date: "2023-12-31"
+      is_primary: false
+      period_type: "FY"
+
+# =======================================================================
+# INCOME STATEMENT
+# =======================================================================
+income_statement:
+  FY2024:
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      - {order: 1, label: "Revenue", value: "715682"}
+      - {order: 2, label: "Cost of sales", value: "-358000"}
+      - {order: 3, label: "Gross profit", value: "357682", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-120000"}
+      - {order: 5, label: "General and administrative expenses", value: "-85000"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-22000"}
+      - {order: 7, label: "Operating profit", value: "130682", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "5000"}
+      - {order: 9, label: "Finance costs", value: "-24000"}
+      - {order: 10, label: "Profit before taxation", value: "111682", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-27323"}
+      - {order: 12, label: "Profit for the year", value: "84359", is_subtotal: true}
+    profit_attribution:
+      parent: "84359"
+      non_controlling_interests: "0"
+      total: "84359"
+    earnings_per_share:
+      basic_value: "0.4218"
+      basic_unit: "HKD"
+      diluted_value: "0.4160"
+      diluted_unit: "HKD"
+      basic_weighted_avg_shares: "200000"
+      diluted_weighted_avg_shares: "202800"
+      shares_unit: "thousands"
+  FY2023:
+    reporting_period_label: "Year ended 31 December 2023"
+    line_items:
+      - {order: 1, label: "Revenue", value: "620000"}
+      - {order: 2, label: "Cost of sales", value: "-310000"}
+      - {order: 3, label: "Gross profit", value: "310000", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-105000"}
+      - {order: 5, label: "General and administrative expenses", value: "-75000"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-18000"}
+      - {order: 7, label: "Operating profit", value: "112000", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "4500"}
+      - {order: 9, label: "Finance costs", value: "-22000"}
+      - {order: 10, label: "Profit before taxation", value: "94500", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-23141"}
+      - {order: 12, label: "Profit for the year", value: "71359", is_subtotal: true}
+    profit_attribution:
+      parent: "71359"
+      non_controlling_interests: "0"
+      total: "71359"
+    earnings_per_share:
+      basic_value: "0.3568"
+      basic_unit: "HKD"
+      basic_weighted_avg_shares: "200000"
+      shares_unit: "thousands"
+
+# =======================================================================
+# BALANCE SHEET
+# =======================================================================
+balance_sheet:
+  FY2024:
+    period_end_date: "2024-12-31"
+    line_items:
+      # Current assets
+      - {order: 1, label: "Cash and cash equivalents", value: "550000", section: "current_assets"}
+      - {order: 2, label: "Trade and other receivables", value: "150000", section: "current_assets"}
+      - {order: 3, label: "Inventories", value: "95000", section: "current_assets"}
+      - {order: 4, label: "Total current assets", value: "795000", section: "current_assets", is_subtotal: true}
+      # Non-current assets
+      - {order: 5, label: "Property, plant and equipment", value: "1150000", section: "non_current_assets"}
+      - {order: 6, label: "Right-of-use assets", value: "450000", section: "non_current_assets"}
+      - {order: 7, label: "Goodwill", value: "650000", section: "non_current_assets"}
+      - {order: 8, label: "Other intangible assets", value: "480000", section: "non_current_assets"}
+      - {order: 9, label: "Other non-current assets", value: "225000", section: "non_current_assets"}
+      - {order: 10, label: "Total non-current assets", value: "2955000", section: "non_current_assets", is_subtotal: true}
+      - {order: 11, label: "Total assets", value: "3750000", section: "total_assets", is_subtotal: true}
+      # Current liabilities
+      - {order: 12, label: "Trade and other payables", value: "115000", section: "current_liabilities"}
+      - {order: 13, label: "Short-term borrowings", value: "180000", section: "current_liabilities"}
+      - {order: 14, label: "Lease liabilities (current)", value: "70000", section: "current_liabilities"}
+      - {order: 15, label: "Total current liabilities", value: "365000", section: "current_liabilities", is_subtotal: true}
+      # Non-current liabilities
+      - {order: 16, label: "Long-term borrowings", value: "680000", section: "non_current_liabilities"}
+      - {order: 17, label: "Lease liabilities (non-current)", value: "370000", section: "non_current_liabilities"}
+      - {order: 18, label: "Other non-current liabilities", value: "125000", section: "non_current_liabilities"}
+      - {order: 19, label: "Total non-current liabilities", value: "1175000", section: "non_current_liabilities", is_subtotal: true}
+      - {order: 20, label: "Total liabilities", value: "1540000", section: "total_liabilities", is_subtotal: true}
+      # Equity
+      - {order: 21, label: "Share capital", value: "600000", section: "equity"}
+      - {order: 22, label: "Retained earnings", value: "1504359", section: "equity"}
+      - {order: 23, label: "Other reserves", value: "105641", section: "equity"}
+      - {order: 24, label: "Equity attributable to owners of the Company", value: "2210000", section: "equity", is_subtotal: true}
+      - {order: 25, label: "Non-controlling interests", value: "0", section: "equity"}
+      - {order: 26, label: "Total equity", value: "2210000", section: "equity", is_subtotal: true}
+  FY2023:
+    period_end_date: "2023-12-31"
+    line_items:
+      - {order: 1, label: "Cash and cash equivalents", value: "575000", section: "current_assets"}
+      - {order: 2, label: "Trade and other receivables", value: "130000", section: "current_assets"}
+      - {order: 3, label: "Inventories", value: "85000", section: "current_assets"}
+      - {order: 4, label: "Total current assets", value: "790000", section: "current_assets", is_subtotal: true}
+      - {order: 5, label: "Property, plant and equipment", value: "1050000", section: "non_current_assets"}
+      - {order: 6, label: "Right-of-use assets", value: "420000", section: "non_current_assets"}
+      - {order: 7, label: "Goodwill", value: "670000", section: "non_current_assets"}
+      - {order: 8, label: "Other intangible assets", value: "465000", section: "non_current_assets"}
+      - {order: 9, label: "Other non-current assets", value: "200000", section: "non_current_assets"}
+      - {order: 10, label: "Total non-current assets", value: "2805000", section: "non_current_assets", is_subtotal: true}
+      - {order: 11, label: "Total assets", value: "3595000", section: "total_assets", is_subtotal: true}
+      - {order: 12, label: "Trade and other payables", value: "108000", section: "current_liabilities"}
+      - {order: 13, label: "Short-term borrowings", value: "170000", section: "current_liabilities"}
+      - {order: 14, label: "Lease liabilities (current)", value: "65000", section: "current_liabilities"}
+      - {order: 15, label: "Total current liabilities", value: "343000", section: "current_liabilities", is_subtotal: true}
+      - {order: 16, label: "Long-term borrowings", value: "650000", section: "non_current_liabilities"}
+      - {order: 17, label: "Lease liabilities (non-current)", value: "355000", section: "non_current_liabilities"}
+      - {order: 18, label: "Other non-current liabilities", value: "122000", section: "non_current_liabilities"}
+      - {order: 19, label: "Total non-current liabilities", value: "1127000", section: "non_current_liabilities", is_subtotal: true}
+      - {order: 20, label: "Total liabilities", value: "1470000", section: "total_liabilities", is_subtotal: true}
+      - {order: 21, label: "Share capital", value: "600000", section: "equity"}
+      - {order: 22, label: "Retained earnings", value: "1450000", section: "equity"}
+      - {order: 23, label: "Other reserves", value: "75000", section: "equity"}
+      - {order: 24, label: "Equity attributable to owners of the Company", value: "2125000", section: "equity", is_subtotal: true}
+      - {order: 25, label: "Non-controlling interests", value: "0", section: "equity"}
+      - {order: 26, label: "Total equity", value: "2125000", section: "equity", is_subtotal: true}
+
+# =======================================================================
+# CASH FLOW
+# =======================================================================
+cash_flow:
+  FY2024:
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      # Operating
+      - {order: 1, label: "Profit before taxation", value: "111682", section: "operating"}
+      - {order: 2, label: "Depreciation and amortisation", value: "22000", section: "operating"}
+      - {order: 3, label: "Changes in working capital", value: "-15000", section: "operating"}
+      - {order: 4, label: "Other operating adjustments", value: "26318", section: "operating"}
+      - {order: 5, label: "Net cash generated from operating activities", value: "145000", section: "operating", is_subtotal: true}
+      # Investing
+      - {order: 6, label: "Purchase of property, plant and equipment", value: "-120000", section: "investing"}
+      - {order: 7, label: "Net cash used in investing activities", value: "-120000", section: "investing", is_subtotal: true}
+      # Financing
+      - {order: 8, label: "Dividends paid", value: "-30000", section: "financing"}
+      - {order: 9, label: "Proceeds from borrowings", value: "40000", section: "financing"}
+      - {order: 10, label: "Repayment of borrowings", value: "-10000", section: "financing"}
+      - {order: 11, label: "Other financing activities", value: "-50000", section: "financing"}
+      - {order: 12, label: "Net cash used in financing activities", value: "-50000", section: "financing", is_subtotal: true}
+      # FX
+      - {order: 13, label: "Effect of foreign exchange rate changes", value: "0", section: "fx_effect", is_subtotal: true}
+      # Δcash — overall subtotal
+      - {order: 14, label: "Net decrease in cash and cash equivalents", value: "-25000", section: "subtotal", is_subtotal: true}
+  FY2023:
+    reporting_period_label: "Year ended 31 December 2023"
+    line_items:
+      - {order: 1, label: "Profit before taxation", value: "94500", section: "operating"}
+      - {order: 2, label: "Depreciation and amortisation", value: "18000", section: "operating"}
+      - {order: 3, label: "Changes in working capital", value: "-8000", section: "operating"}
+      - {order: 4, label: "Other operating adjustments", value: "17500", section: "operating"}
+      - {order: 5, label: "Net cash generated from operating activities", value: "122000", section: "operating", is_subtotal: true}
+      - {order: 6, label: "Purchase of property, plant and equipment", value: "-95000", section: "investing"}
+      - {order: 7, label: "Net cash used in investing activities", value: "-95000", section: "investing", is_subtotal: true}
+      - {order: 8, label: "Dividends paid", value: "-20000", section: "financing"}
+      - {order: 9, label: "Proceeds from borrowings", value: "30000", section: "financing"}
+      - {order: 10, label: "Repayment of borrowings", value: "-8000", section: "financing"}
+      - {order: 11, label: "Other financing activities", value: "-17000", section: "financing"}
+      - {order: 12, label: "Net cash used in financing activities", value: "-15000", section: "financing", is_subtotal: true}
+      - {order: 13, label: "Effect of foreign exchange rate changes", value: "0", section: "fx_effect", is_subtotal: true}
+      - {order: 14, label: "Net increase in cash and cash equivalents", value: "12000", section: "subtotal", is_subtotal: true}
+
+# =======================================================================
+# NOTES — P1 required (10) + recommended (5) + extras
+# =======================================================================
+notes:
+  - note_number: "6"
+    title: "Income tax expense"
+    source_pages: [84, 85]
+    tables:
+      - table_label: "Rate reconciliation"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Profit before tax at HK statutory rate 16.5%", "18428"]
+          - ["Effect of lower tax rate in Germany subsidiary", "-420"]
+          - ["Non-deductible expenses", "2500"]
+          - ["Prior-year adjustments", "1800"]
+          - ["Tax loss carry-forward utilisation", "-1500"]
+          - ["Other reconciling items", "6515"]
+          - ["Income tax expense for the year", "27323"]
+          - ["Effective tax rate", "24.47"]
+
+  - note_number: "8"
+    title: "Leases"
+    source_pages: [92, 93, 94]
+    tables:
+      - table_label: "Right-of-use assets — movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening balance at 1 January 2024", "420000"]
+          - ["Additions", "75000"]
+          - ["Depreciation charge for the year", "-45000"]
+          - ["Closing balance at 31 December 2024", "450000"]
+      - table_label: "Lease liabilities — movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening balance at 1 January 2024", "420000"]
+          - ["New leases recognised", "75000"]
+          - ["Interest expense on lease liabilities", "18000"]
+          - ["Principal payment of lease liabilities", "-45000"]
+          - ["Other movements", "-28000"]
+          - ["Closing balance at 31 December 2024", "440000"]
+
+  - note_number: "10"
+    title: "Property, plant and equipment"
+    source_pages: [96, 97]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening net book value", "1050000"]
+          - ["Additions", "120000"]
+          - ["Disposals", "0"]
+          - ["Depreciation", "-20000"]
+          - ["Closing net book value", "1150000"]
+
+  - note_number: "12"
+    title: "Inventories"
+    source_pages: [100]
+    tables:
+      - columns: ["Category", "HKD thousands"]
+        rows:
+          - ["Surgical consumables", "45000"]
+          - ["Lens materials", "35000"]
+          - ["Other medical supplies", "20000"]
+          - ["Provisions for obsolescence", "-5000"]
+          - ["Total", "95000"]
+
+  - note_number: "13"
+    title: "Trade and other receivables"
+    source_pages: [101]
+    tables:
+      - columns: ["Period", "HKD thousands"]
+        rows:
+          - ["FY2024", "150000"]
+          - ["FY2023", "130000"]
+
+  - note_number: "18"
+    title: "Trade and other payables"
+    source_pages: [108]
+    tables:
+      - columns: ["Period", "HKD thousands"]
+        rows:
+          - ["FY2024", "115000"]
+          - ["FY2023", "108000"]
+
+  - note_number: "7"
+    title: "Staff costs and employee information"
+    source_pages: [87, 88]
+    tables:
+      - columns: ["Item", "Value"]
+        rows:
+          - ["Total headcount", "1050"]
+          - ["Total compensation (HKD thousands)", "425000"]
+          - ["Pension expense (HKD thousands)", "9500"]
+          - ["Share-based payment expense (HKD thousands)", "7800"]
+
+  - note_number: "22"
+    title: "Financial instruments and financial risk management"
+    source_pages: [125, 126, 127]
+    narrative_summary: >
+      Credit risk: concentrated in HK + German medical-insurance payers;
+      average 35-day DSO. Liquidity risk: HKD 550M cash + undrawn HKD
+      250M revolver covers 18 months of operating cash burn. Market
+      risk: HKD reporting vs 40% EUR-denominated operating costs;
+      HKD 500M of floating-rate debt hedged via interest-rate caps.
+
+  - note_number: "24"
+    title: "Commitments and contingencies"
+    source_pages: [130]
+    tables:
+      - columns: ["Item", "HKD thousands"]
+        rows:
+          - ["Capital commitments", "55000"]
+          - ["Contingent liabilities", "4500"]
+
+  - note_number: "17"
+    title: "Provisions"
+    source_pages: [106, 107]
+    tables:
+      - columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Warranty provisions on surgical outcomes", "12000"]
+          - ["Legal and regulatory provisions", "7000"]
+
+  - note_number: "11"
+    title: "Goodwill"
+    source_pages: [98, 99]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening balance", "670000"]
+          - ["Additions", "0"]
+          - ["Impairment charge", "-20000"]
+          - ["Closing balance", "650000"]
+      - table_label: "By cash-generating unit"
+        columns: ["CGU", "HKD thousands"]
+        rows:
+          - ["Greater China", "450000"]
+          - ["Germany", "180000"]
+          - ["UK / Denmark", "20000"]
+
+  - note_number: "9"
+    title: "Intangible assets"
+    source_pages: [95]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD thousands"]
+        rows:
+          - ["Opening", "465000"]
+          - ["Additions", "30000"]
+          - ["Amortisation", "-15000"]
+          - ["Closing", "480000"]
+
+  - note_number: "7(b)"
+    title: "Share-based compensation"
+    source_pages: [89, 90]
+    narrative_summary: >
+      RSU-based LTIP with vesting over 3 years. 1.2M RSUs granted in
+      FY2024, 0.9M vested, 3.6M outstanding. Total SBC expense HKD 7.8M.
+
+  - note_number: "20"
+    title: "Retirement benefit obligations (pensions)"
+    source_pages: [119, 120]
+    tables:
+      - columns: ["Description", "HKD thousands"]
+        rows:
+          - ["DBO opening", "32000"]
+          - ["DBO closing", "36500"]
+          - ["Plan assets opening", "25000"]
+          - ["Plan assets closing", "28500"]
+          - ["Service cost", "4000"]
+          - ["Interest cost", "1400"]
+          - ["Actuarial gains/losses", "-900"]
+
+  - note_number: "35"
+    title: "Acquisitions and business combinations"
+    source_pages: [151]
+    narrative_summary: >
+      No material business combinations during FY2024. Due-diligence
+      in progress on a potential UK clinic network acquisition,
+      subject to regulatory approval; not reflected in these
+      consolidated statements.
+
+  - note_number: "31"
+    title: "Events after the reporting period"
+    source_pages: [145]
+    narrative_summary: >
+      HKD 100M debt refinancing announced on 14 March 2025 (4.25%
+      facility replacing 4.50% tranche) subsequent to the reporting
+      date.
+
+# =======================================================================
+# SEGMENTS — by geography (FY2024 + FY2023)
+# =======================================================================
+segments:
+  - period: "FY2024"
+    segment_type: "geography"
+    segments:
+      - segment_name: "Greater China"
+        metrics: {revenue: "485000", operating_income: "95000"}
+      - segment_name: "Germany"
+        metrics: {revenue: "170000", operating_income: "25000"}
+      - segment_name: "UK"
+        metrics: {revenue: "40000", operating_income: "7000"}
+      - segment_name: "Denmark"
+        metrics: {revenue: "20682", operating_income: "3682"}
+  - period: "FY2023"
+    segment_type: "geography"
+    segments:
+      - segment_name: "Greater China"
+        metrics: {revenue: "420000", operating_income: "85000"}
+      - segment_name: "Germany"
+        metrics: {revenue: "155000", operating_income: "22000"}
+      - segment_name: "UK"
+        metrics: {revenue: "30000", operating_income: "3000"}
+      - segment_name: "Denmark"
+        metrics: {revenue: "15000", operating_income: "2000"}
+
+# =======================================================================
+# HISTORICAL — 5-year summary (parallel arrays)
+# =======================================================================
+historical:
+  source: "Five-Year Financial Summary, p.172"
+  years: [2020, 2021, 2022, 2023, 2024]
+  metrics:
+    revenue: ["420000", "485000", "555000", "620000", "715682"]
+    gross_profit: ["195000", "235000", "278000", "310000", "357682"]
+    operating_profit: [null, "78000", "95000", "112000", "130682"]
+    net_income: ["35000", "48000", "58000", "71359", "84359"]
+    total_assets: [null, null, "3250000", "3595000", "3750000"]
+    total_equity: [null, null, "1850000", "2125000", "2210000"]
+    free_cash_flow: [null, "28000", "42000", "55000", "65000"]
+    shares_outstanding: ["200000", "200000", "200000", "200000", "200000"]
+
+# =======================================================================
+# OPERATIONAL KPIs — sector-specific
+# =======================================================================
+operational_kpis:
+  - metric_label: "Total clinics and consultation centres worldwide"
+    source: "MD&A"
+    unit: "count"
+    values:
+      FY2020: "32"
+      FY2021: "36"
+      FY2022: "38"
+      FY2023: "41"
+      FY2024: "45"
+
+  - metric_label: "New clinics opened during the year"
+    source: "MD&A"
+    unit: "count"
+    values:
+      FY2023: "3"
+      FY2024: "4"
+
+  - metric_label: "Patient visits"
+    source: "MD&A"
+    unit: "thousands"
+    values:
+      FY2023: "312"
+      FY2024: "352"
+
+  - metric_label: "Surgeries performed"
+    source: "MD&A"
+    unit: "thousands"
+    values:
+      FY2023: "58"
+      FY2024: "64"
+
+  - metric_label: "Average revenue per surgery"
+    source: "MD&A"
+    unit: "HKD per surgery"
+    values:
+      FY2023: "6800"
+      FY2024: "7100"
+
+  - metric_label: "LASIK share of surgical revenue"
+    source: "MD&A"
+    unit: "%"
+    values:
+      FY2023: "42"
+      FY2024: "40"
+
+  - metric_label: "ICL/IOL share of surgical revenue"
+    source: "MD&A"
+    unit: "%"
+    values:
+      FY2023: "38"
+      FY2024: "42"
+
+  - metric_label: "Management clinic expansion target for 2025"
+    source: "MD&A forward-looking"
+    unit: null
+    values:
+      FY2024: "5-7 new clinics, balanced Greater China + Europe"
