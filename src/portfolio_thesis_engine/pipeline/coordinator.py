@@ -314,6 +314,55 @@ _TICKER_SUFFIX_EXCHANGE: dict[str, tuple[str, str]] = {
     "NZ": ("NZX", "NZ"),
 }
 
+# Phase 1.5.7 — shares-unit → base-unit factor.
+_SHARES_UNIT_FACTOR: dict[str, Decimal] = {
+    "units": Decimal("1"),
+    "unit": Decimal("1"),
+    "thousands": Decimal("1000"),
+    "thousand": Decimal("1000"),
+    "'000": Decimal("1000"),
+    "millions": Decimal("1000000"),
+    "million": Decimal("1000000"),
+    "'000,000": Decimal("1000000"),
+}
+
+
+def _shares_factor(unit: str | None) -> Decimal:
+    """Return the multiplier to convert a share count reported in
+    ``unit`` to base units. Defaults to 1 when ``unit`` is absent or
+    unrecognised (assume as-reported).
+    """
+    if unit is None:
+        return Decimal("1")
+    return _SHARES_UNIT_FACTOR.get(unit.strip().lower(), Decimal("1"))
+
+
+def _derive_shares_outstanding(raw: RawExtraction) -> Decimal | None:
+    """Phase 1.5.7: extract shares_outstanding (in base units) from the
+    primary period's EPS footer.
+
+    Priority:
+    1. ``earnings_per_share.basic_weighted_avg_shares`` scaled by
+       ``earnings_per_share.shares_unit`` — always present when the
+       issuer discloses EPS. Weighted-average is a close proxy for
+       year-end issued shares (within ~1–2 %); exact year-end counts
+       require the shareholders' equity movement note which is not
+       yet typed.
+    2. ``None`` if the EPS block is absent.
+
+    The parser does NOT scale EPS / share counts by ``unit_scale``
+    (they're dimensionally distinct from monetary values), so this
+    helper is the single source of truth for share-count scaling.
+    """
+    is_data = raw.primary_is
+    if is_data is None or is_data.earnings_per_share is None:
+        return None
+    eps = is_data.earnings_per_share
+    if eps.basic_weighted_avg_shares is None:
+        return None
+    return eps.basic_weighted_avg_shares * _shares_factor(eps.shares_unit)
+
+
 _ISIN_FROM_NOTES_PATTERN = re.compile(
     r"\bISIN[:\s]+([A-Z]{2}[A-Z0-9]{9}\d)\b"
 )
@@ -372,6 +421,9 @@ def _identity_from(
     if match:
         isin = match.group(1)
 
+    # Phase 1.5.7 — shares outstanding from EPS footer (base units).
+    shares_outstanding = _derive_shares_outstanding(raw_extraction)
+
     return CompanyIdentity(
         ticker=wacc_inputs.ticker,
         isin=isin,
@@ -385,6 +437,7 @@ def _identity_from(
         fiscal_year_end_month=12,
         country_domicile=country_domicile,
         exchange=exchange,
+        shares_outstanding=shares_outstanding,
     )
 
 
