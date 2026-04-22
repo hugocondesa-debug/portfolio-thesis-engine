@@ -5,12 +5,17 @@ Modules append to ``adjustments``, ``decision_log`` and ``estimates_log``
 rather than returning new objects; this mirrors the spec's E.4–E.7
 sketches and keeps the call-site simple.
 
+Phase 1.5 / Sprint 3: the context holds a typed
+:class:`RawExtraction` — the human-produced YAML loaded by the
+pipeline — and modules read it directly (no more adapter shim).
+
 :class:`ExtractionModule` — abstract base; every module implements a
 single ``apply(context)`` coroutine.
 
-:class:`ExtractionResult` — the batched product of a run: the adjustments
-collected and the logs. Sprint 7 extends this with the full
-:class:`CanonicalCompanyState`; Sprint 6 keeps it narrow.
+:class:`ExtractionResult` — the batched product of a run: adjustments
+collected, logs, and (when built by
+:meth:`ExtractionCoordinator.extract_canonical`) the fully-typed
+:class:`CanonicalCompanyState`.
 """
 
 from __future__ import annotations
@@ -19,9 +24,9 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from portfolio_thesis_engine.extraction.raw_extraction_adapter import StructuredSection
 from portfolio_thesis_engine.schemas.common import FiscalPeriod
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, ModuleAdjustment
+from portfolio_thesis_engine.schemas.raw_extraction import RawExtraction
 from portfolio_thesis_engine.schemas.wacc import WACCInputs
 
 # ----------------------------------------------------------------------
@@ -50,7 +55,6 @@ def parse_fiscal_period(label: str) -> FiscalPeriod:
     m = _FY_RE.search(label)
     if m:
         return FiscalPeriod(year=int(m.group("year")), label=label)
-    # Unknown — use a sentinel year at the valid floor.
     return FiscalPeriod(year=1990, label=label or "unknown")
 
 
@@ -62,25 +66,18 @@ class ExtractionContext:
     """Mutable state shared across extraction modules.
 
     ``adjustments``, ``decision_log`` and ``estimates_log`` accumulate in
-    the order modules run. Modules read ``sections`` (read-only in
-    practice) and append to the logs.
+    the order modules run. Modules read ``raw_extraction`` (treated as
+    read-only) and append to the logs.
     """
 
     ticker: str
     fiscal_period_label: str
     primary_period: FiscalPeriod
-    sections: list[StructuredSection]
+    raw_extraction: RawExtraction
     wacc_inputs: WACCInputs
     adjustments: list[ModuleAdjustment] = field(default_factory=list)
     decision_log: list[str] = field(default_factory=list)
     estimates_log: list[str] = field(default_factory=list)
-
-    def find_section(self, section_type: str) -> StructuredSection | None:
-        """First section of ``section_type`` or ``None``."""
-        for section in self.sections:
-            if section.section_type == section_type:
-                return section
-        return None
 
 
 # ----------------------------------------------------------------------
@@ -103,12 +100,10 @@ class ExtractionModule(ABC):
 class ExtractionResult:
     """Output of :meth:`ExtractionCoordinator.extract`.
 
-    Sprint 7 adds :attr:`canonical_state`: the fully-typed, immutable
-    :class:`CanonicalCompanyState` built from the reclassified sections,
-    the module adjustments, and the derived analysis. It stays optional
-    so the coordinator's low-level ``extract`` (no identity supplied) can
-    still return a result without it — callers building a canonical
-    state use :meth:`ExtractionCoordinator.extract_canonical` instead.
+    ``canonical_state`` is populated only by
+    :meth:`ExtractionCoordinator.extract_canonical` (which requires a
+    :class:`CompanyIdentity`); the low-level ``extract`` path leaves it
+    ``None``.
     """
 
     ticker: str

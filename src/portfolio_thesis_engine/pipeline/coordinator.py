@@ -16,11 +16,10 @@ Stages run in order:
 5. **CROSS_CHECK** — run :class:`CrossCheckGate` over the extracted
    top-level values (revenue, NI, assets, etc.). FAIL blocks the
    pipeline unless ``skip_cross_check=True``.
-6. **EXTRACT_CANONICAL** — run :class:`ExtractionCoordinator.extract_canonical`.
-   Currently fed via a Sprint-2 adapter that synthesises
-   :class:`SectionExtractionResult` from :class:`RawExtraction`;
-   Sprint 3 removes the adapter and consumes :class:`RawExtraction`
-   directly.
+6. **EXTRACT_CANONICAL** — run
+   :class:`ExtractionCoordinator.extract_canonical` on the
+   :class:`RawExtraction` directly (Phase 1.5 Sprint 3 removed the
+   Sprint-2 adapter shim).
 7. **PERSIST** — save the canonical state via :class:`CompanyStateRepository`.
 8. **GUARDRAILS** — run Group A + V guardrails.
 9. **VALUATE** — compose three scenarios + DCF per scenario + equity
@@ -48,7 +47,7 @@ wiring in :mod:`cli.process_cmd`.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -61,11 +60,6 @@ from typing import Any
 from portfolio_thesis_engine.cross_check.base import CrossCheckReport, CrossCheckStatus
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
 from portfolio_thesis_engine.extraction.coordinator import ExtractionCoordinator
-from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
-    SectionExtractionResult,
-    StructuredSection,
-    adapt_raw_extraction,
-)
 from portfolio_thesis_engine.ficha.composer import FichaComposer
 from portfolio_thesis_engine.guardrails.checks import default_guardrails
 from portfolio_thesis_engine.guardrails.results import AggregatedResults, ResultAggregator
@@ -183,77 +177,60 @@ def _to_decimal(value: Any) -> Decimal | None:
 
 
 def _extract_cross_check_values(
-    sections: Iterable[StructuredSection],
+    raw_extraction: RawExtraction,
 ) -> dict[str, Decimal]:
     """Pull top-level values (revenue, NI, total assets, etc.) from the
-    parsed sections so the gate can compare against FMP / yfinance."""
+    :class:`RawExtraction` so the gate can compare against FMP / yfinance."""
     values: dict[str, Decimal] = {}
-    for section in sections:
-        parsed = section.parsed_data or {}
-        if section.section_type == "income_statement":
-            for ln in parsed.get("line_items", []) or []:
-                cat = str(ln.get("category", ""))
-                amount = _to_decimal(ln.get("value_current"))
-                if amount is None:
-                    continue
-                if cat == "revenue":
-                    values.setdefault("revenue", amount)
-                elif cat == "operating_income":
-                    values.setdefault("operating_income", amount)
-                elif cat == "net_income":
-                    values.setdefault("net_income", amount)
-        elif section.section_type == "balance_sheet":
-            for ln in parsed.get("line_items", []) or []:
-                cat = str(ln.get("category", ""))
-                amount = _to_decimal(ln.get("value_current"))
-                if amount is None:
-                    continue
-                label_lc = str(ln.get("label", "")).lower()
-                if cat == "cash":
-                    values.setdefault("cash", amount)
-                elif cat == "total_assets" or "total assets" in label_lc:
-                    values["total_assets"] = amount
-                elif cat == "total_equity" or label_lc == "total equity":
-                    values["total_equity"] = amount
-        elif section.section_type == "cash_flow":
-            for ln in parsed.get("line_items", []) or []:
-                cat = str(ln.get("category", ""))
-                amount = _to_decimal(ln.get("value_current"))
-                if amount is None:
-                    continue
-                if cat == "cfo":
-                    values.setdefault("operating_cash_flow", amount)
-                elif cat == "capex":
-                    values.setdefault("capex", amount)
+
+    is_data = raw_extraction.primary_is
+    if is_data is not None:
+        if is_data.revenue is not None:
+            values["revenue"] = is_data.revenue
+        if is_data.operating_income is not None:
+            values["operating_income"] = is_data.operating_income
+        if is_data.net_income is not None:
+            values["net_income"] = is_data.net_income
+
+    bs_data = raw_extraction.primary_bs
+    if bs_data is not None:
+        if bs_data.cash_and_equivalents is not None:
+            values["cash"] = bs_data.cash_and_equivalents
+        if bs_data.total_assets is not None:
+            values["total_assets"] = bs_data.total_assets
+        if bs_data.total_equity is not None:
+            values["total_equity"] = bs_data.total_equity
+
+    cf_data = raw_extraction.primary_cf
+    if cf_data is not None:
+        if cf_data.operating_cash_flow is not None:
+            values["operating_cash_flow"] = cf_data.operating_cash_flow
+        if cf_data.capex is not None:
+            values["capex"] = cf_data.capex
+
     return values
 
 
 def _identity_from(
     company_row: CompanyRow | None,
     wacc_inputs: WACCInputs,
-    section_result: SectionExtractionResult,
+    raw_extraction: RawExtraction,
 ) -> CompanyIdentity:
     """Build a :class:`CompanyIdentity` from the SQLite row + WACC +
-    section data (fallbacks for each field). Kept lenient so
-    ``pte process`` works on thin metadata."""
-    reporting_currency = Currency.USD
-    # Prefer currency disclosed on the IS or BS section:
-    for section in section_result.sections:
-        parsed = section.parsed_data or {}
-        currency = parsed.get("currency")
-        if isinstance(currency, str):
-            try:
-                reporting_currency = Currency(currency)
-                break
-            except ValueError:
-                continue
+    raw extraction metadata. Kept lenient so ``pte process`` works on
+    thin metadata."""
+    reporting_currency = raw_extraction.metadata.reporting_currency
     if company_row is not None:
         with suppress(ValueError):
             reporting_currency = Currency(company_row.currency)
 
     return CompanyIdentity(
         ticker=wacc_inputs.ticker,
-        name=(company_row.name if company_row else wacc_inputs.ticker),
+        name=(
+            company_row.name
+            if company_row
+            else raw_extraction.metadata.company_name
+        ),
         reporting_currency=reporting_currency,
         profile=Profile(wacc_inputs.profile),
         fiscal_year_end_month=12,
@@ -375,14 +352,10 @@ class PipelineCoordinator:
                     outcome=outcome,
                 )
 
-                # From here on the modules still consume the Phase-1
-                # SectionExtractionResult shape — Sprint 3 rips the adapter.
-                section_result = adapt_raw_extraction(raw_extraction)
-
-                # Stage 5 — cross-check
+                # Stage 5 — cross-check (consumes raw_extraction directly)
                 cross_check_report = await self._stage_cross_check(
                     ticker=ticker,
-                    section_result=section_result,
+                    raw_extraction=raw_extraction,
                     outcome=outcome,
                     skip_cross_check=skip_cross_check,
                 )
@@ -390,9 +363,9 @@ class PipelineCoordinator:
 
                 # Stage 6 — extract canonical
                 company_row = self.metadata_repo.get_company(ticker)
-                identity = _identity_from(company_row, wacc_inputs, section_result)
+                identity = _identity_from(company_row, wacc_inputs, raw_extraction)
                 canonical = await self._stage_extract_canonical(
-                    section_result=section_result,
+                    raw_extraction=raw_extraction,
                     wacc_inputs=wacc_inputs,
                     identity=identity,
                     outcome=outcome,
@@ -621,7 +594,7 @@ class PipelineCoordinator:
     async def _stage_cross_check(
         self,
         ticker: str,
-        section_result: SectionExtractionResult,
+        raw_extraction: RawExtraction,
         outcome: PipelineOutcome,
         *,
         skip_cross_check: bool,
@@ -638,11 +611,11 @@ class PipelineCoordinator:
             )
             return None
 
-        extracted_values = _extract_cross_check_values(section_result.sections)
+        extracted_values = _extract_cross_check_values(raw_extraction)
         report = await self.cross_check_gate.check(
             ticker=ticker,
             extracted_values=extracted_values,
-            period=section_result.fiscal_period,
+            period=raw_extraction.primary_period.period,
         )
         status = (
             "fail" if report.overall_status == CrossCheckStatus.FAIL else "ok"
@@ -672,17 +645,22 @@ class PipelineCoordinator:
 
     async def _stage_extract_canonical(
         self,
-        section_result: SectionExtractionResult,
+        raw_extraction: RawExtraction,
         wacc_inputs: WACCInputs,
         identity: CompanyIdentity,
         outcome: PipelineOutcome,
     ) -> CanonicalCompanyState:
         t0 = perf_counter()
+        doc_id = (
+            f"{raw_extraction.metadata.ticker}/"
+            f"{raw_extraction.metadata.document_type.value}/"
+            f"{raw_extraction.metadata.fiscal_year}"
+        )
         result = await self.extraction_coordinator.extract_canonical(
-            section_result=section_result,
+            raw_extraction=raw_extraction,
             wacc_inputs=wacc_inputs,
             identity=identity,
-            source_documents=[section_result.doc_id] if section_result.doc_id else [],
+            source_documents=[doc_id],
         )
         if result.canonical_state is None:  # pragma: no cover - defensive
             raise PipelineError("extract_canonical returned no canonical_state")

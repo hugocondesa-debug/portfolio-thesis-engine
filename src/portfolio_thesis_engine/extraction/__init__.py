@@ -1,13 +1,14 @@
-"""Extraction engine — applies the reclassification methodology to
-:class:`StructuredSection` output from :mod:`section_extractor`.
+"""Extraction engine — applies the reclassification methodology to a
+:class:`RawExtraction` loaded by the pipeline.
 
-Phase 1 ships Module A (taxes, core subset A.1–A.5), Module B (provisions
-minimal, B.0–B.2) and Module C (leases, core subset C.0–C.3). The
-coordinator orders modules, propagates a shared :class:`ExtractionContext`
-between them, and enforces the per-company cost cap between stages.
+Phase 1 ships Module A (taxes, subset A.1–A.5), Module B (provisions
+minimal, B.0–B.2) and Module C (leases, subset C.0–C.3). The
+coordinator orders modules, propagates a shared
+:class:`ExtractionContext` between them, and enforces the per-company
+cost cap between stages.
 
-Public surface is intentionally minimal so downstream callers depend on a
-stable façade, not on individual module internals.
+Public surface is intentionally minimal so downstream callers depend
+on a stable façade, not on individual module internals.
 """
 
 from portfolio_thesis_engine.extraction.analysis import AnalysisDeriver

@@ -1,33 +1,39 @@
 """Module B — Provisions & non-operating items (minimal, B.0–B.2).
 
+Phase 1.5 / Sprint 3 rewrite: consumes :class:`RawExtraction` directly.
+Instead of scanning an IS ``line_items`` list for non-op labels, we now
+read the typed carriers the human extractor fills in:
+
+- :attr:`NotesContainer.provisions` — a list of
+  :class:`ProvisionItem`, each tagged with a
+  :data:`ProvisionClassification` literal.
+- :attr:`NotesContainer.goodwill.impairment` — single Decimal surfaces
+  a ``B.2.goodwill_impairment`` adjustment.
+- :attr:`NotesContainer.discontinued_ops` — logged when present and
+  flows through the IS ``net_income_from_discontinued`` field.
+- IS non-op fields: ``non_operating_income``, ``share_of_associates``,
+  ``net_income_from_discontinued``. Each surfaces as a separate
+  ``B.2.*`` adjustment.
+
 Scope shipped here:
 
-- **B.0** applicability: when the IS parse is empty or missing a
-  non-operating bucket, the module returns a no-op (logged).
-- **B.1** operating vs EBITA framework: walks the IS ``line_items`` and
-  flags items whose category is ``non_operating`` *or* whose label
-  matches the obvious non-operating patterns. Everything else stays in
-  operating income.
-- **B.2** non-operating items — minimal catalogue:
+- **B.0** applicability — when neither the IS nor the notes expose any
+  non-op lines, the module returns a no-op (logged).
+- **B.1** operating vs EBITA framework — operating income stays as
+  reported on the IS. Everything flagged below lands below the line.
+- **B.2** non-operating items catalogue:
 
   * goodwill impairment
-  * restructuring charges (identified as one-off by label)
-  * gains / losses on disposal of PP&E or subsidiaries
+  * provisions classified as ``restructuring`` / ``impairment`` /
+    ``non_operating`` on the notes
+  * IS non-op fields
 
-OUT of Phase 1: B.3–B.10 (detailed treatment of multiple provision
-categories, separating routine from special, etc). Those arrive with
-the full reclassification engine in Phase 2.
-
-Module B is **deterministic**: the classification leans on the IS
-``category`` enum already assigned by the section extractor, with label
-keyword matching as a backup when ``category == "other"``. No LLM call
-is required.
+OUT of Phase 1: B.3–B.10. The module is **deterministic** — no LLM.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
-from typing import Any
+from decimal import Decimal
 
 from portfolio_thesis_engine.extraction.base import ExtractionContext, ExtractionModule
 from portfolio_thesis_engine.llm.anthropic_provider import AnthropicProvider
@@ -35,60 +41,17 @@ from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Source
 from portfolio_thesis_engine.schemas.company import ModuleAdjustment
 
-# Label keywords → canonical non-operating type. The order matters: we
-# want the most specific match to win (``goodwill impairment`` is more
-# specific than ``impairment``).
-_NON_OPERATING_LABEL_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("goodwill impairment", "goodwill_impairment"),
-    ("goodwill write-down", "goodwill_impairment"),
-    ("goodwill write down", "goodwill_impairment"),
-    ("restructuring charge", "restructuring"),
-    ("restructuring cost", "restructuring"),
-    ("restructuring expense", "restructuring"),
-    ("restructuring", "restructuring"),
-    ("impairment of", "asset_impairment"),
-    ("asset impairment", "asset_impairment"),
-    ("gain on disposal", "disposal_gain_loss"),
-    ("loss on disposal", "disposal_gain_loss"),
-    ("gain on sale", "disposal_gain_loss"),
-    ("loss on sale", "disposal_gain_loss"),
-    ("gain on divestiture", "disposal_gain_loss"),
-    ("loss on divestiture", "disposal_gain_loss"),
-    ("litigation settlement", "litigation"),
-    ("legal settlement", "litigation"),
+# Provision classifications that move below operating income.
+_NON_OPERATING_PROVISION_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {"non_operating", "restructuring", "impairment"}
 )
 
-
-def _to_decimal(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-
-
-def _classify_is_line(label: str, category: str) -> str | None:
-    """Return the canonical non-operating type or ``None`` if the line is
-    operating.
-
-    Order of precedence:
-    1. IS ``category == "non_operating"`` → already flagged; use label to
-       pick a specific sub-type, default to ``"non_operating_other"``.
-    2. Label keyword match → explicit type.
-    3. Everything else → ``None`` (operating).
-    """
-    lowered = label.lower()
-    if category == "non_operating":
-        for keyword, subtype in _NON_OPERATING_LABEL_PATTERNS:
-            if keyword in lowered:
-                return subtype
-        return "non_operating_other"
-
-    for keyword, subtype in _NON_OPERATING_LABEL_PATTERNS:
-        if keyword in lowered:
-            return subtype
-    return None
+# Map provision classification → B.2 subtype for the adjustment module id.
+_PROVISION_SUBTYPE: dict[str, str] = {
+    "restructuring": "restructuring",
+    "impairment": "asset_impairment",
+    "non_operating": "non_operating_other",
+}
 
 
 class ModuleBProvisions(ExtractionModule):
@@ -101,71 +64,140 @@ class ModuleBProvisions(ExtractionModule):
         llm: AnthropicProvider,
         cost_tracker: CostTracker,
     ) -> None:
-        # Parity with other modules — Module B doesn't hit the LLM.
         self.llm = llm
         self.cost_tracker = cost_tracker
 
     # ------------------------------------------------------------------
     async def apply(self, context: ExtractionContext) -> ExtractionContext:
-        is_section = context.find_section("income_statement")
-        parsed: dict[str, Any] | None = is_section.parsed_data if is_section else None
-        line_items = (parsed or {}).get("line_items") or []
+        raw = context.raw_extraction
+        is_data = raw.primary_is
+        notes = raw.notes
 
-        # B.0 — applicability
-        if not line_items:
-            context.decision_log.append(
-                "Module B.0: no income_statement line items available; "
-                "skipping non-operating reclassification."
-            )
-            return context
+        adjustments_added = 0
 
-        source = Source(document=is_section.title) if is_section else None
-        matches: list[tuple[str, Decimal, str, str]] = []  # (label, amount, subtype, category)
+        # --- Goodwill impairment (notes.goodwill.impairment) ----------
+        if notes.goodwill is not None and notes.goodwill.impairment is not None:
+            amount = notes.goodwill.impairment
+            if amount != 0:
+                context.adjustments.append(
+                    ModuleAdjustment(
+                        module="B.2.goodwill_impairment",
+                        description="Goodwill impairment (from notes.goodwill)",
+                        amount=amount,
+                        affected_periods=[context.primary_period],
+                        rationale=(
+                            "Goodwill impairment is one-off by nature; "
+                            "moved below operating profit per B.2."
+                        ),
+                        source=Source(document="notes.goodwill"),
+                    )
+                )
+                adjustments_added += 1
 
-        for raw in line_items:
-            label = str(raw.get("label", "") or "").strip()
-            if not label:
+        # --- Provisions flagged as non-operating ---------------------
+        for provision in notes.provisions:
+            if provision.classification not in _NON_OPERATING_PROVISION_CLASSIFICATIONS:
                 continue
-            category = str(raw.get("category", "") or "").strip()
-            amount = _to_decimal(raw.get("value_current"))
-            if amount is None:
-                continue
-            subtype = _classify_is_line(label, category)
-            if subtype is None:
-                continue
-            matches.append((label, amount, subtype, category or "other"))
-
-        if not matches:
-            context.decision_log.append(
-                "Module B.1: no obvious non-operating items in income "
-                "statement; operating profit left unchanged."
-            )
-            return context
-
-        # B.2 — emit adjustments. Sign convention: amount is what the IS
-        # reports (typically negative for expenses/losses, positive for
-        # gains). The reclassification *removes* the item from operating
-        # income; downstream NOPAT construction subtracts adjustments
-        # with module == "B.*" from the operating-income pool.
-        for label, amount, subtype, category in matches:
+            subtype = _PROVISION_SUBTYPE[provision.classification]
             context.adjustments.append(
                 ModuleAdjustment(
                     module=f"B.2.{subtype}",
-                    description=f"Non-operating item: {label}",
-                    amount=amount,
+                    description=f"Non-operating provision: {provision.description}",
+                    amount=provision.amount,
                     affected_periods=[context.primary_period],
                     rationale=(
-                        f"Classified as {subtype!r} (IS category '{category}'); "
-                        f"moved below operating profit per B.2 framework."
+                        f"Classification '{provision.classification}' → "
+                        f"moved below operating profit per B.2."
                     ),
-                    source=source,
+                    source=Source(document="notes.provisions"),
                 )
             )
+            adjustments_added += 1
 
-        total = sum((m[1] for m in matches), start=Decimal("0"))
+        # --- IS non-operating fields ---------------------------------
+        if is_data is not None:
+            is_source = Source(document="income_statement")
+            if (
+                is_data.non_operating_income is not None
+                and is_data.non_operating_income != 0
+            ):
+                context.adjustments.append(
+                    ModuleAdjustment(
+                        module="B.2.non_operating_other",
+                        description="Non-operating income (IS)",
+                        amount=is_data.non_operating_income,
+                        affected_periods=[context.primary_period],
+                        rationale=(
+                            "Reported below operating profit on the IS; "
+                            "kept out of the operating-tax base per B.2."
+                        ),
+                        source=is_source,
+                    )
+                )
+                adjustments_added += 1
+            if (
+                is_data.share_of_associates is not None
+                and is_data.share_of_associates != 0
+            ):
+                context.adjustments.append(
+                    ModuleAdjustment(
+                        module="B.2.associates",
+                        description="Share of associates (IS)",
+                        amount=is_data.share_of_associates,
+                        affected_periods=[context.primary_period],
+                        rationale=(
+                            "Equity-method income is capital-structure-agnostic; "
+                            "treated as non-operating for NOPAT per B.2."
+                        ),
+                        source=is_source,
+                    )
+                )
+                adjustments_added += 1
+            if (
+                is_data.net_income_from_discontinued is not None
+                and is_data.net_income_from_discontinued != 0
+            ):
+                context.adjustments.append(
+                    ModuleAdjustment(
+                        module="B.2.discontinued",
+                        description="Net income from discontinued operations (IS)",
+                        amount=is_data.net_income_from_discontinued,
+                        affected_periods=[context.primary_period],
+                        rationale=(
+                            "Discontinued ops are out of the continuing-"
+                            "operating base per B.2."
+                        ),
+                        source=is_source,
+                    )
+                )
+                adjustments_added += 1
+
+        # --- Discontinued-ops note (log only; the IS field drives the adj) ---
+        if notes.discontinued_ops is not None:
+            ni = notes.discontinued_ops.net_income
+            if ni is not None:
+                context.decision_log.append(
+                    f"Module B: discontinued-ops note present "
+                    f"(net_income={ni}); covered by IS adjustment when "
+                    f"net_income_from_discontinued populated."
+                )
+
+        # --- B.0 applicability ---------------------------------------
+        if adjustments_added == 0:
+            context.decision_log.append(
+                "Module B.1: no non-operating items surfaced from IS, "
+                "provisions, goodwill, or discontinued-ops note; "
+                "operating profit left unchanged."
+            )
+            return context
+
+        total = sum(
+            (adj.amount for adj in context.adjustments if adj.module.startswith("B.2")),
+            start=Decimal("0"),
+        )
         context.decision_log.append(
-            f"Module B.1: {len(matches)} non-operating item"
-            f"{'' if len(matches) == 1 else 's'} reclassified "
+            f"Module B.1: {adjustments_added} non-operating item"
+            f"{'' if adjustments_added == 1 else 's'} reclassified "
             f"(sum {total})."
         )
         return context

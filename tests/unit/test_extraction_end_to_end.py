@@ -1,16 +1,14 @@
-"""End-to-end smoke for the extraction engine.
+"""End-to-end smoke for the extraction engine (Phase 1.5).
 
-Starts from a :class:`SectionExtractionResult` (what the section
-extractor would produce in production) and runs the full
+Starts from a :class:`RawExtraction` (what the pipeline loads from
+``raw_extraction.yaml``) and runs the full
 :class:`ExtractionCoordinator` path — Modules A, B, C plus
-:class:`AnalysisDeriver` plus canonical-state construction — over
-synthetic EuroEyes numbers. Asserts the output is a valid
+:class:`AnalysisDeriver` plus canonical-state construction — on the
+EuroEyes fixture. Asserts the output is a valid
 :class:`CanonicalCompanyState`.
 
-No LLM is invoked: Modules A/B/C are deterministic, and the
-coordinator doesn't call the LLM directly. The section-extractor
-layer (which _does_ call the LLM) has its own tests in
-``test_section_parsers.py``.
+No LLM is invoked: modules are deterministic, and the coordinator
+doesn't call the LLM directly.
 """
 
 from __future__ import annotations
@@ -22,13 +20,16 @@ from unittest.mock import MagicMock
 import pytest
 
 from portfolio_thesis_engine.extraction import ExtractionCoordinator
-from portfolio_thesis_engine.extraction.raw_extraction_adapter import (
-    SectionExtractionResult,
-    StructuredSection,
+from portfolio_thesis_engine.ingestion.raw_extraction_parser import (
+    parse_raw_extraction,
 )
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Currency, Profile
-from portfolio_thesis_engine.schemas.company import CanonicalCompanyState, CompanyIdentity
+from portfolio_thesis_engine.schemas.company import (
+    CanonicalCompanyState,
+    CompanyIdentity,
+)
+from portfolio_thesis_engine.schemas.raw_extraction import RawExtraction
 from portfolio_thesis_engine.schemas.wacc import (
     CapitalStructure,
     CostOfCapitalInputs,
@@ -36,93 +37,7 @@ from portfolio_thesis_engine.schemas.wacc import (
     WACCInputs,
 )
 
-# ======================================================================
-# EuroEyes synthetic data (mirrors tests/fixtures/euroeyes/*, HKD m)
-# ======================================================================
-
-_IS = {
-    "fiscal_period": "FY2024",
-    "currency": "HKD",
-    "currency_unit": "millions",
-    "line_items": [
-        {"label": "Revenue", "value_current": 580.0, "category": "revenue"},
-        {"label": "Cost of sales", "value_current": -290.0, "category": "cost_of_sales"},
-        {"label": "D&A", "value_current": -20.0, "category": "d_and_a"},
-        {"label": "Operating income", "value_current": 110.0, "category": "operating_income"},
-        {"label": "Finance income", "value_current": 4.0, "category": "finance_income"},
-        {"label": "Finance expense", "value_current": -18.0, "category": "finance_expense"},
-        {"label": "Income tax expense", "value_current": -21.0, "category": "tax"},
-        {"label": "Net income", "value_current": 75.0, "category": "net_income"},
-    ],
-}
-
-_BS = {
-    "as_of_date": "2024-12-31",
-    "currency": "HKD",
-    "currency_unit": "millions",
-    "line_items": [
-        {"label": "Cash and equivalents", "value_current": 450.0, "category": "cash"},
-        {"label": "Trade receivables", "value_current": 320.0, "category": "operating_assets"},
-        {"label": "Inventories", "value_current": 180.0, "category": "operating_assets"},
-        {"label": "PP&E", "value_current": 1800.0, "category": "operating_assets"},
-        {"label": "Goodwill", "value_current": 450.0, "category": "intangibles"},
-        {"label": "Trade payables", "value_current": 210.0, "category": "operating_liabilities"},
-        {"label": "Long-term debt", "value_current": 580.0, "category": "financial_liabilities"},
-        {"label": "Lease liabilities", "value_current": 260.0, "category": "lease_liabilities"},
-        {"label": "Total equity", "value_current": 1900.0, "category": "equity"},
-    ],
-}
-
-_CF = {
-    "fiscal_period": "FY2024",
-    "currency": "HKD",
-    "currency_unit": "millions",
-    "line_items": [
-        {"label": "CFO", "value_current": 135.0, "category": "cfo"},
-        {"label": "CapEx", "value_current": -75.0, "category": "capex"},
-        {"label": "Lease principal repayments", "value_current": -45.0, "category": "lease_payments"},
-    ],
-}
-
-_TAXES = {
-    "fiscal_period": "FY2024",
-    "statutory_rate_pct": 16.5,
-    "effective_rate_pct": 21.88,  # 21 / 96
-    "profit_before_tax": 96.0,
-    "statutory_tax": 15.84,
-    "reported_tax_expense": 21.0,
-    "reconciling_items": [
-        {"label": "Non-deductible expenses", "amount": 2.5, "category": "non_deductible"},
-        {
-            "label": "Rate differential Germany (30%) vs HK (16.5%)",
-            "amount": 3.7,
-            "category": "rate_diff_jurisdiction",
-        },
-        {
-            "label": "Prior-year adjustment",
-            "amount": -1.0,
-            "category": "prior_year_adjustment",
-        },
-    ],
-}
-
-_LEASES = {
-    "fiscal_period": "FY2024",
-    "currency": "HKD",
-    "currency_unit": "millions",
-    "rou_assets_by_category": [
-        {"category": "Medical clinics", "value_current": 240.0},
-        {"category": "Office space", "value_current": 35.0},
-    ],
-    "lease_liability_movement": {
-        "opening_balance": 245.0,
-        "additions": 60.0,
-        "depreciation_of_rou": 40.0,
-        "interest_expense": 12.0,
-        "principal_payments": 45.0,
-        "closing_balance": 260.0,
-    },
-}
+_FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
 
 
 @pytest.fixture
@@ -174,25 +89,8 @@ def _identity() -> CompanyIdentity:
 
 
 @pytest.fixture
-def _section_result() -> SectionExtractionResult:
-    sections = [
-        StructuredSection("income_statement", "IS", "", parsed_data=_IS),
-        StructuredSection("balance_sheet", "BS", "", parsed_data=_BS),
-        StructuredSection("cash_flow", "CF", "", parsed_data=_CF),
-        StructuredSection("notes_taxes", "Taxes", "", parsed_data=_TAXES),
-        StructuredSection("notes_leases", "Leases", "", parsed_data=_LEASES),
-    ]
-    return SectionExtractionResult(
-        doc_id="1846-HK/annual_report/2024",
-        ticker="1846.HK",
-        fiscal_period="FY2024",
-        sections=sections,
-    )
-
-
-# ======================================================================
-# E2E smoke
-# ======================================================================
+def _raw() -> RawExtraction:
+    return parse_raw_extraction(_FIXTURE)
 
 
 class TestEuroEyesEndToEnd:
@@ -202,7 +100,7 @@ class TestEuroEyesEndToEnd:
         _wacc: WACCInputs,
         _cost_tracker: CostTracker,
         _identity: CompanyIdentity,
-        _section_result: SectionExtractionResult,
+        _raw: RawExtraction,
     ) -> None:
         coord = ExtractionCoordinator(
             profile=Profile.P1_INDUSTRIAL,
@@ -210,7 +108,7 @@ class TestEuroEyesEndToEnd:
             cost_tracker=_cost_tracker,
         )
         result = await coord.extract_canonical(
-            section_result=_section_result,
+            raw_extraction=_raw,
             wacc_inputs=_wacc,
             identity=_identity,
             source_documents=["1846-HK/annual_report/2024"],
@@ -230,7 +128,7 @@ class TestEuroEyesEndToEnd:
         _wacc: WACCInputs,
         _cost_tracker: CostTracker,
         _identity: CompanyIdentity,
-        _section_result: SectionExtractionResult,
+        _raw: RawExtraction,
     ) -> None:
         coord = ExtractionCoordinator(
             profile=Profile.P1_INDUSTRIAL,
@@ -238,7 +136,7 @@ class TestEuroEyesEndToEnd:
             cost_tracker=_cost_tracker,
         )
         result = await coord.extract_canonical(
-            section_result=_section_result,
+            raw_extraction=_raw,
             wacc_inputs=_wacc,
             identity=_identity,
         )
@@ -248,58 +146,62 @@ class TestEuroEyesEndToEnd:
         # Adjustments routed to correct buckets
         assert len(state.adjustments.module_a_taxes) >= 1  # A.1 always emitted
         assert len(state.adjustments.module_c_leases) == 1  # C.3 lease additions
-        # Module B: no goodwill/restructuring lines in the EuroEyes IS
-        # → no B.2 adjustments in this fixture
-        assert state.adjustments.module_b_provisions == []
+        # Module B: EuroEyes fixture has goodwill.impairment = -20M → one B.2
+        assert len(state.adjustments.module_b_provisions) >= 1
+        assert any(
+            "goodwill_impairment" in adj.module
+            for adj in state.adjustments.module_b_provisions
+        )
 
         # Analysis block populated
         assert len(state.analysis.invested_capital_by_period) == 1
         ic = state.analysis.invested_capital_by_period[0]
-        # Op assets = 320 + 180 + 1800 + 450 (goodwill in intangibles) = 2750
-        assert ic.operating_assets == Decimal("2750.0")
-        # Op liab = 210
-        assert ic.operating_liabilities == Decimal("210.0")
-        assert ic.invested_capital == Decimal("2540.0")
+        # Operating assets (EuroEyes FY2024 × 1M):
+        # AR 120 + Inventory 80 + PP&E 950 + ROU 380 + Goodwill 600
+        # + Intangibles 420 + Other NCA 200 = 2750 × 1M
+        assert ic.operating_assets == Decimal("2750000000.0")
+        # AP 95 + non_current_liabilities_other 105 = 200 × 1M
+        assert ic.operating_liabilities == Decimal("200000000.0")
+        assert ic.invested_capital == Decimal("2550000000.0")
 
         # NOPAT bridge
         bridge = state.analysis.nopat_bridge_by_period[0]
-        # EBITDA = 110 + 20 (D&A) = 130; EBITA stays None (parser aggregates).
-        assert bridge.ebitda == Decimal("130.0")
+        # EBITDA = 110 + |−20| (D&A) = 130 × 1M
+        assert bridge.ebitda == Decimal("130000000.0")
         assert bridge.ebita is None
-        # Reported NI matches fixture
-        assert bridge.reported_net_income == Decimal("75.0")
+        assert bridge.reported_net_income == Decimal("75000000.0")
 
         # Ratios
         ratios = state.analysis.ratios_by_period[0]
-        # Op margin 110/580 ≈ 18.97%
+        # Op margin 110 / 580 ≈ 18.97%
         assert ratios.operating_margin is not None
         assert abs(ratios.operating_margin - Decimal("18.97")) < Decimal("0.05")
 
-        # Reclassified statements carry the IS/BS/CF
+        # Reclassified statements carry the primary-period IS/BS/CF
         assert len(state.reclassified_statements) == 1
         rs = state.reclassified_statements[0]
-        assert len(rs.income_statement) == len(_IS["line_items"])
-        assert len(rs.balance_sheet) == len(_BS["line_items"])
-        assert len(rs.cash_flow) == len(_CF["line_items"])
+        assert len(rs.income_statement) > 0
+        assert len(rs.balance_sheet) > 0
+        assert len(rs.cash_flow) > 0
 
-        # Methodology records modules
+        # Methodology records modules + Sprint label
         assert state.methodology.protocols_activated == ["A", "B", "C"]
-        assert state.methodology.extraction_system_version == "phase1-sprint7"
+        assert state.methodology.extraction_system_version == "phase1.5-sprint3"
 
     @pytest.mark.asyncio
     async def test_extract_without_canonical_still_works(
         self,
         _wacc: WACCInputs,
         _cost_tracker: CostTracker,
-        _section_result: SectionExtractionResult,
+        _raw: RawExtraction,
     ) -> None:
         """``extract()`` (no identity) produces a result with
-        ``canonical_state=None`` — the low-level path used by tests."""
+        ``canonical_state=None``."""
         coord = ExtractionCoordinator(
             profile=Profile.P1_INDUSTRIAL,
             llm=MagicMock(),
             cost_tracker=_cost_tracker,
         )
-        result = await coord.extract(_section_result, _wacc)
+        result = await coord.extract(_raw, _wacc)
         assert result.canonical_state is None
         assert result.modules_run == ["A", "B", "C"]
