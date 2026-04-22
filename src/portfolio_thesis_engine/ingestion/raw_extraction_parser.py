@@ -3,30 +3,34 @@
 Two responsibilities beyond Pydantic validation:
 
 1. **Unit-scale normalisation.** If the source document reports in
-   thousands or millions, every Decimal in the statements + numeric
-   notes is multiplied by the scale factor so downstream code always
-   works in base units. The returned :class:`RawExtraction` has its
-   ``unit_scale`` reset to ``"units"`` — calling the parser again on
-   the returned object would be a no-op (idempotent).
+   thousands or millions, every monetary Decimal on the as-reported
+   structured schema is multiplied by the scale factor so downstream
+   code always works in base units. The returned
+   :class:`RawExtraction` has its ``unit_scale`` reset to ``"units"``
+   — calling the parser again on the returned object is a no-op
+   (idempotent).
 
 2. **Exception wrapping.** File-not-found, YAML syntax errors, and
-   Pydantic validation errors all surface as :class:`IngestionError`
-   so CLI / pipeline code catches one type regardless of the root
-   cause.
+   Pydantic validation errors surface as :class:`IngestionError` so
+   CLI / pipeline code catches one type regardless of root cause.
 
-Normalisation covers:
+Normalisation walks:
 
-- Every Decimal field + ``extensions`` values on :class:`IncomeStatementPeriod`,
-  :class:`BalanceSheetPeriod`, :class:`CashFlowPeriod`.
-- Amount fields on items inside the notes container (tax
-  reconciling items, provisions, acquisitions, goodwill / intangibles
-  / PP&E / inventory / commitments / related-party, operational
-  metrics with Decimal values).
+- Every :class:`LineItem.value` on IS / BS / CF.
+- Every numeric cell in :class:`NoteTable.rows` (rows are mixed
+  label-then-numbers; we scale values whose type is
+  ``Decimal``).
+- Every :class:`SegmentMetrics.metrics` value.
+- :class:`SegmentReporting.inter_segment_eliminations`.
+- :class:`HistoricalDataSeries.metrics` values.
+- :class:`OperationalKPI.values` when the entry is numeric (Decimal).
 
-Rates (``effective_tax_rate_percent``, ``statutory_rate_percent``),
-headcount / shares counts that aren't monetary are **not scaled** —
-they're dimensionally different and the schema documents them
-explicitly.
+Fields that are **not** monetary (and therefore not scaled):
+
+- :class:`EarningsPerShare` per-share values and share counts.
+- :class:`ProfitAttribution` fields (already monetary — scaled).
+  *Correction:* profit attribution IS monetary; scale it too.
+- Narrative / label / unit fields.
 """
 
 from __future__ import annotations
@@ -36,51 +40,28 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from portfolio_thesis_engine.ingestion.base import IngestionError
 from portfolio_thesis_engine.schemas.raw_extraction import (
-    AcquisitionItem,
-    AcquisitionsNote,
     BalanceSheetPeriod,
     CashFlowPeriod,
-    CommitmentsNote,
-    DiscontinuedOpsNote,
-    GoodwillNote,
+    HistoricalDataSeries,
     IncomeStatementPeriod,
-    IntangiblesNote,
-    InventoryNote,
-    LeaseNote,
-    NotesContainer,
-    PensionNote,
-    PPENote,
-    ProvisionItem,
+    LineItem,
+    Note,
+    NoteTable,
+    OperationalKPI,
+    ProfitAttribution,
     RawExtraction,
-    RelatedPartyItem,
-    SBCNote,
-    TaxNote,
-    TaxReconciliationItem,
+    SegmentMetrics,
+    SegmentReporting,
 )
 
-# Fields on EmployeeBenefitsNote are dimensionally mixed (headcount is
-# a count; compensation is money). We scale only the money fields.
-_EMPLOYEE_MONEY_FIELDS = frozenset(
-    {"avg_compensation", "total_compensation", "pension_expense", "sbc_expense"}
-)
-
-# Fields on the IS that AREN'T money and must not be scaled:
-_IS_NON_MONETARY = frozenset(
-    {
-        "eps_basic",
-        "eps_diluted",
-        "shares_basic_weighted_avg",
-        "shares_diluted_weighted_avg",
-    }
-)
-
-_TAX_RATE_FIELDS = frozenset(
-    {"effective_tax_rate_percent", "statutory_rate_percent"}
-)
+_FACTOR_BY_SCALE: dict[str, Decimal] = {
+    "thousands": Decimal("1000"),
+    "millions": Decimal("1000000"),
+}
 
 
 # ----------------------------------------------------------------------
@@ -118,27 +99,31 @@ def parse_raw_extraction(path: Path) -> RawExtraction:
 # Unit-scale normalisation
 # ----------------------------------------------------------------------
 def normalise_unit_scale(raw: RawExtraction) -> RawExtraction:
-    """Rebuild ``raw`` with all Decimal monetary values converted to
-    base units. Idempotent — calling with ``unit_scale == "units"``
+    """Rebuild ``raw`` with all monetary Decimals converted to base
+    units. Idempotent: a call on an already-``"units"`` extraction
     returns the same object."""
     scale = raw.metadata.unit_scale
     if scale == "units":
         return raw
-    factor = {"thousands": Decimal("1000"), "millions": Decimal("1000000")}[scale]
+    factor = _FACTOR_BY_SCALE[scale]
 
     new_is = {
-        period: _scale_statement(sp, factor, _IS_NON_MONETARY)
-        for period, sp in raw.income_statement.items()
+        period: _scale_is(sp, factor) for period, sp in raw.income_statement.items()
     }
     new_bs = {
-        period: _scale_statement(sp, factor, frozenset())
-        for period, sp in raw.balance_sheet.items()
+        period: _scale_bs(sp, factor) for period, sp in raw.balance_sheet.items()
     }
     new_cf = {
-        period: _scale_statement(sp, factor, frozenset())
-        for period, sp in raw.cash_flow.items()
+        period: _scale_cf(sp, factor) for period, sp in raw.cash_flow.items()
     }
-    new_notes = _scale_notes(raw.notes, factor)
+    new_notes = [_scale_note(n, factor) for n in raw.notes]
+    new_segments = [_scale_segment_reporting(s, factor) for s in raw.segments]
+    new_historical = (
+        _scale_historical(raw.historical, factor)
+        if raw.historical is not None
+        else None
+    )
+    new_kpis = [_scale_operational_kpi(k, factor) for k in raw.operational_kpis]
 
     return raw.model_copy(
         update={
@@ -147,208 +132,176 @@ def normalise_unit_scale(raw: RawExtraction) -> RawExtraction:
             "balance_sheet": new_bs,
             "cash_flow": new_cf,
             "notes": new_notes,
+            "segments": new_segments,
+            "historical": new_historical,
+            "operational_kpis": new_kpis,
         }
     )
 
 
 # ----------------------------------------------------------------------
-# Helpers
+# Statement scaling
 # ----------------------------------------------------------------------
-def _scale_statement(
-    period_model: BaseModel,
-    factor: Decimal,
-    non_monetary: frozenset[str],
-) -> BaseModel:
-    """Return a new period model with Decimal fields scaled by
-    ``factor``. Fields in ``non_monetary`` keep their raw values."""
-    updates: dict[str, Any] = {}
-    for name, value in period_model.model_dump(mode="python").items():
-        if name in non_monetary:
-            continue
-        if name == "extensions":
-            updates[name] = _scale_dict_of_decimal(value, factor)
-            continue
-        if isinstance(value, Decimal):
-            updates[name] = value * factor
-    return period_model.model_copy(update=updates)
+def _scale_line_items(items: list[LineItem], factor: Decimal) -> list[LineItem]:
+    return [
+        item.model_copy(update={"value": item.value * factor})
+        if item.value is not None
+        else item
+        for item in items
+    ]
 
 
-def _scale_notes(notes: NotesContainer, factor: Decimal) -> NotesContainer:
-    updates: dict[str, Any] = {}
-
-    if notes.taxes is not None:
-        updates["taxes"] = _scale_tax_note(notes.taxes, factor)
-    if notes.leases is not None:
-        updates["leases"] = _scale_all_decimals(notes.leases, factor)
-    if notes.provisions:
-        updates["provisions"] = [_scale_provision(p, factor) for p in notes.provisions]
-    if notes.goodwill is not None:
-        updates["goodwill"] = _scale_goodwill(notes.goodwill, factor)
-    if notes.intangibles is not None:
-        updates["intangibles"] = _scale_intangibles(notes.intangibles, factor)
-    if notes.ppe is not None:
-        updates["ppe"] = _scale_all_decimals(notes.ppe, factor)
-    if notes.inventory is not None:
-        updates["inventory"] = _scale_all_decimals(notes.inventory, factor)
-    if notes.trade_receivables:
-        updates["trade_receivables"] = _scale_dict_of_decimal(
-            notes.trade_receivables, factor
-        )
-    if notes.trade_payables:
-        updates["trade_payables"] = _scale_dict_of_decimal(
-            notes.trade_payables, factor
-        )
-    if notes.employee_benefits is not None:
-        updates["employee_benefits"] = _scale_selected_decimals(
-            notes.employee_benefits, factor, _EMPLOYEE_MONEY_FIELDS
-        )
-    if notes.share_based_compensation is not None:
-        updates["share_based_compensation"] = _scale_sbc(
-            notes.share_based_compensation, factor
-        )
-    if notes.pensions is not None:
-        updates["pensions"] = _scale_all_decimals(notes.pensions, factor)
-    if notes.commitments_contingencies is not None:
-        updates["commitments_contingencies"] = _scale_all_decimals(
-            notes.commitments_contingencies, factor
-        )
-    if notes.acquisitions is not None:
-        updates["acquisitions"] = _scale_acquisitions(notes.acquisitions, factor)
-    if notes.discontinued_ops is not None:
-        updates["discontinued_ops"] = _scale_all_decimals(
-            notes.discontinued_ops, factor
-        )
-    if notes.related_parties:
-        updates["related_parties"] = [
-            _scale_related_party(rp, factor) for rp in notes.related_parties
-        ]
-    return notes.model_copy(update=updates) if updates else notes
-
-
-def _scale_all_decimals(model: BaseModel, factor: Decimal) -> BaseModel:
-    """Scale every Decimal field on ``model``."""
-    updates: dict[str, Any] = {}
-    for name, value in model.model_dump(mode="python").items():
-        if isinstance(value, Decimal):
-            updates[name] = value * factor
-    return model.model_copy(update=updates)
-
-
-def _scale_selected_decimals(
-    model: BaseModel, factor: Decimal, field_names: frozenset[str]
-) -> BaseModel:
-    """Scale only the Decimal fields whose name is in ``field_names``."""
-    updates: dict[str, Any] = {}
-    for name, value in model.model_dump(mode="python").items():
-        if name in field_names and isinstance(value, Decimal):
-            updates[name] = value * factor
-    return model.model_copy(update=updates)
-
-
-def _scale_tax_note(note: TaxNote, factor: Decimal) -> TaxNote:
-    """Tax note: scale reconciling-item amounts; leave rates alone."""
-    updates: dict[str, Any] = {}
-    # Rates stay as-is.
-    for name, value in note.model_dump(mode="python").items():
-        if name in _TAX_RATE_FIELDS or name == "reconciling_items":
-            continue
-        if isinstance(value, Decimal):
-            updates[name] = value * factor
-    if note.reconciling_items:
-        updates["reconciling_items"] = [
-            TaxReconciliationItem(
-                description=item.description,
-                amount=item.amount * factor,
-                classification=item.classification,
-            )
-            for item in note.reconciling_items
-        ]
-    return note.model_copy(update=updates)
-
-
-def _scale_goodwill(note: GoodwillNote, factor: Decimal) -> GoodwillNote:
-    """Scale top-level Decimals and the by-CGU dict."""
+def _scale_is(is_data: IncomeStatementPeriod, factor: Decimal) -> IncomeStatementPeriod:
     updates: dict[str, Any] = {
-        "by_cgu": _scale_dict_of_decimal(note.by_cgu, factor),
+        "line_items": _scale_line_items(is_data.line_items, factor),
     }
-    for name, value in note.model_dump(mode="python").items():
-        if isinstance(value, Decimal):
-            updates[name] = value * factor
-    return note.model_copy(update=updates)
+    if is_data.profit_attribution is not None:
+        updates["profit_attribution"] = _scale_profit_attribution(
+            is_data.profit_attribution, factor
+        )
+    # EPS per-share values and share counts are dimensionally distinct
+    # from monetary Decimals: do not scale.
+    return is_data.model_copy(update=updates)
 
 
-def _scale_intangibles(note: IntangiblesNote, factor: Decimal) -> IntangiblesNote:
-    """Scale top-level Decimals and the by-type dict."""
-    updates: dict[str, Any] = {
-        "by_type": _scale_dict_of_decimal(note.by_type, factor),
-    }
-    for name, value in note.model_dump(mode="python").items():
-        if isinstance(value, Decimal):
-            updates[name] = value * factor
-    return note.model_copy(update=updates)
-
-
-def _scale_sbc(note: SBCNote, factor: Decimal) -> SBCNote:
-    """SBC note: all fields are Decimals, but only ``expense`` is
-    monetary — the rest are share / unit counts. Only expense scales."""
-    if note.expense is None:
-        return note
-    return note.model_copy(update={"expense": note.expense * factor})
-
-
-def _scale_provision(item: ProvisionItem, factor: Decimal) -> ProvisionItem:
-    return ProvisionItem(
-        description=item.description,
-        amount=item.amount * factor,
-        classification=item.classification,
+def _scale_bs(bs_data: BalanceSheetPeriod, factor: Decimal) -> BalanceSheetPeriod:
+    return bs_data.model_copy(
+        update={"line_items": _scale_line_items(bs_data.line_items, factor)}
     )
 
 
-def _scale_related_party(item: RelatedPartyItem, factor: Decimal) -> RelatedPartyItem:
-    if item.amount is None:
-        return item
-    return item.model_copy(update={"amount": item.amount * factor})
+def _scale_cf(cf_data: CashFlowPeriod, factor: Decimal) -> CashFlowPeriod:
+    return cf_data.model_copy(
+        update={"line_items": _scale_line_items(cf_data.line_items, factor)}
+    )
 
 
-def _scale_acquisitions(
-    note: AcquisitionsNote, factor: Decimal
-) -> AcquisitionsNote:
-    scaled_items = [
-        AcquisitionItem(
-            name=item.name,
-            date=item.date,
-            consideration=item.consideration * factor,
-            fair_value=(item.fair_value * factor) if item.fair_value is not None else None,
-            goodwill_recognized=(
-                item.goodwill_recognized * factor
-                if item.goodwill_recognized is not None
-                else None
-            ),
-        )
-        for item in note.items
-    ]
-    return note.model_copy(update={"items": scaled_items})
+def _scale_profit_attribution(
+    pa: ProfitAttribution, factor: Decimal
+) -> ProfitAttribution:
+    updates: dict[str, Any] = {}
+    for name, value in pa.model_dump(mode="python").items():
+        if isinstance(value, Decimal):
+            updates[name] = value * factor
+    return pa.model_copy(update=updates)
 
 
-def _scale_dict_of_decimal(
-    data: dict[str, Decimal], factor: Decimal
-) -> dict[str, Decimal]:
-    return {k: (v * factor) for k, v in data.items()}
+# ----------------------------------------------------------------------
+# Notes scaling
+# ----------------------------------------------------------------------
+def _scale_note(note: Note, factor: Decimal) -> Note:
+    if not note.tables:
+        return note
+    return note.model_copy(
+        update={"tables": [_scale_note_table(t, factor) for t in note.tables]}
+    )
 
 
-# Silence unused-import on types we only reference in type annotations
-# via the scale helpers (needed for test isolation).
-_TYPED_MODELS = (
-    IncomeStatementPeriod,
-    BalanceSheetPeriod,
-    CashFlowPeriod,
-    LeaseNote,
-    PPENote,
-    InventoryNote,
-    PensionNote,
-    CommitmentsNote,
-    DiscontinuedOpsNote,
-)
+def _scale_note_table(table: NoteTable, factor: Decimal) -> NoteTable:
+    """Scale every numeric cell in the rows. Row cells are ``Any``,
+    so numeric-looking strings (from YAML-quoted decimals) are coerced
+    to Decimal then scaled; plain strings (row labels) pass through.
+    None cells pass through."""
+    new_rows: list[list[Any]] = []
+    for row in table.rows:
+        new_row: list[Any] = []
+        for cell in row:
+            numeric = _coerce_decimal(cell)
+            if numeric is not None:
+                new_row.append(numeric * factor)
+            else:
+                new_row.append(cell)
+        new_rows.append(new_row)
+    return table.model_copy(update={"rows": new_rows})
+
+
+def _coerce_decimal(cell: Any) -> Decimal | None:
+    """Return ``cell`` as a :class:`Decimal` if it represents a number;
+    else ``None``.
+
+    - ``Decimal`` / ``int`` / ``float`` → converted.
+    - ``str`` that parses as a number → converted.
+    - Non-numeric strings / ``None`` / other → ``None``.
+    """
+    if isinstance(cell, Decimal):
+        return cell
+    if isinstance(cell, bool):  # bool is int — exclude explicitly
+        return None
+    if isinstance(cell, int | float):
+        return Decimal(str(cell))
+    if isinstance(cell, str):
+        try:
+            return Decimal(cell)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+# ----------------------------------------------------------------------
+# Segments scaling
+# ----------------------------------------------------------------------
+def _scale_segment_reporting(
+    s: SegmentReporting, factor: Decimal
+) -> SegmentReporting:
+    updates: dict[str, Any] = {
+        "segments": [_scale_segment_metrics(sm, factor) for sm in s.segments],
+    }
+    if s.inter_segment_eliminations is not None:
+        updates["inter_segment_eliminations"] = {
+            k: v * factor for k, v in s.inter_segment_eliminations.items()
+        }
+    return s.model_copy(update=updates)
+
+
+def _scale_segment_metrics(sm: SegmentMetrics, factor: Decimal) -> SegmentMetrics:
+    scaled: dict[str, Decimal | None] = {}
+    for key, value in sm.metrics.items():
+        scaled[key] = value * factor if value is not None else None
+    return sm.model_copy(update={"metrics": scaled})
+
+
+# ----------------------------------------------------------------------
+# Historical scaling
+# ----------------------------------------------------------------------
+def _scale_historical(h: HistoricalDataSeries, factor: Decimal) -> HistoricalDataSeries:
+    scaled: dict[str, list[Decimal | None]] = {}
+    for metric, values in h.metrics.items():
+        scaled[metric] = [v * factor if v is not None else None for v in values]
+    return h.model_copy(update={"metrics": scaled})
+
+
+# ----------------------------------------------------------------------
+# Operational KPIs scaling
+# ----------------------------------------------------------------------
+def _scale_operational_kpi(k: OperationalKPI, factor: Decimal) -> OperationalKPI:
+    """KPIs with a numeric value get scaled when the unit is monetary
+    (contains an ISO currency code). Non-monetary KPIs pass through
+    unchanged. Numeric-looking strings are coerced to Decimal.
+
+    The parser is intentionally conservative: when in doubt (no unit
+    or ambiguous unit), it skips scaling.
+    """
+    if not _kpi_is_monetary(k):
+        return k
+    scaled: dict[str, Decimal | str | None] = {}
+    for key, value in k.values.items():
+        numeric = _coerce_decimal(value)
+        if numeric is not None:
+            scaled[key] = numeric * factor
+        else:
+            scaled[key] = value
+    return k.model_copy(update={"values": scaled})
+
+
+def _kpi_is_monetary(k: OperationalKPI) -> bool:
+    """Heuristic: treat a KPI as monetary when its ``unit`` field
+    contains a currency ISO code or a ``currency per X`` pattern. Safer
+    to under-scale (leave to user) than over-scale (corrupt counts)."""
+    if k.unit is None:
+        return False
+    unit_upper = k.unit.upper()
+    currency_markers = ("USD", "EUR", "GBP", "CHF", "JPY", "HKD", "CNY", "RMB")
+    return any(marker in unit_upper for marker in currency_markers)
 
 
 __all__ = [

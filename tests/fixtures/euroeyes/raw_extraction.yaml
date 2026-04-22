@@ -1,3 +1,13 @@
+# EuroEyes Medical Group — FY2024 annual report + H1 2025 interim
+# ================================================================
+# Phase 1.5.3 as-reported structured fixture. Synthetic but consistent
+# numbers; all arithmetic identities hold so the validator returns
+# strict=OK and completeness=OK.
+#
+# NOTE: preserved only FY2024 + H1 2025 primary periods with single-
+# period statements. Designed to exercise the walking-subtotals
+# validator, Module A/B/C label-matching, and AnalysisDeriver.
+
 metadata:
   ticker: "1846.HK"
   company_name: "EuroEyes Medical Group"
@@ -7,10 +17,13 @@ metadata:
   unit_scale: "millions"
   fiscal_year: 2024
   extraction_date: "2025-04-15"
-  extractor: "Claude.ai + human validation"
-  source_file_sha256: "abc123def456"
+  extractor: "human + Claude.ai Project"
+  source_file_sha256: "placeholder-phase-1-5-3-euroeyes"
   extraction_version: 1
-  extraction_notes: "FY2024 AR + H1 2025 Interim, realistic synthetic values for Phase 1.5 tests."
+  extraction_notes: >
+    FY2024 annual + H1 2025 interim. IFRS 16 adopted FY2019; synthetic
+    numbers. This fixture is the primary test fixture for Phase 1.5.3
+    pipeline + validator coverage.
   fiscal_periods:
     - period: "FY2024"
       end_date: "2024-12-31"
@@ -21,261 +34,347 @@ metadata:
       is_primary: false
       period_type: "H1"
 
+# =======================================================================
+# INCOME STATEMENT — FY2024 (primary) + H1 2025 (comparative reference)
+# =======================================================================
 income_statement:
   FY2024:
-    # Identity: 580 + (-290) + (-95) + (-65) + (-20) = 110 ✓
-    revenue: "580.0"
-    cost_of_sales: "-290.0"
-    gross_profit: "290.0"
-    selling_marketing: "-95.0"
-    general_administrative: "-65.0"
-    depreciation_amortization: "-20.0"
-    operating_expenses_total: "-180.0"
-    operating_income: "110.0"
-    finance_income: "4.0"
-    finance_expenses: "-18.0"
-    income_before_tax: "96.0"
-    income_tax: "-21.0"
-    net_income: "75.0"
-    net_income_parent: "75.0"
-    eps_basic: "0.375"
-    eps_diluted: "0.370"
-    shares_basic_weighted_avg: "200.0"
-    shares_diluted_weighted_avg: "202.7"
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      - {order: 1, label: "Revenue", value: "580.0"}
+      - {order: 2, label: "Cost of sales", value: "-290.0"}
+      - {order: 3, label: "Gross profit", value: "290.0", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-95.0"}
+      - {order: 5, label: "General and administrative expenses", value: "-65.0"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-20.0"}
+      - {order: 7, label: "Operating profit", value: "110.0", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "4.0"}
+      - {order: 9, label: "Finance costs", value: "-18.0"}
+      - {order: 10, label: "Profit before taxation", value: "96.0", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-21.0"}
+      - {order: 12, label: "Profit for the year", value: "75.0", is_subtotal: true}
+    profit_attribution:
+      parent: "75.0"
+      non_controlling_interests: "0.0"
+      total: "75.0"
+    earnings_per_share:
+      basic_value: "0.375"
+      basic_unit: "HKD"
+      diluted_value: "0.370"
+      diluted_unit: "HKD"
+      basic_weighted_avg_shares: "200.0"
+      diluted_weighted_avg_shares: "202.7"
+      shares_unit: "millions"
   "H1 2025":
-    revenue: "310.0"
-    cost_of_sales: "-152.0"
-    gross_profit: "158.0"
-    selling_marketing: "-50.0"
-    general_administrative: "-35.0"
-    depreciation_amortization: "-11.0"
-    operating_income: "62.0"
-    finance_income: "2.2"
-    finance_expenses: "-9.5"
-    income_before_tax: "54.7"
-    income_tax: "-12.0"
-    net_income: "42.7"
-    net_income_parent: "42.7"
-    shares_basic_weighted_avg: "200.0"
-    shares_diluted_weighted_avg: "202.5"
+    reporting_period_label: "Six months ended 30 June 2025"
+    line_items:
+      - {order: 1, label: "Revenue", value: "310.0"}
+      - {order: 2, label: "Cost of sales", value: "-152.0"}
+      - {order: 3, label: "Gross profit", value: "158.0", is_subtotal: true}
+      - {order: 4, label: "Selling and marketing expenses", value: "-50.0"}
+      - {order: 5, label: "General and administrative expenses", value: "-35.0"}
+      - {order: 6, label: "Depreciation and amortisation", value: "-11.0"}
+      - {order: 7, label: "Operating profit", value: "62.0", is_subtotal: true}
+      - {order: 8, label: "Finance income", value: "2.2"}
+      - {order: 9, label: "Finance costs", value: "-9.5"}
+      - {order: 10, label: "Profit before taxation", value: "54.7", is_subtotal: true}
+      - {order: 11, label: "Income tax", value: "-12.0"}
+      - {order: 12, label: "Profit for the period", value: "42.7", is_subtotal: true}
 
+# =======================================================================
+# BALANCE SHEET — FY2024
+# =======================================================================
 balance_sheet:
   FY2024:
-    # Identity: total_assets == total_liabilities + total_equity
-    # 3200 == 1300 + 1900 ✓
-    cash_and_equivalents: "450.0"
-    accounts_receivable: "120.0"
-    inventory: "80.0"
-    total_current_assets: "650.0"
-    ppe_net: "950.0"
-    rou_assets: "380.0"
-    goodwill: "600.0"
-    intangibles_other: "420.0"
-    investments: "0.0"
-    non_current_assets_other: "200.0"
-    total_non_current_assets: "2550.0"
-    total_assets: "3200.0"
-    accounts_payable: "95.0"
-    short_term_debt: "150.0"
-    lease_liabilities_current: "60.0"
-    total_current_liabilities: "305.0"
-    long_term_debt: "580.0"
-    lease_liabilities_noncurrent: "310.0"
-    non_current_liabilities_other: "105.0"
-    total_non_current_liabilities: "995.0"
-    total_liabilities: "1300.0"
-    share_capital: "500.0"
-    retained_earnings: "1300.0"
-    other_reserves: "100.0"
-    total_equity_parent: "1900.0"
-    non_controlling_interests: "0.0"
-    total_equity: "1900.0"
-  "H1 2025":
-    cash_and_equivalents: "485.0"
-    accounts_receivable: "135.0"
-    inventory: "82.0"
-    total_current_assets: "702.0"
-    ppe_net: "960.0"
-    rou_assets: "395.0"
-    goodwill: "600.0"
-    intangibles_other: "410.0"
-    investments: "0.0"
-    non_current_assets_other: "203.0"
-    total_non_current_assets: "2568.0"
-    total_assets: "3270.0"
-    accounts_payable: "98.0"
-    short_term_debt: "150.0"
-    lease_liabilities_current: "62.0"
-    total_current_liabilities: "310.0"
-    long_term_debt: "560.0"
-    lease_liabilities_noncurrent: "325.0"
-    non_current_liabilities_other: "108.0"
-    total_non_current_liabilities: "993.0"
-    total_liabilities: "1303.0"
-    share_capital: "500.0"
-    retained_earnings: "1367.0"
-    other_reserves: "100.0"
-    total_equity_parent: "1967.0"
-    non_controlling_interests: "0.0"
-    total_equity: "1967.0"
+    period_end_date: "2024-12-31"
+    line_items:
+      # Current assets
+      - {order: 1, label: "Cash and cash equivalents", value: "450.0", section: "current_assets"}
+      - {order: 2, label: "Trade and other receivables", value: "120.0", section: "current_assets"}
+      - {order: 3, label: "Inventories", value: "80.0", section: "current_assets"}
+      - {order: 4, label: "Total current assets", value: "650.0", section: "current_assets", is_subtotal: true}
+      # Non-current assets
+      - {order: 5, label: "Property, plant and equipment", value: "950.0", section: "non_current_assets"}
+      - {order: 6, label: "Right-of-use assets", value: "380.0", section: "non_current_assets"}
+      - {order: 7, label: "Goodwill", value: "600.0", section: "non_current_assets"}
+      - {order: 8, label: "Other intangible assets", value: "420.0", section: "non_current_assets"}
+      - {order: 9, label: "Other non-current assets", value: "200.0", section: "non_current_assets"}
+      - {order: 10, label: "Total non-current assets", value: "2550.0", section: "non_current_assets", is_subtotal: true}
+      # Total assets anchor
+      - {order: 11, label: "Total assets", value: "3200.0", section: "total_assets", is_subtotal: true}
+      # Current liabilities
+      - {order: 12, label: "Trade and other payables", value: "95.0", section: "current_liabilities"}
+      - {order: 13, label: "Short-term borrowings", value: "150.0", section: "current_liabilities"}
+      - {order: 14, label: "Lease liabilities (current)", value: "60.0", section: "current_liabilities"}
+      - {order: 15, label: "Total current liabilities", value: "305.0", section: "current_liabilities", is_subtotal: true}
+      # Non-current liabilities
+      - {order: 16, label: "Long-term borrowings", value: "580.0", section: "non_current_liabilities"}
+      - {order: 17, label: "Lease liabilities (non-current)", value: "310.0", section: "non_current_liabilities"}
+      - {order: 18, label: "Other non-current liabilities", value: "105.0", section: "non_current_liabilities"}
+      - {order: 19, label: "Total non-current liabilities", value: "995.0", section: "non_current_liabilities", is_subtotal: true}
+      - {order: 20, label: "Total liabilities", value: "1300.0", section: "total_liabilities", is_subtotal: true}
+      # Equity
+      - {order: 21, label: "Share capital", value: "500.0", section: "equity"}
+      - {order: 22, label: "Retained earnings", value: "1275.0", section: "equity"}
+      - {order: 23, label: "Other reserves", value: "125.0", section: "equity"}
+      - {order: 24, label: "Equity attributable to owners of the Company", value: "1900.0", section: "equity", is_subtotal: true}
+      - {order: 25, label: "Non-controlling interests", value: "0.0", section: "equity"}
+      - {order: 26, label: "Total equity", value: "1900.0", section: "equity", is_subtotal: true}
 
+# =======================================================================
+# CASH FLOW — FY2024
+# =======================================================================
 cash_flow:
   FY2024:
-    # CFO (135) + CFI (-75) + CFF (-45) + FX (0) = 15 ≈ net_change ✓
-    net_income_cf: "75.0"
-    depreciation_amortization_cf: "20.0"
-    working_capital_changes: "-10.0"
-    operating_cash_flow_other: "50.0"
-    operating_cash_flow: "135.0"
-    capex: "-75.0"
-    investing_cash_flow: "-75.0"
-    dividends_paid: "-25.0"
-    debt_issuance: "35.0"
-    debt_repayment: "-5.0"
-    financing_other: "-50.0"
-    financing_cash_flow: "-45.0"
-    fx_effect: "0.0"
-    net_change_in_cash: "15.0"
+    reporting_period_label: "Year ended 31 December 2024"
+    line_items:
+      # Operating
+      - {order: 1, label: "Profit before taxation", value: "96.0", section: "operating"}
+      - {order: 2, label: "Depreciation and amortisation", value: "20.0", section: "operating"}
+      - {order: 3, label: "Changes in working capital", value: "-10.0", section: "operating"}
+      - {order: 4, label: "Other operating adjustments", value: "29.0", section: "operating"}
+      - {order: 5, label: "Net cash generated from operating activities", value: "135.0", section: "operating", is_subtotal: true}
+      # Investing
+      - {order: 6, label: "Purchase of property, plant and equipment", value: "-75.0", section: "investing"}
+      - {order: 7, label: "Net cash used in investing activities", value: "-75.0", section: "investing", is_subtotal: true}
+      # Financing
+      - {order: 8, label: "Dividends paid", value: "-25.0", section: "financing"}
+      - {order: 9, label: "Proceeds from borrowings", value: "35.0", section: "financing"}
+      - {order: 10, label: "Repayment of borrowings", value: "-5.0", section: "financing"}
+      - {order: 11, label: "Other financing activities", value: "-50.0", section: "financing"}
+      - {order: 12, label: "Net cash used in financing activities", value: "-45.0", section: "financing", is_subtotal: true}
+      # FX + final
+      - {order: 13, label: "Effect of foreign exchange rate changes", value: "0.0", section: "fx_effect", is_subtotal: true}
+      - {order: 14, label: "Net increase in cash and cash equivalents", value: "15.0", section: "subtotal", is_subtotal: true}
 
+# =======================================================================
+# NOTES — P1 required + recommended
+# =======================================================================
 notes:
-  taxes:
-    effective_tax_rate_percent: "21.9"
-    statutory_rate_percent: "16.5"
-    reconciling_items:
-      - description: "Effect of lower tax rate in Germany (~15.8%)"
-        amount: "-0.2"
-        classification: "operational"
-      - description: "Non-deductible expenses"
-        amount: "1.5"
-        classification: "operational"
-      - description: "Prior-year adjustments"
-        amount: "0.8"
-        classification: "one_time"
-      - description: "Tax loss carry-forward utilisation"
-        amount: "-1.0"
-        classification: "operational"
-  leases:
-    rou_assets_opening: "360.0"
-    rou_assets_closing: "380.0"
-    rou_assets_additions: "55.0"
-    rou_assets_depreciation: "45.0"
-    lease_liabilities_total: "370.0"
-    lease_liabilities_opening: "350.0"
-    lease_liabilities_closing: "370.0"
-    lease_interest_expense: "15.0"
-    lease_principal_payments: "35.0"
-  provisions:
-    - description: "Warranty provisions"
-      amount: "8.0"
-      classification: "operating"
-    - description: "Legal and regulatory"
-      amount: "5.0"
-      classification: "operating"
-  goodwill:
-    opening: "620.0"
-    additions: "0.0"
-    impairment: "-20.0"
-    closing: "600.0"
-    by_cgu:
-      "Greater China": "420.0"
-      "Germany": "180.0"
-  intangibles:
-    opening: "410.0"
-    additions: "25.0"
-    amortization: "-15.0"
-    impairment: "0.0"
-    closing: "420.0"
-    by_type:
-      "Software": "150.0"
-      "Customer relationships": "200.0"
-      "Brand": "70.0"
-  ppe:
-    opening_gross: "1520.0"
-    additions: "75.0"
-    disposals: "-10.0"
-    transfers: "0.0"
-    closing_gross: "1585.0"
-    accumulated_depreciation: "-635.0"
-  inventory:
-    raw_materials: "15.0"
-    wip: "10.0"
-    finished_goods: "60.0"
-    provisions: "-5.0"
-    total: "80.0"
-  trade_receivables:
-    "FY2024": "120.0"
-    "H1 2025": "135.0"
-  trade_payables:
-    "FY2024": "95.0"
-    "H1 2025": "98.0"
-  employee_benefits:
-    headcount: "850"
-    avg_compensation: "0.45"
-    total_compensation: "382.5"
-    pension_expense: "8.0"
-    sbc_expense: "6.5"
-  financial_instruments:
-    credit_risk: "Concentrated in HK + German medical-insurance payers; 30-day DSO average."
-    liquidity_risk: "HKD 450M cash + undrawn HKD 200M revolver covers 18 months of operating cash burn."
-    market_risk: "FX: HKD reporting vs EUR operations at 65/35 mix."
-  commitments_contingencies:
-    capital_commitments: "42.0"
-    operating_lease_future: "0.0"
-    guarantees_provided: "0.0"
-    contingent_liabilities: "3.0"
-  share_based_compensation:
-    stock_options_granted: "0.5"
-    stock_options_exercised: "0.2"
-    stock_options_outstanding: "2.8"
-    rsus_granted: "1.0"
-    rsus_vested: "0.8"
-    rsus_outstanding: "3.2"
-    expense: "6.5"
-  subsequent_events:
-    - description: "Announced HKD 80M debt refinancing at 4.25% (replacing 4.50% facility)"
-      date: "2025-03-14"
-      impact: "material_positive"
+  - note_number: "6"
+    title: "Income tax expense"
+    source_pages: [84, 85]
+    tables:
+      - table_label: "Rate reconciliation"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Profit before tax at HK statutory rate 16.5%", "15.84"]
+          - ["Effect of lower tax rate in Germany subsidiary", "-0.2"]
+          - ["Non-deductible expenses", "1.5"]
+          - ["Prior-year adjustments", "0.8"]
+          - ["Tax loss carry-forward utilisation", "-1.0"]
+          - ["Other items", "4.06"]
+          - ["Income tax expense for the year", "21.0"]
+          - ["Effective tax rate", "21.9"]
 
+  - note_number: "8"
+    title: "Leases"
+    source_pages: [92, 93, 94]
+    tables:
+      - table_label: "Right-of-use assets — movement"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Opening balance at 1 January 2024", "360.0"]
+          - ["Additions", "55.0"]
+          - ["Depreciation charge for the year", "-45.0"]
+          - ["Closing balance at 31 December 2024", "380.0"]
+      - table_label: "Lease liabilities — movement"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Opening balance at 1 January 2024", "350.0"]
+          - ["New leases recognised", "55.0"]
+          - ["Interest expense on lease liabilities", "15.0"]
+          - ["Principal payment of lease liabilities", "-35.0"]
+          - ["Other movements", "-15.0"]
+          - ["Closing balance at 31 December 2024", "370.0"]
+
+  - note_number: "10"
+    title: "Property, plant and equipment"
+    source_pages: [96, 97]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Opening gross", "1520.0"]
+          - ["Additions", "75.0"]
+          - ["Disposals", "-10.0"]
+          - ["Closing gross", "1585.0"]
+          - ["Accumulated depreciation", "-635.0"]
+          - ["Net book value", "950.0"]
+
+  - note_number: "12"
+    title: "Inventories"
+    source_pages: [100]
+    tables:
+      - columns: ["Description", "HKD millions"]
+        rows:
+          - ["Raw materials", "15.0"]
+          - ["Work in progress", "10.0"]
+          - ["Finished goods", "60.0"]
+          - ["Provisions for obsolescence", "-5.0"]
+          - ["Total", "80.0"]
+
+  - note_number: "13"
+    title: "Trade and other receivables"
+    source_pages: [101]
+    tables:
+      - columns: ["Period", "HKD millions"]
+        rows:
+          - ["FY2024", "120.0"]
+          - ["FY2023", "105.0"]
+
+  - note_number: "18"
+    title: "Trade and other payables"
+    source_pages: [108]
+    tables:
+      - columns: ["Period", "HKD millions"]
+        rows:
+          - ["FY2024", "95.0"]
+          - ["FY2023", "88.0"]
+
+  - note_number: "7"
+    title: "Staff costs and employee information"
+    source_pages: [87, 88]
+    tables:
+      - columns: ["Item", "Value"]
+        rows:
+          - ["Total headcount", "850"]
+          - ["Total compensation (HKD millions)", "382.5"]
+          - ["Pension expense (HKD millions)", "8.0"]
+          - ["Share-based payment expense (HKD millions)", "6.5"]
+
+  - note_number: "22"
+    title: "Financial instruments and financial risk management"
+    source_pages: [125, 126, 127]
+    narrative_summary: >
+      Credit risk: concentrated in HK + German medical-insurance payers;
+      average 30-day DSO. Liquidity risk: HKD 450M cash + undrawn HKD
+      200M revolver covers 18 months of operating cash burn. Market risk:
+      HKD reporting vs 35% EUR-denominated operating costs; HKD 400M of
+      floating-rate debt hedged via interest-rate caps.
+
+  - note_number: "24"
+    title: "Commitments and contingencies"
+    source_pages: [130]
+    tables:
+      - columns: ["Item", "HKD millions"]
+        rows:
+          - ["Capital commitments", "42.0"]
+          - ["Contingent liabilities", "3.0"]
+
+  - note_number: "17"
+    title: "Provisions"
+    source_pages: [106, 107]
+    tables:
+      - columns: ["Description", "HKD millions"]
+        rows:
+          - ["Warranty provisions on surgical outcomes", "8.0"]
+          - ["Legal and regulatory provisions", "5.0"]
+
+  - note_number: "11"
+    title: "Goodwill"
+    source_pages: [98, 99]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Opening balance", "620.0"]
+          - ["Additions", "0.0"]
+          - ["Impairment charge", "-20.0"]
+          - ["Closing balance", "600.0"]
+      - table_label: "By cash-generating unit"
+        columns: ["CGU", "HKD millions"]
+        rows:
+          - ["Greater China", "420.0"]
+          - ["Germany", "180.0"]
+
+  - note_number: "9"
+    title: "Intangible assets"
+    source_pages: [95]
+    tables:
+      - table_label: "Movement"
+        columns: ["Description", "HKD millions"]
+        rows:
+          - ["Opening", "410.0"]
+          - ["Additions", "25.0"]
+          - ["Amortisation", "-15.0"]
+          - ["Closing", "420.0"]
+
+  - note_number: "7(b)"
+    title: "Share-based compensation"
+    source_pages: [89, 90]
+    narrative_summary: >
+      RSU-based LTIP with vesting over 3 years. 1.0M RSUs granted in
+      FY2024, 0.8M vested, 3.2M outstanding. Total expense HKD 6.5M.
+
+  - note_number: "20"
+    title: "Retirement benefit obligations (pensions)"
+    source_pages: [119, 120]
+    tables:
+      - columns: ["Description", "HKD millions"]
+        rows:
+          - ["DBO opening", "28.0"]
+          - ["DBO closing", "32.0"]
+          - ["Plan assets opening", "22.0"]
+          - ["Plan assets closing", "25.0"]
+          - ["Service cost", "3.5"]
+          - ["Interest cost", "1.2"]
+          - ["Actuarial gains/losses", "-0.8"]
+
+  - note_number: "31"
+    title: "Events after the reporting period"
+    source_pages: [145]
+    narrative_summary: >
+      Announced HKD 80M debt refinancing at 4.25% (replacing 4.50%
+      facility) on 14 March 2025, subsequent to the reporting date.
+
+# =======================================================================
+# SEGMENTS — by geography
+# =======================================================================
 segments:
-  by_geography:
-    FY2024:
-      "Greater China":
-        revenue: "420.0"
-        operating_income: "85.0"
-      "Germany / Europe":
-        revenue: "160.0"
-        operating_income: "25.0"
+  - period: "FY2024"
+    segment_type: "geography"
+    segments:
+      - segment_name: "Greater China"
+        metrics: {revenue: "420.0", operating_income: "85.0"}
+      - segment_name: "Germany / Europe"
+        metrics: {revenue: "160.0", operating_income: "25.0"}
 
+# =======================================================================
+# HISTORICAL — 5-year summary
+# =======================================================================
 historical:
-  revenue_by_year:
-    "2020": "380.0"
-    "2021": "440.0"
-    "2022": "485.0"
-    "2023": "520.0"
-    "2024": "580.0"
-  net_income_by_year:
-    "2020": "32.0"
-    "2021": "45.0"
-    "2022": "52.0"
-    "2023": "60.0"
-    "2024": "75.0"
-  total_assets_by_year:
-    "2022": "2900.0"
-    "2023": "3050.0"
-    "2024": "3200.0"
-  total_equity_by_year:
-    "2022": "1600.0"
-    "2023": "1780.0"
-    "2024": "1900.0"
-
-operational_kpis:
+  source: "Five-Year Financial Summary, p.172"
+  years: [2020, 2021, 2022, 2023, 2024]
   metrics:
-    patient_visits_thousands:
-      "FY2024": "285"
-      "H1 2025": "152"
-    clinics_total:
-      "FY2024": "38"
-      "H1 2025": "40"
-    avg_revenue_per_visit_hkd:
-      "FY2024": "2035"
-      "H1 2025": "2040"
+    revenue: ["380.0", "440.0", "485.0", "520.0", "580.0"]
+    net_income: ["32.0", "45.0", "52.0", "60.0", "75.0"]
+    total_assets: [null, null, "2900.0", "3050.0", "3200.0"]
+    total_equity: [null, null, "1600.0", "1780.0", "1900.0"]
+
+# =======================================================================
+# OPERATIONAL KPIs — sector-specific
+# =======================================================================
+operational_kpis:
+  - metric_label: "Total clinics and consultation centres worldwide"
+    source: "MD&A"
+    unit: "count"
+    values:
+      FY2020: "28"
+      FY2021: "32"
+      FY2022: "34"
+      FY2023: "36"
+      FY2024: "38"
+  - metric_label: "Patient visits"
+    source: "MD&A"
+    unit: "thousands"
+    values:
+      FY2020: "195"
+      FY2023: "268"
+      FY2024: "285"
+  - metric_label: "Average revenue per visit"
+    source: "MD&A"
+    unit: "HKD per visit"
+    values:
+      FY2023: "1940"
+      FY2024: "2035"

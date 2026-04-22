@@ -47,6 +47,7 @@ wiring in :mod:`cli.process_cmd`.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
@@ -55,7 +56,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 
 from portfolio_thesis_engine.cross_check.base import CrossCheckReport, CrossCheckStatus
 from portfolio_thesis_engine.cross_check.gate import CrossCheckGate
@@ -176,37 +177,106 @@ def _to_decimal(value: Any) -> Decimal | None:
         return None
 
 
+_REVENUE_LABEL = re.compile(r"^revenue$|^total revenue$|^sales$|^turnover$",
+                            re.IGNORECASE)
+_OP_INCOME_LABEL = re.compile(
+    r"^operating (profit|income)$|profit from operations", re.IGNORECASE
+)
+_NET_INCOME_LABEL = re.compile(
+    r"^profit for the (year|period)$|^net (income|profit)$", re.IGNORECASE
+)
+_CASH_LABEL = re.compile(r"cash (and cash equivalents|at bank|and deposits)",
+                         re.IGNORECASE)
+_TOTAL_ASSETS_LABEL = re.compile(r"total assets", re.IGNORECASE)
+_TOTAL_EQUITY_LABEL = re.compile(r"^total equity$|^total shareholders'?\s?equity",
+                                 re.IGNORECASE)
+_CFO_LABEL = re.compile(r"net cash (generated|from|used).*operating|"
+                        r"cash (flows?|generated) from operating",
+                        re.IGNORECASE)
+_CAPEX_LABEL = re.compile(
+    r"purchas[ae] of (property|plant|equipment|intangib)|"
+    r"capital expenditure|additions? to (property|ppe|intangib)",
+    re.IGNORECASE,
+)
+
+
+def _first_line_value(items: list[Any], pattern: Any) -> Decimal | None:
+    """Scan items (line_items) for a label match (non-subtotal first,
+    subtotal fallback); return its value or None."""
+    subtotal_hit: Decimal | None = None
+    for item in items:
+        if item.value is None:
+            continue
+        if pattern.search(item.label):
+            if item.is_subtotal and subtotal_hit is None:
+                subtotal_hit = cast(Decimal, item.value)
+                continue
+            return cast(Decimal, item.value)
+    return subtotal_hit
+
+
+def _first_subtotal_value(items: list[Any], pattern: Any) -> Decimal | None:
+    for item in items:
+        if not item.is_subtotal or item.value is None:
+            continue
+        if pattern.search(item.label):
+            return cast(Decimal, item.value)
+    return None
+
+
 def _extract_cross_check_values(
     raw_extraction: RawExtraction,
 ) -> dict[str, Decimal]:
     """Pull top-level values (revenue, NI, total assets, etc.) from the
-    :class:`RawExtraction` so the gate can compare against FMP / yfinance."""
+    as-reported :class:`RawExtraction` by label match, so the gate can
+    compare against FMP / yfinance."""
     values: dict[str, Decimal] = {}
 
     is_data = raw_extraction.primary_is
     if is_data is not None:
-        if is_data.revenue is not None:
-            values["revenue"] = is_data.revenue
-        if is_data.operating_income is not None:
-            values["operating_income"] = is_data.operating_income
-        if is_data.net_income is not None:
-            values["net_income"] = is_data.net_income
+        revenue = _first_line_value(is_data.line_items, _REVENUE_LABEL)
+        if revenue is not None:
+            values["revenue"] = revenue
+        op_income = (
+            _first_subtotal_value(is_data.line_items, _OP_INCOME_LABEL)
+            or _first_line_value(is_data.line_items, _OP_INCOME_LABEL)
+        )
+        if op_income is not None:
+            values["operating_income"] = op_income
+        net_income = (
+            _first_subtotal_value(is_data.line_items, _NET_INCOME_LABEL)
+            or _first_line_value(is_data.line_items, _NET_INCOME_LABEL)
+        )
+        if net_income is not None:
+            values["net_income"] = net_income
 
     bs_data = raw_extraction.primary_bs
     if bs_data is not None:
-        if bs_data.cash_and_equivalents is not None:
-            values["cash"] = bs_data.cash_and_equivalents
-        if bs_data.total_assets is not None:
-            values["total_assets"] = bs_data.total_assets
-        if bs_data.total_equity is not None:
-            values["total_equity"] = bs_data.total_equity
+        cash = _first_line_value(bs_data.line_items, _CASH_LABEL)
+        if cash is not None:
+            values["cash"] = cash
+        total_assets = _first_subtotal_value(
+            bs_data.line_items, _TOTAL_ASSETS_LABEL
+        )
+        if total_assets is not None:
+            values["total_assets"] = total_assets
+        total_equity = _first_subtotal_value(
+            bs_data.line_items, _TOTAL_EQUITY_LABEL
+        )
+        if total_equity is not None:
+            values["total_equity"] = total_equity
 
     cf_data = raw_extraction.primary_cf
     if cf_data is not None:
-        if cf_data.operating_cash_flow is not None:
-            values["operating_cash_flow"] = cf_data.operating_cash_flow
-        if cf_data.capex is not None:
-            values["capex"] = cf_data.capex
+        cfo = (
+            _first_subtotal_value(cf_data.line_items, _CFO_LABEL)
+            or _first_line_value(cf_data.line_items, _CFO_LABEL)
+        )
+        if cfo is not None:
+            values["operating_cash_flow"] = cfo
+        capex = _first_line_value(cf_data.line_items, _CAPEX_LABEL)
+        if capex is not None:
+            values["capex"] = capex
 
     return values
 

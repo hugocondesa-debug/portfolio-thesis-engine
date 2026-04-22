@@ -411,13 +411,15 @@ metadata:
       is_primary: true
 income_statement:
   FY2024:
-    revenue: "100"
-    net_income: "10"
+    line_items:
+      - {order: 1, label: "Revenue", value: "100"}
+      - {order: 2, label: "Profit for the year", value: "10", is_subtotal: true}
 balance_sheet:
   FY2024:
-    total_assets: "500"
-    total_liabilities: "100"
-    total_equity: "100"
+    line_items:
+      - {order: 1, label: "Total assets", value: "500", section: "total_assets", is_subtotal: true}
+      - {order: 2, label: "Total liabilities", value: "100", section: "total_liabilities", is_subtotal: true}
+      - {order: 3, label: "Total equity", value: "100", section: "equity", is_subtotal: true}
 """,
             encoding="utf-8",
         )

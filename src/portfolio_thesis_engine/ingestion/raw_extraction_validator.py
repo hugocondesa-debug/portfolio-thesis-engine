@@ -1,20 +1,42 @@
 """Three-tier validator for :class:`RawExtraction` artefacts.
 
-The pipeline trusts the extraction numerically, but Hugo needs tools
-to catch typos before paying for a full process run. This module
-gives him three independent check tiers:
+Phase 1.5.3 rewrite: validation works on the as-reported structured
+schema (``line_items`` lists with subtotal flags + section grouping).
+
+Tiers:
 
 - :meth:`ExtractionValidator.validate_strict` — accounting identities
-  that MUST hold for any well-formed extraction. A FAIL at this tier
-  blocks the pipeline. Tolerances are tight (IS ±0.5 %, BS ±0.1 %).
-- :meth:`ExtractionValidator.validate_warn` — softer consistency
-  checks that often hold but aren't guarantees (CF identity, capex
-  vs ΔPPE + D&A, dividends vs ΔRE − NI, YoY sanity). A WARN doesn't
-  stop anything; it surfaces on the pipeline log and in
-  ``pte validate-extraction`` output.
-- :meth:`ExtractionValidator.validate_completeness` — per-profile
-  note coverage check. Phase 1 ships P1 only; other profiles pile
-  on in Phase 2.
+  that MUST hold. A FAIL blocks the pipeline. Tight tolerances.
+
+  - **S.IS** — walking subtotals on the IS: each ``is_subtotal=True``
+    line equals the running sum of preceding non-subtotal lines
+    (within ±0.5%). Running sum resets after each subtotal.
+  - **S.BS.SECTIONS** — within each BS section, the running sum of
+    non-subtotal items equals any section-ending subtotal (e.g. the
+    running sum of current-asset lines equals "Total current
+    assets").
+  - **S.BS.IDENTITY** — total assets = total liabilities + total
+    equity (within ±0.1%). Pulled from the lines flagged
+    ``is_subtotal=True`` with ``section in {total_assets,
+    total_liabilities, equity (final)}``.
+  - **S.CF** — same walking-subtotals logic per CF section plus the
+    overall Δcash walk (sum of section subtotals + fx_effect =
+    reported Δcash).
+
+- :meth:`ExtractionValidator.validate_warn` — softer checks. Don't
+  block; surface on the audit report.
+
+  - **W.CAPEX** — |capex-like line| ≈ ΔPPE + |D&A|. Capex line
+    found by label pattern in CF investing section; PPE and D&A
+    found by label pattern in BS / IS (relaxed since acquisitions
+    column may exist).
+  - **W.DIV** — dividends paid (CF financing) vs. ΔRE − NI.
+  - **W.SHARES** — basic ≤ diluted EPS weighted-avg shares.
+  - **W.YOY** — adjacent-period revenue ratio sanity (≥3× = flag).
+
+- :meth:`ExtractionValidator.validate_completeness` — profile-driven
+  note coverage. Notes are matched by title pattern against
+  regex — the schema no longer carries typed note fields.
 
 Each method returns a :class:`ValidationReport` with per-check
 results. The CLI renders the report as a Rich table; the pipeline
@@ -24,6 +46,7 @@ whether to block.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal
@@ -31,47 +54,84 @@ from typing import Any, Literal
 from portfolio_thesis_engine.schemas.common import Profile
 from portfolio_thesis_engine.schemas.raw_extraction import (
     BalanceSheetPeriod,
+    CashFlowPeriod,
     IncomeStatementPeriod,
-    NotesContainer,
+    LineItem,
+    Note,
     RawExtraction,
 )
 
 ValidationStatus = Literal["OK", "WARN", "FAIL", "SKIP"]
 
 _IS_TOL = Decimal("0.005")  # 0.5 %
-_BS_TOL = Decimal("0.001")  # 0.1 %
+_BS_SECTION_TOL = Decimal("0.005")  # 0.5 %
+_BS_IDENTITY_TOL = Decimal("0.001")  # 0.1 %
 _CF_TOL = Decimal("0.02")  # 2 %
 _CAPEX_VS_DELTA_PPE_TOL = Decimal("0.05")  # 5 %
 _DIVIDENDS_VS_RE_TOL = Decimal("0.02")  # 2 %
-_YOY_GROWTH_FLAG_THRESHOLD = Decimal("3.0")  # 3× = flag for review
+_YOY_GROWTH_FLAG_THRESHOLD = Decimal("3.0")
 
 
-REQUIRED_NOTES_BY_PROFILE: dict[Profile, list[str]] = {
-    Profile.P1_INDUSTRIAL: [
-        "taxes",
-        "leases",
-        "ppe",
-        "inventory",
-        "trade_receivables",
-        "trade_payables",
-        "employee_benefits",
-        "financial_instruments",
-        "commitments_contingencies",
-        "provisions",
-    ],
-    # P2–P6 land in Phase 2. REQUIRED_NOTES lookup returns [] for any
-    # profile without an entry — validator treats that as "no
-    # completeness check configured".
+# ======================================================================
+# Note-title patterns for completeness (Phase 1.5.3)
+# ======================================================================
+# Each required / recommended note is matched by a regex against the
+# note's ``title`` (case-insensitive). A note is considered "present"
+# if any Note in the extraction matches the pattern AND has at least
+# one populated table or a narrative_summary.
+REQUIRED_NOTE_PATTERNS: dict[Profile, dict[str, re.Pattern[str]]] = {
+    Profile.P1_INDUSTRIAL: {
+        "taxes": re.compile(r"income tax|taxation", re.IGNORECASE),
+        "leases": re.compile(r"leases?\b", re.IGNORECASE),
+        "ppe": re.compile(
+            r"property,? plant|property and equipment|plant and equipment",
+            re.IGNORECASE,
+        ),
+        "inventory": re.compile(r"inventor(y|ies)", re.IGNORECASE),
+        "trade_receivables": re.compile(
+            r"trade (and other )?receivable|accounts receivable", re.IGNORECASE
+        ),
+        "trade_payables": re.compile(
+            r"trade (and other )?payable|accounts payable", re.IGNORECASE
+        ),
+        "employee_benefits": re.compile(
+            r"employee|staff cost|salaries|compensation", re.IGNORECASE
+        ),
+        "financial_instruments": re.compile(
+            r"financial instrument|financial risk|credit risk|liquidity risk",
+            re.IGNORECASE,
+        ),
+        "commitments_contingencies": re.compile(
+            r"commitment|contingen", re.IGNORECASE
+        ),
+        "provisions": re.compile(r"provisions?\b", re.IGNORECASE),
+    },
 }
 
+RECOMMENDED_NOTE_PATTERNS: dict[Profile, dict[str, re.Pattern[str]]] = {
+    Profile.P1_INDUSTRIAL: {
+        "goodwill": re.compile(r"goodwill", re.IGNORECASE),
+        "intangibles": re.compile(r"intangible", re.IGNORECASE),
+        "share_based_compensation": re.compile(
+            r"share[- ]based|stock option|sbc\b", re.IGNORECASE
+        ),
+        "pensions": re.compile(r"pension|retirement benefit|defined benefit",
+                               re.IGNORECASE),
+        "acquisitions": re.compile(
+            r"acquisition|business combination", re.IGNORECASE
+        ),
+    },
+}
+
+
+# Legacy name list for tests that assert coverage expectations.
+REQUIRED_NOTES_BY_PROFILE: dict[Profile, list[str]] = {
+    profile: list(patterns.keys())
+    for profile, patterns in REQUIRED_NOTE_PATTERNS.items()
+}
 RECOMMENDED_NOTES_BY_PROFILE: dict[Profile, list[str]] = {
-    Profile.P1_INDUSTRIAL: [
-        "goodwill",
-        "intangibles",
-        "share_based_compensation",
-        "pensions",
-        "acquisitions",
-    ],
+    profile: list(patterns.keys())
+    for profile, patterns in RECOMMENDED_NOTE_PATTERNS.items()
 }
 
 
@@ -100,7 +160,6 @@ class ValidationReport:
 
     @property
     def overall_status(self) -> ValidationStatus:
-        """Worst-case across results. Precedence: FAIL > WARN > OK > SKIP."""
         order: dict[ValidationStatus, int] = {
             "FAIL": 3,
             "WARN": 2,
@@ -124,34 +183,76 @@ class ValidationReport:
 # Helpers
 # ======================================================================
 def _pct_delta(computed: Decimal, reported: Decimal) -> Decimal:
-    """Relative |computed − reported| / |reported| (or |computed| on
-    zero reported)."""
-    divisor = abs(reported) if reported != 0 else abs(computed) if computed != 0 else Decimal("1")
+    divisor = (
+        abs(reported)
+        if reported != 0
+        else abs(computed) if computed != 0 else Decimal("1")
+    )
     return abs(computed - reported) / divisor
 
 
-def _or_none(value: Decimal | None) -> Decimal:
-    """Treat ``None`` as zero in arithmetic checks (callers already
-    guard against missing inputs explicitly)."""
-    return value if value is not None else Decimal("0")
+def _ordered(items: list[LineItem]) -> list[LineItem]:
+    return sorted(items, key=lambda li: li.order)
+
+
+def _find_line(
+    items: list[LineItem], pattern: re.Pattern[str]
+) -> LineItem | None:
+    """First non-subtotal line whose label matches ``pattern``."""
+    for item in items:
+        if item.is_subtotal:
+            continue
+        if pattern.search(item.label):
+            return item
+    return None
+
+
+def _find_subtotal(
+    items: list[LineItem], pattern: re.Pattern[str]
+) -> LineItem | None:
+    """First subtotal line whose label matches ``pattern``."""
+    for item in items:
+        if not item.is_subtotal:
+            continue
+        if pattern.search(item.label):
+            return item
+    return None
+
+
+# Common subtotal / line patterns
+_PPE_LABEL = re.compile(
+    r"property,? plant|property and equipment|plant and equipment", re.IGNORECASE
+)
+_DEPRECIATION_LABEL = re.compile(r"depreciation|amorti[sz]ation", re.IGNORECASE)
+_CAPEX_LABEL = re.compile(
+    r"purchas[ae].*property|purchas[ae].*plant|capital expenditure|addition.*property",
+    re.IGNORECASE,
+)
+_DIVIDENDS_LABEL = re.compile(r"dividend.*paid|payment.*dividend", re.IGNORECASE)
+_NET_INCOME_LABEL = re.compile(
+    r"profit for the (year|period)|net (income|profit|earnings)", re.IGNORECASE
+)
+_RETAINED_EARNINGS_LABEL = re.compile(
+    r"retained earning|reserves? \(retained\)", re.IGNORECASE
+)
+_REVENUE_LABEL = re.compile(r"^revenue$|^total revenue$|^sales$", re.IGNORECASE)
+_TOTAL_ASSETS_LABEL = re.compile(r"total assets", re.IGNORECASE)
+_TOTAL_LIAB_LABEL = re.compile(r"total liabilities", re.IGNORECASE)
+_TOTAL_EQUITY_LABEL = re.compile(r"total equity|total shareholders'?\s?equity",
+                                 re.IGNORECASE)
 
 
 # ======================================================================
 # Validator
 # ======================================================================
 class ExtractionValidator:
-    """Run the three tiers of checks against a :class:`RawExtraction`."""
+    """Three tiers of checks against a :class:`RawExtraction`."""
 
     # ── Strict (blocking) ─────────────────────────────────────────
     def validate_strict(self, extraction: RawExtraction) -> ValidationReport:
         report = ValidationReport(tier="strict")
         primary = extraction.primary_period
-        is_data = extraction.primary_is
-        bs_data = extraction.primary_bs
 
-        # Metadata completeness — trivially enforced by the schema but
-        # we surface a reassuring OK here so the report tells the full
-        # story.
         report.add(
             ValidationResult(
                 check_id="S.M1",
@@ -165,11 +266,17 @@ class ExtractionValidator:
             )
         )
 
-        # IS identity — sum of categorised components ≈ operating_income
-        report.add(self._check_is_arithmetic(is_data, primary.period))
-
-        # BS identity — Assets == Liab + Equity
-        report.add(self._check_bs_identity(bs_data, primary.period))
+        # IS walking subtotals
+        for r in self._check_is_arithmetic(extraction.primary_is, primary.period):
+            report.add(r)
+        # BS walking subtotals per section
+        for r in self._check_bs_sections(extraction.primary_bs, primary.period):
+            report.add(r)
+        # BS identity: Assets = Liab + Equity
+        report.add(self._check_bs_identity(extraction.primary_bs, primary.period))
+        # CF walking subtotals per section
+        for r in self._check_cf_sections(extraction.primary_cf, primary.period):
+            report.add(r)
 
         return report
 
@@ -177,6 +284,8 @@ class ExtractionValidator:
     def validate_warn(self, extraction: RawExtraction) -> ValidationReport:
         report = ValidationReport(tier="warn")
         primary = extraction.primary_period
+        bs_by_period = extraction.balance_sheet
+        period_labels = self._period_labels(extraction)
 
         report.add(self._check_cf_identity(extraction.primary_cf, primary.period))
         report.add(
@@ -184,31 +293,29 @@ class ExtractionValidator:
                 extraction.primary_cf,
                 extraction.primary_is,
                 extraction.primary_bs,
-                periods=self._period_labels(extraction),
-                bs_by_period=extraction.balance_sheet,
+                period_labels,
+                bs_by_period,
             )
         )
         report.add(
             self._check_dividends_vs_retained(
                 extraction.primary_cf,
                 extraction.primary_is,
-                periods=self._period_labels(extraction),
-                bs_by_period=extraction.balance_sheet,
+                period_labels,
+                bs_by_period,
             )
         )
-        report.add(self._check_shares_consistency(extraction.primary_is, extraction.primary_bs))
-        if extraction.notes.leases is not None:
-            report.add(self._check_lease_movement(extraction.notes.leases))
+        report.add(self._check_shares_consistency(extraction.primary_is))
         report.add(self._check_yoy_sanity(extraction))
         return report
 
-    # ── Completeness (profile-driven) ──────────────────────────────
+    # ── Completeness ──────────────────────────────────────────────
     def validate_completeness(
         self, extraction: RawExtraction, profile: Profile
     ) -> ValidationReport:
         report = ValidationReport(tier="completeness")
-        required = REQUIRED_NOTES_BY_PROFILE.get(profile, [])
-        recommended = RECOMMENDED_NOTES_BY_PROFILE.get(profile, [])
+        required = REQUIRED_NOTE_PATTERNS.get(profile, {})
+        recommended = RECOMMENDED_NOTE_PATTERNS.get(profile, {})
         if not required and not recommended:
             report.add(
                 ValidationResult(
@@ -222,33 +329,30 @@ class ExtractionValidator:
             )
             return report
 
-        notes = extraction.notes
-        for note_name in required:
-            r_status: ValidationStatus = (
-                "OK" if self._note_populated(notes, note_name) else "FAIL"
-            )
+        for name, pattern in required.items():
+            present = self._note_present(extraction.notes, pattern)
+            status: ValidationStatus = "OK" if present else "FAIL"
             report.add(
                 ValidationResult(
-                    check_id=f"C.R.{note_name}",
-                    status=r_status,
+                    check_id=f"C.R.{name}",
+                    status=status,
                     message=(
-                        f"Required note {note_name!r} "
-                        + ("present" if r_status == "OK" else "MISSING")
+                        f"Required note {name!r} "
+                        + ("present" if present else "MISSING")
                         + f" for profile {profile.value}."
                     ),
                 )
             )
-        for note_name in recommended:
-            o_status: ValidationStatus = (
-                "OK" if self._note_populated(notes, note_name) else "WARN"
-            )
+        for name, pattern in recommended.items():
+            present = self._note_present(extraction.notes, pattern)
+            status_o: ValidationStatus = "OK" if present else "WARN"
             report.add(
                 ValidationResult(
-                    check_id=f"C.O.{note_name}",
-                    status=o_status,
+                    check_id=f"C.O.{name}",
+                    status=status_o,
                     message=(
-                        f"Recommended note {note_name!r} "
-                        + ("present" if o_status == "OK" else "absent")
+                        f"Recommended note {name!r} "
+                        + ("present" if present else "absent")
                         + f" for profile {profile.value}."
                     ),
                 )
@@ -260,288 +364,410 @@ class ExtractionValidator:
     # ==================================================================
     def _check_is_arithmetic(
         self, is_data: IncomeStatementPeriod | None, period: str
-    ) -> ValidationResult:
-        if is_data is None:
-            return ValidationResult(
-                "S.IS", "SKIP", f"No IS for primary period {period}."
-            )
-        if is_data.revenue is None or is_data.operating_income is None:
-            return ValidationResult(
-                "S.IS",
-                "SKIP",
-                "Cannot check IS arithmetic without revenue + operating_income.",
-            )
-        # revenue + cost_of_sales + opex + d_and_a + other ≈ operating_income
-        components = (
-            _or_none(is_data.revenue)
-            + _or_none(is_data.cost_of_sales)
-            + _or_none(is_data.selling_marketing)
-            + _or_none(is_data.general_administrative)
-            + _or_none(is_data.selling_general_administrative)
-            + _or_none(is_data.research_development)
-            + _or_none(is_data.other_operating_expenses)
-            + _or_none(is_data.depreciation_amortization)
+    ) -> list[ValidationResult]:
+        """Walking subtotals on the IS. Each subtotal resets the running
+        sum (subsequent lines are typically deductions from the new
+        anchor, e.g. finance expenses after Operating Profit)."""
+        if is_data is None or not is_data.line_items:
+            return [
+                ValidationResult(
+                    "S.IS", "SKIP",
+                    f"No IS line_items for primary period {period}.",
+                )
+            ]
+        return self._walk_subtotals(
+            _ordered(is_data.line_items),
+            period_label=period,
+            check_id_prefix="S.IS",
+            tolerance=_IS_TOL,
+            scope_name="IS",
         )
-        reported = is_data.operating_income
-        delta = _pct_delta(components, reported)
-        status: ValidationStatus = "OK" if delta <= _IS_TOL else "FAIL"
-        return ValidationResult(
-            "S.IS",
-            status,
-            (
-                f"IS arithmetic {period}: Σ components = {components} vs reported "
-                f"Op Income = {reported} (Δ = {delta:.4%}; tolerance "
-                f"{_IS_TOL:.1%})."
-            ),
-            data={"computed": str(components), "reported": str(reported),
-                  "delta": str(delta)},
-        )
+
+    def _check_bs_sections(
+        self, bs_data: BalanceSheetPeriod | None, period: str
+    ) -> list[ValidationResult]:
+        if bs_data is None or not bs_data.line_items:
+            return [
+                ValidationResult(
+                    "S.BS.SECTIONS", "SKIP",
+                    f"No BS line_items for primary period {period}.",
+                )
+            ]
+        # Walk each section independently.
+        items = _ordered(bs_data.line_items)
+        sections = _group_by_section(items)
+        out: list[ValidationResult] = []
+        for section_number, (section_name, section_items) in enumerate(sections, start=1):
+            sub_results = self._walk_subtotals(
+                section_items,
+                period_label=period,
+                check_id_prefix=f"S.BS.{section_name or f'SECTION{section_number}'}",
+                tolerance=_BS_SECTION_TOL,
+                scope_name=f"BS [{section_name or 'unspecified'}]",
+            )
+            out.extend(sub_results)
+        return out
 
     def _check_bs_identity(
         self, bs_data: BalanceSheetPeriod | None, period: str
     ) -> ValidationResult:
-        if bs_data is None:
+        if bs_data is None or not bs_data.line_items:
             return ValidationResult(
-                "S.BS", "SKIP", f"No BS for primary period {period}."
+                "S.BS.IDENTITY", "SKIP",
+                f"No BS line_items for primary period {period}.",
             )
-        total_assets = bs_data.total_assets
-        total_liab = bs_data.total_liabilities
-        total_equity = bs_data.total_equity
-        if total_assets is None or total_liab is None or total_equity is None:
+        total_assets = _find_subtotal(bs_data.line_items, _TOTAL_ASSETS_LABEL)
+        total_liab = _find_subtotal(bs_data.line_items, _TOTAL_LIAB_LABEL)
+        total_equity = _find_subtotal(bs_data.line_items, _TOTAL_EQUITY_LABEL)
+        if (
+            total_assets is None or total_liab is None or total_equity is None
+            or total_assets.value is None or total_liab.value is None
+            or total_equity.value is None
+        ):
             return ValidationResult(
-                "S.BS",
-                "SKIP",
-                "Cannot check BS identity without total_assets, "
-                "total_liabilities, total_equity.",
+                "S.BS.IDENTITY", "SKIP",
+                "Cannot find subtotals for Total Assets / Liab / Equity.",
             )
-        rhs = total_liab + total_equity
-        delta = _pct_delta(rhs, total_assets)
-        status: ValidationStatus = "OK" if delta <= _BS_TOL else "FAIL"
+        rhs = total_liab.value + total_equity.value
+        delta = _pct_delta(rhs, total_assets.value)
+        status: ValidationStatus = (
+            "OK" if delta <= _BS_IDENTITY_TOL else "FAIL"
+        )
         return ValidationResult(
-            "S.BS",
+            "S.BS.IDENTITY",
             status,
             (
-                f"BS identity {period}: Assets {total_assets} vs Liab+Equity "
-                f"{rhs} (Δ = {delta:.4%}; tolerance {_BS_TOL:.2%})."
+                f"BS identity {period}: Assets {total_assets.value} vs "
+                f"Liab+Equity {rhs} (Δ = {delta:.4%}; tolerance "
+                f"{_BS_IDENTITY_TOL:.2%})."
             ),
             data={
-                "assets": str(total_assets),
+                "assets": str(total_assets.value),
                 "liab_plus_equity": str(rhs),
                 "delta": str(delta),
             },
         )
 
+    def _check_cf_sections(
+        self, cf_data: CashFlowPeriod | None, period: str
+    ) -> list[ValidationResult]:
+        if cf_data is None or not cf_data.line_items:
+            return [
+                ValidationResult(
+                    "S.CF", "SKIP",
+                    f"No CF line_items for primary period {period}.",
+                )
+            ]
+        items = _ordered(cf_data.line_items)
+        sections = _group_by_section(items)
+        out: list[ValidationResult] = []
+        for section_number, (section_name, section_items) in enumerate(sections, start=1):
+            sub_results = self._walk_subtotals(
+                section_items,
+                period_label=period,
+                check_id_prefix=f"S.CF.{section_name or f'SECTION{section_number}'}",
+                tolerance=_CF_TOL,
+                scope_name=f"CF [{section_name or 'unspecified'}]",
+            )
+            out.extend(sub_results)
+        return out
+
+    # ==================================================================
+    # Walking-subtotals core routine
+    # ==================================================================
+    def _walk_subtotals(
+        self,
+        items: list[LineItem],
+        *,
+        period_label: str,
+        check_id_prefix: str,
+        tolerance: Decimal,
+        scope_name: str,
+    ) -> list[ValidationResult]:
+        """Walk ``items`` in declared order, verify each subtotal
+        matches the running sum of preceding non-subtotals. Reset
+        running sum to the subtotal's reported value afterwards
+        (subsequent items build off the new anchor — IS waterfall
+        semantics).
+
+        A subtotal that appears with **no preceding non-subtotal
+        item** in this call is a cross-section grand total (e.g. BS
+        "Total assets" which spans current + non-current groups). The
+        walker cannot verify it locally — skipped here; covered
+        separately by ``S.BS.IDENTITY`` / ``W.CF``.
+        """
+        running_sum = Decimal("0")
+        saw_non_subtotal = False
+        results: list[ValidationResult] = []
+        subtotal_idx = 0
+        for item in items:
+            if item.is_subtotal:
+                if item.value is None:
+                    continue
+                if not saw_non_subtotal:
+                    # Cross-section grand total: skip the section walk.
+                    continue
+                subtotal_idx += 1
+                delta = _pct_delta(running_sum, item.value)
+                status: ValidationStatus = "OK" if delta <= tolerance else "FAIL"
+                results.append(
+                    ValidationResult(
+                        f"{check_id_prefix}.SUB{subtotal_idx}",
+                        status,
+                        (
+                            f"{scope_name} {period_label}: "
+                            f"Σ preceding = {running_sum} vs subtotal "
+                            f"{item.label!r} = {item.value} "
+                            f"(Δ = {delta:.4%}; tolerance {tolerance:.1%})."
+                        ),
+                        data={
+                            "subtotal_label": item.label,
+                            "computed_sum": str(running_sum),
+                            "reported_subtotal": str(item.value),
+                            "delta": str(delta),
+                        },
+                    )
+                )
+                running_sum = item.value
+            else:
+                if item.value is not None:
+                    running_sum += item.value
+                    saw_non_subtotal = True
+        if not results:
+            results.append(
+                ValidationResult(
+                    f"{check_id_prefix}.SUB0",
+                    "SKIP",
+                    (
+                        f"{scope_name} {period_label}: no verifiable subtotal "
+                        f"(cross-section grand totals handled elsewhere)."
+                    ),
+                )
+            )
+        return results
+
     # ==================================================================
     # Warn checks
     # ==================================================================
-    def _check_cf_identity(self, cf_data: Any, period: str) -> ValidationResult:
-        if cf_data is None:
+    def _check_cf_identity(
+        self, cf_data: CashFlowPeriod | None, period: str
+    ) -> ValidationResult:
+        if cf_data is None or not cf_data.line_items:
             return ValidationResult(
                 "W.CF", "SKIP", f"No CF for primary period {period}."
             )
-        net_change = cf_data.net_change_in_cash
-        if net_change is None:
+        items = _ordered(cf_data.line_items)
+        # Sum every subtotal whose section is one of operating/investing/
+        # financing/fx_effect. Look for a final subtotal (Δcash) — if
+        # present, compare; otherwise skip.
+        section_totals: dict[str, Decimal] = {}
+        final_subtotal: LineItem | None = None
+        for item in items:
+            if not item.is_subtotal or item.value is None:
+                continue
+            if item.section in ("operating", "investing", "financing", "fx_effect"):
+                section_totals[item.section] = item.value
+            elif item.section == "subtotal":
+                final_subtotal = item
+
+        if final_subtotal is None or final_subtotal.value is None:
             return ValidationResult(
-                "W.CF",
-                "SKIP",
-                "CF has no net_change_in_cash line — cannot verify identity.",
+                "W.CF", "SKIP",
+                "No overall Δcash subtotal line to verify.",
             )
-        computed = (
-            _or_none(cf_data.operating_cash_flow)
-            + _or_none(cf_data.investing_cash_flow)
-            + _or_none(cf_data.financing_cash_flow)
-            + _or_none(cf_data.fx_effect)
-        )
-        delta = _pct_delta(computed, net_change)
+        computed = sum(section_totals.values(), start=Decimal("0"))
+        delta = _pct_delta(computed, final_subtotal.value)
         status: ValidationStatus = "OK" if delta <= _CF_TOL else "WARN"
         return ValidationResult(
             "W.CF",
             status,
             (
-                f"CF identity: CFO + CFI + CFF + FX = {computed} vs Δcash "
-                f"{net_change} (Δ = {delta:.2%}; tolerance {_CF_TOL:.1%})."
+                f"CF identity: Σ sections {computed} vs reported Δcash "
+                f"{final_subtotal.value} (Δ = {delta:.2%}; tolerance "
+                f"{_CF_TOL:.1%})."
             ),
-            data={"computed": str(computed), "reported": str(net_change),
-                  "delta": str(delta)},
+            data={
+                "computed": str(computed),
+                "reported": str(final_subtotal.value),
+                "delta": str(delta),
+            },
         )
 
     def _check_capex_vs_ppe_movement(
         self,
-        cf_data: Any,
+        cf_data: CashFlowPeriod | None,
         is_data: IncomeStatementPeriod | None,
         bs_data: BalanceSheetPeriod | None,
-        periods: list[str],
+        period_labels: list[str],
         bs_by_period: dict[str, BalanceSheetPeriod],
     ) -> ValidationResult:
         if cf_data is None or is_data is None or bs_data is None:
             return ValidationResult(
-                "W.CAPEX",
-                "SKIP",
-                "Need CF + IS + BS for capex-vs-ΔPPE check.",
+                "W.CAPEX", "SKIP", "Need CF + IS + BS for capex check."
             )
-        capex = cf_data.capex
-        d_and_a = is_data.depreciation_amortization
-        current_ppe = bs_data.ppe_net
-        if capex is None or d_and_a is None or current_ppe is None:
+        capex_line = _find_line(cf_data.line_items, _CAPEX_LABEL)
+        d_and_a_line = _find_line(is_data.line_items, _DEPRECIATION_LABEL)
+        ppe_line = _find_line(bs_data.line_items, _PPE_LABEL)
+        if capex_line is None or d_and_a_line is None or ppe_line is None:
             return ValidationResult(
-                "W.CAPEX",
-                "SKIP",
-                "Need capex + D&A + current PPE_net for check.",
+                "W.CAPEX", "SKIP",
+                "Need capex / D&A / PPE lines by label match.",
             )
-        # Find the prior period (the first period before the primary
-        # in the list that has a BS entry)
+        if (
+            capex_line.value is None or d_and_a_line.value is None
+            or ppe_line.value is None
+        ):
+            return ValidationResult(
+                "W.CAPEX", "SKIP", "Matching lines have null values.",
+            )
         prior_ppe: Decimal | None = None
-        for label in periods:
-            if label in bs_by_period and bs_by_period[label].ppe_net is not None:
+        for label in period_labels:
+            if label in bs_by_period:
                 candidate = bs_by_period[label]
                 if candidate is bs_data:
                     continue
-                prior_ppe = candidate.ppe_net
-                break
+                prior_line = _find_line(candidate.line_items, _PPE_LABEL)
+                if prior_line and prior_line.value is not None:
+                    prior_ppe = prior_line.value
+                    break
         if prior_ppe is None:
             return ValidationResult(
-                "W.CAPEX",
-                "SKIP",
-                "No prior-period PPE_net to reconcile against.",
+                "W.CAPEX", "SKIP", "No prior-period PPE to reconcile against.",
             )
-        # |capex| ≈ ΔPPE_net + |D&A|
-        expected = (current_ppe - prior_ppe) + abs(d_and_a)
-        actual = abs(capex)
+        expected = (ppe_line.value - prior_ppe) + abs(d_and_a_line.value)
+        actual = abs(capex_line.value)
         delta = _pct_delta(actual, expected) if expected != 0 else Decimal("0")
-        status: ValidationStatus = "OK" if delta <= _CAPEX_VS_DELTA_PPE_TOL else "WARN"
+        status: ValidationStatus = (
+            "OK" if delta <= _CAPEX_VS_DELTA_PPE_TOL else "WARN"
+        )
         return ValidationResult(
             "W.CAPEX",
             status,
             (
-                f"|capex| {actual} vs ΔPPE_net + |D&A| {expected} "
+                f"|capex| {actual} vs ΔPPE + |D&A| {expected} "
                 f"(Δ = {delta:.2%}; tolerance {_CAPEX_VS_DELTA_PPE_TOL:.0%})."
             ),
-            data={"computed": str(expected), "reported": str(actual),
-                  "delta": str(delta)},
+            data={
+                "computed": str(expected),
+                "reported": str(actual),
+                "delta": str(delta),
+            },
         )
 
     def _check_dividends_vs_retained(
         self,
-        cf_data: Any,
+        cf_data: CashFlowPeriod | None,
         is_data: IncomeStatementPeriod | None,
-        periods: list[str],
+        period_labels: list[str],
         bs_by_period: dict[str, BalanceSheetPeriod],
     ) -> ValidationResult:
         if cf_data is None or is_data is None:
             return ValidationResult(
-                "W.DIV", "SKIP", "Need CF + IS for dividends check."
+                "W.DIV", "SKIP", "Need CF + IS for dividend check.",
             )
-        dividends = cf_data.dividends_paid
-        net_income = is_data.net_income
-        if dividends is None or net_income is None:
+        dividends_line = _find_line(cf_data.line_items, _DIVIDENDS_LABEL)
+        ni_line = _find_subtotal(is_data.line_items, _NET_INCOME_LABEL)
+        if ni_line is None:
+            # Some filings don't flag NI as subtotal — fall back to a
+            # non-subtotal match (less common but happens on condensed
+            # interims).
+            ni_line = _find_line(is_data.line_items, _NET_INCOME_LABEL)
+        if dividends_line is None or ni_line is None:
             return ValidationResult(
-                "W.DIV", "SKIP", "Need dividends + NI for check."
+                "W.DIV", "SKIP", "Need dividend + NI lines.",
             )
-        # ΔRE ≈ NI − |dividends|
+        if dividends_line.value is None or ni_line.value is None:
+            return ValidationResult(
+                "W.DIV", "SKIP", "Matching lines have null values.",
+            )
         primary_re: Decimal | None = None
         prior_re: Decimal | None = None
-        for label in periods:
+        for label in period_labels:
             bs = bs_by_period.get(label)
-            if bs is None or bs.retained_earnings is None:
+            if bs is None:
+                continue
+            re_line = _find_line(bs.line_items, _RETAINED_EARNINGS_LABEL)
+            if re_line is None or re_line.value is None:
                 continue
             if primary_re is None:
-                primary_re = bs.retained_earnings
+                primary_re = re_line.value
             else:
-                prior_re = bs.retained_earnings
+                prior_re = re_line.value
                 break
         if primary_re is None or prior_re is None:
             return ValidationResult(
-                "W.DIV", "SKIP", "Need two periods of retained_earnings."
+                "W.DIV", "SKIP", "Need two periods of retained_earnings.",
             )
         delta_re = primary_re - prior_re
-        expected = net_income - abs(dividends)
+        expected = ni_line.value - abs(dividends_line.value)
         delta = _pct_delta(delta_re, expected) if expected != 0 else Decimal("0")
-        status: ValidationStatus = "OK" if delta <= _DIVIDENDS_VS_RE_TOL else "WARN"
+        status: ValidationStatus = (
+            "OK" if delta <= _DIVIDENDS_VS_RE_TOL else "WARN"
+        )
         return ValidationResult(
             "W.DIV",
             status,
             (
-                f"ΔRetained earnings {delta_re} vs NI − |dividends| {expected} "
-                f"(Δ = {delta:.2%}; tolerance {_DIVIDENDS_VS_RE_TOL:.1%})."
+                f"ΔRetained earnings {delta_re} vs NI − |dividends| "
+                f"{expected} (Δ = {delta:.2%}; tolerance "
+                f"{_DIVIDENDS_VS_RE_TOL:.1%})."
             ),
-            data={"computed": str(expected), "reported": str(delta_re),
-                  "delta": str(delta)},
+            data={
+                "computed": str(expected),
+                "reported": str(delta_re),
+                "delta": str(delta),
+            },
         )
 
     def _check_shares_consistency(
-        self,
-        is_data: IncomeStatementPeriod | None,
-        bs_data: BalanceSheetPeriod | None,
+        self, is_data: IncomeStatementPeriod | None
     ) -> ValidationResult:
-        if is_data is None:
-            return ValidationResult("W.SHARES", "SKIP", "No IS for shares check.")
-        basic = is_data.shares_basic_weighted_avg
-        diluted = is_data.shares_diluted_weighted_avg
+        if is_data is None or is_data.earnings_per_share is None:
+            return ValidationResult(
+                "W.SHARES", "SKIP", "No EPS block for shares check.",
+            )
+        eps = is_data.earnings_per_share
+        basic = eps.basic_weighted_avg_shares
+        diluted = eps.diluted_weighted_avg_shares
         if basic is None or diluted is None:
             return ValidationResult(
-                "W.SHARES",
-                "SKIP",
+                "W.SHARES", "SKIP",
                 "Need both basic + diluted weighted-average shares.",
             )
         if basic > diluted + Decimal("0.01"):
             return ValidationResult(
-                "W.SHARES",
-                "WARN",
+                "W.SHARES", "WARN",
                 f"Basic shares {basic} > diluted {diluted} — unexpected.",
                 data={"basic": str(basic), "diluted": str(diluted)},
             )
         return ValidationResult(
-            "W.SHARES",
-            "OK",
-            f"Basic {basic} ≤ diluted {diluted}.",
-        )
-
-    def _check_lease_movement(self, lease_note: Any) -> ValidationResult:
-        """Closing = opening + additions − principal_payments (IFRS 16)."""
-        opening = lease_note.lease_liabilities_opening
-        closing = lease_note.lease_liabilities_closing
-        additions = lease_note.rou_assets_additions
-        principal = lease_note.lease_principal_payments
-        if any(v is None for v in (opening, closing, additions, principal)):
-            return ValidationResult(
-                "W.LEASE",
-                "SKIP",
-                "Need lease opening + closing + additions + principal payments.",
-            )
-        expected = _or_none(opening) + _or_none(additions) - _or_none(principal)
-        delta = _pct_delta(expected, _or_none(closing))
-        status: ValidationStatus = "OK" if delta <= _CF_TOL else "WARN"
-        return ValidationResult(
-            "W.LEASE",
-            status,
-            (
-                f"Lease closing {closing} vs opening + additions − principal "
-                f"{expected} (Δ = {delta:.2%})."
-            ),
-            data={"computed": str(expected), "reported": str(closing),
-                  "delta": str(delta)},
+            "W.SHARES", "OK", f"Basic {basic} ≤ diluted {diluted}.",
         )
 
     def _check_yoy_sanity(self, extraction: RawExtraction) -> ValidationResult:
-        """Revenue 3× between adjacent periods warrants a look."""
         labels = self._period_labels(extraction)
         if len(labels) < 2:
             return ValidationResult(
-                "W.YOY",
-                "SKIP",
-                "Need at least two periods for YoY sanity check.",
+                "W.YOY", "SKIP", "Need ≥ 2 periods for YoY sanity.",
             )
         current = extraction.income_statement.get(labels[0])
         prior = extraction.income_statement.get(labels[1])
         if current is None or prior is None:
             return ValidationResult("W.YOY", "SKIP", "Missing IS for YoY.")
-        if current.revenue is None or prior.revenue is None:
-            return ValidationResult("W.YOY", "SKIP", "Missing revenue for YoY.")
-        if prior.revenue == 0:
+        current_rev = _find_line(current.line_items, _REVENUE_LABEL)
+        prior_rev = _find_line(prior.line_items, _REVENUE_LABEL)
+        if current_rev is None or prior_rev is None:
             return ValidationResult(
-                "W.YOY", "SKIP", "Prior-period revenue is zero."
+                "W.YOY", "SKIP", "Missing revenue line for YoY.",
             )
-        ratio = abs(current.revenue) / abs(prior.revenue)
+        if (
+            current_rev.value is None or prior_rev.value is None
+            or prior_rev.value == 0
+        ):
+            return ValidationResult(
+                "W.YOY", "SKIP", "Revenue values missing or prior is zero.",
+            )
+        ratio = abs(current_rev.value) / abs(prior_rev.value)
         status: ValidationStatus = (
             "WARN" if ratio >= _YOY_GROWTH_FLAG_THRESHOLD else "OK"
         )
@@ -549,11 +775,14 @@ class ExtractionValidator:
             "W.YOY",
             status,
             (
-                f"YoY revenue ratio {ratio:.2f}× "
-                f"(flag threshold ≥ {_YOY_GROWTH_FLAG_THRESHOLD}×)."
+                f"YoY revenue ratio {ratio:.2f}× (flag threshold ≥ "
+                f"{_YOY_GROWTH_FLAG_THRESHOLD}×)."
             ),
-            data={"current": str(current.revenue), "prior": str(prior.revenue),
-                  "ratio": str(ratio)},
+            data={
+                "current": str(current_rev.value),
+                "prior": str(prior_rev.value),
+                "ratio": str(ratio),
+            },
         )
 
     # ==================================================================
@@ -569,15 +798,43 @@ class ExtractionValidator:
         ]
         return [primary_label, *others]
 
-    def _note_populated(self, notes: NotesContainer, name: str) -> bool:
-        value = getattr(notes, name, None)
-        if value is None:
-            return False
-        if isinstance(value, list | dict):
-            return len(value) > 0
-        # Note models are populated if any Decimal field is set.
-        dumped = value.model_dump(mode="python") if hasattr(value, "model_dump") else {}
-        return any(v is not None for v in dumped.values() if not isinstance(v, dict))
+    def _note_present(
+        self, notes: list[Note], pattern: re.Pattern[str]
+    ) -> bool:
+        """A note matches if its title matches the pattern AND it has
+        at least one populated table or a non-empty narrative summary.
+        This avoids stub notes counting toward completeness."""
+        for note in notes:
+            if not pattern.search(note.title):
+                continue
+            if note.tables:
+                return True
+            if note.narrative_summary and note.narrative_summary.strip():
+                return True
+        return False
+
+
+def _group_by_section(
+    items: list[LineItem],
+) -> list[tuple[str | None, list[LineItem]]]:
+    """Group ordered items by consecutive equal ``section`` values.
+
+    Preserves declaration order. A ``section=None`` run is kept as
+    its own group — strict BS/CF checks will walk it as a
+    best-effort block.
+    """
+    out: list[tuple[str | None, list[LineItem]]] = []
+    current_section: str | None = None
+    current_items: list[LineItem] = []
+    for item in items:
+        if item.section != current_section and current_items:
+            out.append((current_section, current_items))
+            current_items = []
+        current_section = item.section
+        current_items.append(item)
+    if current_items:
+        out.append((current_section, current_items))
+    return out
 
 
 __all__ = [
@@ -585,6 +842,8 @@ __all__ = [
     "ValidationReport",
     "ValidationResult",
     "ValidationStatus",
+    "REQUIRED_NOTE_PATTERNS",
+    "RECOMMENDED_NOTE_PATTERNS",
     "REQUIRED_NOTES_BY_PROFILE",
     "RECOMMENDED_NOTES_BY_PROFILE",
 ]

@@ -1,35 +1,39 @@
 """Module A — Operating Taxes (subset A.1–A.5).
 
-Phase 1.5 / Sprint 3 rewrite: consumes :class:`RawExtraction` directly.
-The human extractor tags each :class:`TaxReconciliationItem` with a
-:data:`TaxItemClassification` literal (``operational`` /
-``non_operational`` / ``one_time`` / ``unknown``); Module A routes on
-that vocabulary without any intermediate mapping.
+Phase 1.5.3 rewrite: modules classify locally now that the schema is
+as-reported-structured. There is no longer a typed ``TaxNote`` with a
+closed ``classification`` enum per reconciling item. Module A:
+
+1. Finds the tax note by title pattern (``/income tax|taxation/``).
+2. Within the note, finds a rate-reconciliation table by table_label
+   pattern (``/reconciliation|effective.*rate/``) OR the first table
+   whose columns look like a reconciliation (amount column + one
+   label column).
+3. Parses each row as ``(description, amount)``.
+4. Classifies each row locally (operating vs non-operating) using
+   label keywords — exactly the same classification intent as Phase
+   1.5, but the signal now lives on the label, not a schema field.
 
 Scope shipped here:
 
-- **A.1** tax hierarchy: statutory → effective → operating. Operating
-  rate is the anchor the rest of the pipeline uses for NOPAT.
-- **A.2.0** materiality: when the sum of non-operating items is small
-  vs. the statutory tax (``< 5 %``), skip the split and use the
-  effective rate as operating.
-- **A.2.1–A.2.5** operating vs non-operating classification. Non-op
-  buckets: ``non_operational`` + ``one_time``. ``unknown`` falls back
-  to a label-keyword heuristic.
-- **A.3** DTA/DTL: out of scope for Phase 1.5 raw schema (no fields in
-  :class:`TaxNote`); log when a BS note surfaces them in later phases.
-- **A.4** cash taxes: log the delta vs reported expense when cash
-  taxes are disclosed on the CF.
-- **A.5** BS treatment: tax payables/receivables = operating (note).
+- **A.1** tax hierarchy → emit operating tax rate adjustment.
+- **A.2.0** materiality test → skip split when non-op items are tiny.
+- **A.2.1–A.2.5** operating vs non-operating classification by
+  label keyword.
+- **A.4** cash taxes — if a CF line matches the label
+  ``/cash taxes paid|income taxes paid/``, log the delta vs
+  reported tax.
+- **A.5** BS treatment note.
 
-OUT of Phase 1: A.6–A.9 (TLCF valuation, advanced templates, deferred
-mechanics, sector extensions).
+OUT of Phase 1: A.3 DTA/DTL (requires BS walk post-Phase 2), A.6+
+(TLCF valuation, sector extensions).
 
-The module is **deterministic** — no LLM calls.
+Deterministic — no LLM calls.
 """
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from portfolio_thesis_engine.extraction.base import ExtractionContext, ExtractionModule
@@ -37,28 +41,49 @@ from portfolio_thesis_engine.llm.anthropic_provider import AnthropicProvider
 from portfolio_thesis_engine.llm.cost_tracker import CostTracker
 from portfolio_thesis_engine.schemas.common import Source
 from portfolio_thesis_engine.schemas.company import ModuleAdjustment
-from portfolio_thesis_engine.schemas.raw_extraction import TaxReconciliationItem
+from portfolio_thesis_engine.schemas.raw_extraction import Note, NoteTable, RawExtraction
 
-# Classifications that are always non-operating.
-_NON_OPERATING_CLASSIFICATIONS: frozenset[str] = frozenset(
-    {"non_operational", "one_time"}
+_TAX_NOTE_PATTERN = re.compile(r"income tax|taxation", re.IGNORECASE)
+_RECON_TABLE_PATTERN = re.compile(
+    r"reconciliation|effective.*rate|rate.*reconciliation", re.IGNORECASE
+)
+_STATUTORY_ROW_PATTERN = re.compile(
+    r"tax at (the )?statutory|statutory (tax )?rate|tax calculated",
+    re.IGNORECASE,
+)
+_EFFECTIVE_ROW_PATTERN = re.compile(
+    r"effective (tax )?rate|effective rate\b|tax (expense|charge) for the",
+    re.IGNORECASE,
+)
+_PBT_LABEL = re.compile(
+    r"profit before (tax|taxation)|income before (income )?tax", re.IGNORECASE
+)
+_INCOME_TAX_LABEL = re.compile(
+    r"^income tax|^taxation|tax (expense|charge)", re.IGNORECASE
+)
+_CASH_TAX_LABEL = re.compile(
+    r"cash (taxes|income tax)|(income )?taxes paid", re.IGNORECASE
 )
 
-# Label heuristics for ``classification == "unknown"``. Conservative —
-# one-off-sounding items move to non-op; anything else stays operating.
+# Label heuristics → non-operating bucket.
 _NON_OPERATING_LABEL_KEYWORDS: tuple[str, ...] = (
     "goodwill",
     "impairment",
     "disposal",
     "restructuring",
     "one-off",
+    "one off",
     "prior year",
+    "prior-year",
     "acquisition",
     "settlement",
     "litigation",
+    "discontinued",
+    "gain on",
+    "loss on",
 )
 
-_MATERIALITY_THRESHOLD = Decimal("0.05")  # 5 % of statutory tax
+_MATERIALITY_THRESHOLD = Decimal("0.05")
 
 
 class ModuleATaxes(ExtractionModule):
@@ -71,62 +96,51 @@ class ModuleATaxes(ExtractionModule):
         llm: AnthropicProvider,
         cost_tracker: CostTracker,
     ) -> None:
-        # llm + cost_tracker carried for parity with modules that may
-        # call the LLM; Module A itself is deterministic.
         self.llm = llm
         self.cost_tracker = cost_tracker
 
     # ------------------------------------------------------------------
     async def apply(self, context: ExtractionContext) -> ExtractionContext:
         raw = context.raw_extraction
-        tax_note = raw.notes.taxes
-        is_data = raw.primary_is
+        tax_note = _find_note(raw.notes, _TAX_NOTE_PATTERN)
 
         if tax_note is None:
-            self._fallback_to_statutory(context, reason="no taxes note")
+            self._fallback_to_statutory(context, reason="no taxes note found")
             return context
 
-        effective_rate = tax_note.effective_tax_rate_percent
-        statutory_rate = tax_note.statutory_rate_percent
-
-        # Derive reported tax + PBT + statutory_tax from the IS.
-        reported_tax = abs(is_data.income_tax) if is_data and is_data.income_tax is not None else None
-        pbt = is_data.income_before_tax if is_data else None
-        statutory_tax: Decimal | None = None
-        if pbt is not None and statutory_rate is not None:
-            statutory_tax = pbt * statutory_rate / Decimal("100")
+        effective_rate, statutory_rate, recon_items = _parse_tax_recon(tax_note)
+        reported_tax, pbt = _derive_tax_facts(raw)
 
         if effective_rate is None or reported_tax is None:
             self._fallback_to_statutory(
                 context,
-                reason="taxes note missing effective_rate or IS missing income_tax",
+                reason=(
+                    "taxes note missing effective rate or IS missing "
+                    "income_tax line"
+                ),
             )
             return context
 
-        # Classify each reconciling item; running totals give the
-        # operating rate without needing a clean statutory_tax.
-        operating_items: list[tuple[str, Decimal, str]] = []
-        non_operating_items: list[tuple[str, Decimal, str]] = []
-        for item in tax_note.reconciling_items:
-            bucket = self._classify(item)
+        # Classify reconciling items.
+        operating_items: list[tuple[str, Decimal]] = []
+        non_operating_items: list[tuple[str, Decimal]] = []
+        for description, amount in recon_items:
+            bucket = _classify_label(description)
             if bucket == "non_operating":
-                non_operating_items.append(
-                    (item.description, item.amount, item.classification)
-                )
+                non_operating_items.append((description, amount))
             else:
-                operating_items.append(
-                    (item.description, item.amount, item.classification)
-                )
+                operating_items.append((description, amount))
 
         non_operating_sum = sum(
-            (a for _, a, _ in non_operating_items), start=Decimal("0")
+            (a for _, a in non_operating_items), start=Decimal("0")
         )
-        operating_sum = sum(
-            (a for _, a, _ in operating_items), start=Decimal("0")
-        )
+        operating_sum = sum((a for _, a in operating_items), start=Decimal("0"))
 
-        # A.2.0 — materiality. Tiny non-op items vs statutory_tax ⇒ use
-        # the effective rate as operating rather than split.
+        # A.2.0 — materiality.
+        statutory_tax: Decimal | None = None
+        if pbt is not None and statutory_rate is not None:
+            statutory_tax = pbt * statutory_rate / Decimal("100")
+
         immaterial = False
         if statutory_tax and statutory_tax != 0:
             ratio = abs(non_operating_sum) / abs(statutory_tax)
@@ -141,16 +155,12 @@ class ModuleATaxes(ExtractionModule):
                 f"effective rate {effective_rate:.2f}% as operating."
             )
         else:
-            # A.2.1-A.2.5: operating tax = reported_tax − non-operating
-            # reconciling items. As a rate: divide by PBT. Back it out
-            # from reported_tax / effective_rate when PBT not published.
             effective_pbt = pbt
             if effective_pbt is None and effective_rate != 0:
                 effective_pbt = reported_tax / (effective_rate / Decimal("100"))
             if effective_pbt is None or effective_pbt == 0:
                 self._fallback_to_statutory(
-                    context,
-                    reason="could not derive profit_before_tax",
+                    context, reason="could not derive profit_before_tax"
                 )
                 return context
 
@@ -166,10 +176,8 @@ class ModuleATaxes(ExtractionModule):
                 f"sum {non_operating_sum})."
             )
 
-        # A.2.2 — one ModuleAdjustment per non-operating item so the
-        # audit trail survives aggregation.
-        source = Source(document="notes.taxes")
-        for description, amount, classification in non_operating_items:
+        source = Source(document=f"notes[{tax_note.title!r}]")
+        for description, amount in non_operating_items:
             context.adjustments.append(
                 ModuleAdjustment(
                     module="A.2",
@@ -177,14 +185,15 @@ class ModuleATaxes(ExtractionModule):
                     amount=amount,
                     affected_periods=[context.primary_period],
                     rationale=(
-                        f"Classification '{classification}' → non-operating; "
-                        f"removed from operating tax base per A.2.2."
+                        "Classified as non-operating by label heuristic "
+                        "(keyword match); removed from operating tax base "
+                        "per A.2.2."
                     ),
                     source=source,
                 )
             )
 
-        # A.1 — operating-tax-rate adjustment (amount = rate as Decimal pct).
+        # A.1
         context.adjustments.append(
             ModuleAdjustment(
                 module="A.1",
@@ -199,24 +208,23 @@ class ModuleATaxes(ExtractionModule):
             )
         )
 
-        # A.4 — cash taxes, if the CF surfaces a cash-taxes line via
-        # extensions. The raw schema doesn't carry it as a typed field,
-        # so we look in the CF extensions dict.
+        # A.4 — cash taxes from CF line (if present).
         cf = raw.primary_cf
-        cash_tax = None
         if cf is not None:
-            for key in ("cash_taxes_paid", "income_taxes_paid"):
-                if key in cf.extensions:
-                    cash_tax = cf.extensions[key]
-                    break
-        if cash_tax is not None:
-            delta = reported_tax - abs(cash_tax)
-            context.decision_log.append(
-                f"Module A.4: cash taxes paid {abs(cash_tax)} vs reported "
-                f"{reported_tax} (Δ={delta}); kept on cash-flow view."
-            )
+            for item in cf.line_items:
+                if not _CASH_TAX_LABEL.search(item.label):
+                    continue
+                if item.value is None:
+                    continue
+                cash_tax = abs(item.value)
+                delta = reported_tax - cash_tax
+                context.decision_log.append(
+                    f"Module A.4: cash taxes paid {cash_tax} vs reported "
+                    f"{reported_tax} (Δ={delta}); kept on cash-flow view."
+                )
+                break
 
-        # A.5 — BS treatment note.
+        # A.5
         context.decision_log.append(
             "Module A.5: tax payables/receivables classified as operating "
             "working capital (applied in BS reclassification)."
@@ -225,7 +233,7 @@ class ModuleATaxes(ExtractionModule):
         if pbt is None:
             context.estimates_log.append(
                 "Module A: profit_before_tax derived from reported_tax / "
-                "effective_rate (not directly disclosed in IS)."
+                "effective_rate (not directly disclosed on the IS)."
             )
         if operating_items:
             context.decision_log.append(
@@ -240,7 +248,6 @@ class ModuleATaxes(ExtractionModule):
     def _fallback_to_statutory(
         self, context: ExtractionContext, *, reason: str
     ) -> None:
-        """Use the WACC statutory rate as the operating tax rate."""
         statutory = context.wacc_inputs.cost_of_capital.tax_rate_for_wacc
         context.estimates_log.append(
             f"Module A: falling back to statutory tax rate {statutory}% "
@@ -262,15 +269,112 @@ class ModuleATaxes(ExtractionModule):
             f"Module A.1: operating tax rate = {statutory}% (statutory fallback)."
         )
 
-    def _classify(self, item: TaxReconciliationItem) -> str:
-        """Return ``"operating"`` or ``"non_operating"`` for one item."""
-        classification = item.classification
-        if classification in _NON_OPERATING_CLASSIFICATIONS:
-            return "non_operating"
-        if classification == "operational":
-            return "operating"
-        # unknown → label-keyword fallback
-        lowered = item.description.lower()
-        if any(kw in lowered for kw in _NON_OPERATING_LABEL_KEYWORDS):
-            return "non_operating"
-        return "operating"
+
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+def _find_note(notes: list[Note], pattern: re.Pattern[str]) -> Note | None:
+    for note in notes:
+        if pattern.search(note.title):
+            return note
+    return None
+
+
+def _parse_tax_recon(
+    tax_note: Note,
+) -> tuple[Decimal | None, Decimal | None, list[tuple[str, Decimal]]]:
+    """Return ``(effective_rate_pct, statutory_rate_pct,
+    [(description, amount), ...])`` from a tax note.
+
+    Walks every table in the note. Identifies rate rows (statutory
+    / effective) by label pattern. Non-rate rows with numeric
+    amounts become reconciling items. The order of precedence for
+    picking the reconciliation table: first table whose label
+    matches ``/reconciliation|effective.*rate/``; else first table
+    with more than two rows.
+    """
+    recon_table = _pick_recon_table(tax_note)
+    if recon_table is None:
+        return None, None, []
+
+    effective_rate: Decimal | None = None
+    statutory_rate: Decimal | None = None
+    items: list[tuple[str, Decimal]] = []
+
+    for row in recon_table.rows:
+        if not row:
+            continue
+        description = str(row[0]) if row[0] is not None else ""
+        if not description:
+            continue
+        # Numeric cells after the label
+        numeric_cells = [c for c in row[1:] if isinstance(c, Decimal)]
+        if not numeric_cells:
+            continue
+        amount = numeric_cells[0]
+        # Rate rows
+        if _STATUTORY_ROW_PATTERN.search(description):
+            # Some tables put both the statutory rate AND statutory tax
+            # amount. Heuristic: rate values are small (<= 100) with
+            # no decimals beyond 2 dp; tax amounts can be much larger.
+            # When multiple numerics exist, the LAST one is often the
+            # rate (% column) — but filings vary.
+            statutory_rate = _maybe_rate(numeric_cells)
+            continue
+        if _EFFECTIVE_ROW_PATTERN.search(description):
+            effective_rate = _maybe_rate(numeric_cells)
+            continue
+        items.append((description, amount))
+
+    return effective_rate, statutory_rate, items
+
+
+def _pick_recon_table(note: Note) -> NoteTable | None:
+    """Select the reconciliation table within a tax note."""
+    if not note.tables:
+        return None
+    for table in note.tables:
+        if table.table_label and _RECON_TABLE_PATTERN.search(table.table_label):
+            return table
+    # Fallback: first table with more than one row.
+    for table in note.tables:
+        if len(table.rows) > 1:
+            return table
+    return note.tables[0]
+
+
+def _maybe_rate(numeric_cells: list[Decimal]) -> Decimal | None:
+    """Pick the cell most likely to be a rate (percentage).
+
+    Heuristic: a rate is ≤ 100 in absolute value. When multiple cells
+    qualify, the last one wins (some filings put ``(amount, rate)``).
+    """
+    rate_candidates = [c for c in numeric_cells if abs(c) <= Decimal("100")]
+    return rate_candidates[-1] if rate_candidates else None
+
+
+def _derive_tax_facts(raw: RawExtraction) -> tuple[Decimal | None, Decimal | None]:
+    """Return ``(reported_tax_expense, profit_before_tax)`` from the
+    primary IS by label match. Values are positive (absolute)."""
+    is_data = raw.primary_is
+    if is_data is None:
+        return None, None
+    reported_tax: Decimal | None = None
+    pbt: Decimal | None = None
+    for item in is_data.line_items:
+        if item.value is None:
+            continue
+        if reported_tax is None and _INCOME_TAX_LABEL.search(item.label):
+            reported_tax = abs(item.value)
+        if pbt is None and _PBT_LABEL.search(item.label):
+            pbt = item.value
+    return reported_tax, pbt
+
+
+def _classify_label(description: str) -> str:
+    """Return ``"operating"`` or ``"non_operating"`` based on keyword
+    match."""
+    lowered = description.lower()
+    if any(kw in lowered for kw in _NON_OPERATING_LABEL_KEYWORDS):
+        return "non_operating"
+    return "operating"

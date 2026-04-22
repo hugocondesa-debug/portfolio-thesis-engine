@@ -2,13 +2,14 @@
 :class:`ExtractionContext` through them, and (optionally) builds the
 fully-typed :class:`CanonicalCompanyState` via :class:`AnalysisDeriver`.
 
-Phase 1.5 / Sprint 3: consumes :class:`RawExtraction` directly. The
-reclassified statements are built line-for-line from the typed
-IS/BS/CF fields — no more ``line_items`` dict scans.
+Phase 1.5.3: consumes the as-reported structured
+:class:`RawExtraction` directly. Reclassified statement lines are
+passed through verbatim from the source line_items, with the
+``is_subtotal`` flag preserved (as an `is_adjusted=False` marker on
+the canonical line; no numerical reclassification happens at this
+stage — that's downstream Phase 2 work).
 
-Per-company cost cap is enforced **between** modules (once per module,
-not per call). Modules themselves are free to make LLM calls — each
-one records its spend via the shared :class:`CostTracker`.
+Per-company cost cap is enforced between modules.
 """
 
 from __future__ import annotations
@@ -53,85 +54,7 @@ from portfolio_thesis_engine.schemas.wacc import WACCInputs
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.shared.exceptions import CostLimitExceededError
 
-_EXTRACTION_SYSTEM_VERSION = "phase1.5-sprint3"
-
-
-# ----------------------------------------------------------------------
-# IS / BS / CF reclassification tables
-# ----------------------------------------------------------------------
-# (RawExtraction field name, human label). Used to render the typed
-# statements into the ``Reclassified*`` line-item lists that the
-# canonical state carries.
-_IS_LINES: tuple[tuple[str, str], ...] = (
-    ("revenue", "Revenue"),
-    ("cost_of_sales", "Cost of sales"),
-    ("gross_profit", "Gross profit"),
-    ("selling_marketing", "Selling & marketing"),
-    ("general_administrative", "General & administrative"),
-    ("selling_general_administrative", "SG&A"),
-    ("research_development", "R&D"),
-    ("other_operating_expenses", "Other operating expenses"),
-    ("depreciation_amortization", "D&A"),
-    ("operating_income", "Operating income"),
-    ("finance_income", "Finance income"),
-    ("finance_expenses", "Finance expenses"),
-    ("share_of_associates", "Share of associates"),
-    ("non_operating_income", "Non-operating income"),
-    ("income_before_tax", "Income before tax"),
-    ("income_tax", "Income tax"),
-    ("net_income_from_continuing", "Net income — continuing"),
-    ("net_income_from_discontinued", "Net income — discontinued"),
-    ("net_income", "Net income"),
-)
-
-_BS_LINES: tuple[tuple[str, str, str], ...] = (
-    ("cash_and_equivalents", "Cash and equivalents", "cash"),
-    ("short_term_investments", "Short-term investments", "financial_assets"),
-    ("accounts_receivable", "Accounts receivable", "operating_assets"),
-    ("inventory", "Inventory", "operating_assets"),
-    ("current_assets_other", "Other current assets", "operating_assets"),
-    ("ppe_net", "PP&E (net)", "operating_assets"),
-    ("rou_assets", "ROU assets", "operating_assets"),
-    ("goodwill", "Goodwill", "intangibles"),
-    ("intangibles_other", "Other intangibles", "intangibles"),
-    ("investments", "Investments", "financial_assets"),
-    ("deferred_tax_assets", "Deferred tax assets", "operating_assets"),
-    ("non_current_assets_other", "Other non-current assets", "operating_assets"),
-    ("total_assets", "Total assets", "total_assets"),
-    ("accounts_payable", "Accounts payable", "operating_liabilities"),
-    ("short_term_debt", "Short-term debt", "financial_liabilities"),
-    ("lease_liabilities_current", "Lease liabilities (current)", "lease_liabilities"),
-    ("deferred_revenue_current", "Deferred revenue (current)", "operating_liabilities"),
-    ("current_liabilities_other", "Other current liabilities", "operating_liabilities"),
-    ("long_term_debt", "Long-term debt", "financial_liabilities"),
-    ("lease_liabilities_noncurrent", "Lease liabilities (non-current)", "lease_liabilities"),
-    ("deferred_tax_liabilities", "Deferred tax liabilities", "operating_liabilities"),
-    ("provisions", "Provisions", "operating_liabilities"),
-    ("pension_obligations", "Pension obligations", "operating_liabilities"),
-    ("non_current_liabilities_other", "Other non-current liabilities", "operating_liabilities"),
-    ("total_liabilities", "Total liabilities", "total_liabilities"),
-    ("share_capital", "Share capital", "equity"),
-    ("share_premium", "Share premium", "equity"),
-    ("retained_earnings", "Retained earnings", "equity"),
-    ("other_reserves", "Other reserves", "equity"),
-    ("treasury_shares", "Treasury shares", "equity"),
-    ("non_controlling_interests", "Non-controlling interests", "nci"),
-    ("total_equity", "Total equity", "total_equity"),
-)
-
-_CF_LINES: tuple[tuple[str, str, str], ...] = (
-    ("operating_cash_flow", "Operating cash flow", "cfo"),
-    ("capex", "CapEx", "capex"),
-    ("acquisitions", "Acquisitions", "acquisitions"),
-    ("investing_cash_flow", "Investing cash flow", "cfi"),
-    ("dividends_paid", "Dividends paid", "dividends"),
-    ("debt_issuance", "Debt issuance", "debt_issuance"),
-    ("debt_repayment", "Debt repayment", "debt_repayment"),
-    ("share_repurchases", "Share repurchases", "buybacks"),
-    ("financing_cash_flow", "Financing cash flow", "cff"),
-    ("fx_effect", "FX effect", "fx_effect"),
-    ("net_change_in_cash", "Net change in cash", "net_change_in_cash"),
-)
+_EXTRACTION_SYSTEM_VERSION = "phase1.5.3"
 
 
 class ExtractionCoordinator:
@@ -168,14 +91,7 @@ class ExtractionCoordinator:
         raw_extraction: RawExtraction,
         wacc_inputs: WACCInputs,
     ) -> ExtractionResult:
-        """Run every loaded module in order, return :class:`ExtractionResult`.
-
-        ``canonical_state`` is left ``None`` — call :meth:`extract_canonical`
-        to get the fully-typed state (requires a ``CompanyIdentity``).
-
-        Raises :class:`CostLimitExceededError` if the per-company cost
-        cap is reached between modules.
-        """
+        """Run every loaded module in order, return :class:`ExtractionResult`."""
         context = await self._run_modules(raw_extraction, wacc_inputs)
         return ExtractionResult(
             ticker=context.ticker,
@@ -253,8 +169,8 @@ class ExtractionCoordinator:
         validation = ValidationResults(
             universal_checksums=[
                 ValidationResult(
-                    check_id="V.phase1_5_sprint3",
-                    name="Phase 1.5 Sprint 3 placeholder",
+                    check_id="V.phase1_5_3",
+                    name="Phase 1.5.3 placeholder",
                     status="PASS",
                     detail=(
                         "Guardrails wiring runs separately (Group A + V); "
@@ -278,6 +194,13 @@ class ExtractionCoordinator:
             total_api_cost_usd=self.cost_tracker.ticker_total(context.ticker),
         )
 
+        as_of_date = (
+            context.raw_extraction.primary_bs.period_end_date
+            if context.raw_extraction.primary_bs
+               and context.raw_extraction.primary_bs.period_end_date
+            else context.raw_extraction.primary_period.end_date
+        )
+
         extraction_id = (
             f"{context.ticker.replace('.', '-')}_"
             f"{context.fiscal_period_label}_"
@@ -286,7 +209,7 @@ class ExtractionCoordinator:
         return CanonicalCompanyState(
             extraction_id=extraction_id,
             extraction_date=datetime.now(UTC),
-            as_of_date=context.raw_extraction.primary_period.end_date,
+            as_of_date=as_of_date,
             identity=identity,
             reclassified_statements=[reclassified],
             adjustments=adjustments,
@@ -319,14 +242,8 @@ class ExtractionCoordinator:
     def _partition_adjustments(
         self, context: ExtractionContext
     ) -> AdjustmentsApplied:
-        """Bucket module adjustments by their ``module`` prefix."""
         buckets: dict[str, list[ModuleAdjustment]] = {
-            "A": [],
-            "B": [],
-            "C": [],
-            "D": [],
-            "E": [],
-            "F": [],
+            "A": [], "B": [], "C": [], "D": [], "E": [], "F": [],
         }
         patches: list[ModuleAdjustment] = []
         for adj in context.adjustments:
@@ -359,24 +276,21 @@ class ExtractionCoordinator:
 
 
 # ----------------------------------------------------------------------
-# Statement rendering
+# Statement rendering — pass line_items through verbatim
 # ----------------------------------------------------------------------
 def _render_is_lines(
     is_data: IncomeStatementPeriod | None,
 ) -> list[IncomeStatementLine]:
-    if is_data is None:
+    if is_data is None or not is_data.line_items:
         return []
     out: list[IncomeStatementLine] = []
-    for field_name, label in _IS_LINES:
-        value = getattr(is_data, field_name, None)
-        if value is None:
+    for item in sorted(is_data.line_items, key=lambda li: li.order):
+        if item.value is None:
             continue
-        out.append(IncomeStatementLine(label=label, value=value))
-    for name, value in is_data.extensions.items():
         out.append(
             IncomeStatementLine(
-                label=name.replace("_", " ").title(),
-                value=value,
+                label=item.label,
+                value=item.value,
             )
         )
     return out
@@ -385,20 +299,20 @@ def _render_is_lines(
 def _render_bs_lines(
     bs_data: BalanceSheetPeriod | None,
 ) -> list[BalanceSheetLine]:
-    if bs_data is None:
+    """BS canonical lines: leaves only (subtotals excluded) so
+    downstream BS-identity guardrail can sum category buckets without
+    double-counting."""
+    if bs_data is None or not bs_data.line_items:
         return []
     out: list[BalanceSheetLine] = []
-    for field_name, label, category in _BS_LINES:
-        value = getattr(bs_data, field_name, None)
-        if value is None:
+    for item in sorted(bs_data.line_items, key=lambda li: li.order):
+        if item.value is None or item.is_subtotal:
             continue
-        out.append(BalanceSheetLine(label=label, value=value, category=category))
-    for name, value in bs_data.extensions.items():
         out.append(
             BalanceSheetLine(
-                label=name.replace("_", " ").title(),
-                value=value,
-                category="other",
+                label=item.label,
+                value=item.value,
+                category=item.section or "other",
             )
         )
     return out
@@ -407,20 +321,24 @@ def _render_bs_lines(
 def _render_cf_lines(
     cf_data: CashFlowPeriod | None,
 ) -> list[CashFlowLine]:
-    if cf_data is None:
+    """CF canonical lines: leaves per section + the final Δcash
+    subtotal (``section="subtotal"``). Section-total subtotals
+    excluded to avoid double-counting when the guardrail sums
+    categories."""
+    if cf_data is None or not cf_data.line_items:
         return []
     out: list[CashFlowLine] = []
-    for field_name, label, category in _CF_LINES:
-        value = getattr(cf_data, field_name, None)
-        if value is None:
+    for item in sorted(cf_data.line_items, key=lambda li: li.order):
+        if item.value is None:
             continue
-        out.append(CashFlowLine(label=label, value=value, category=category))
-    for name, value in cf_data.extensions.items():
+        # Exclude section subtotals except the final Δcash anchor.
+        if item.is_subtotal and item.section != "subtotal":
+            continue
         out.append(
             CashFlowLine(
-                label=name.replace("_", " ").title(),
-                value=value,
-                category="other",
+                label=item.label,
+                value=item.value,
+                category=item.section or "other",
             )
         )
     return out

@@ -267,7 +267,7 @@ class TestPhase1_5E2E:
         assert state.identity.ticker == "1846.HK"
         assert state.identity.reporting_currency == Currency.HKD
         assert state.methodology.protocols_activated == ["A", "B", "C"]
-        assert state.methodology.extraction_system_version == "phase1.5-sprint3"
+        assert state.methodology.extraction_system_version == "phase1.5.3"
 
         # Adjustments routed into correct buckets.
         # Module A.1 always produces an operating-tax-rate adjustment.

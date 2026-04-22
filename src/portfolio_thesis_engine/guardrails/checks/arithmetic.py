@@ -78,13 +78,24 @@ class ISChecksum(Guardrail):
 
     _SUBTOTAL_LABEL_KEYWORDS = (
         "operating income",
+        "operating profit",
+        "profit from operations",
         "gross profit",
         "profit before tax",
+        "profit before taxation",
         "pretax income",
         "pre-tax income",
         "income before tax",
         "ebit",
         "ebitda",
+    )
+
+    _NI_LABEL_PATTERNS = (
+        "net income",
+        "profit for the year",
+        "profit for the period",
+        "net profit",
+        "profit attributable to",
     )
 
     @classmethod
@@ -124,7 +135,10 @@ class ISChecksum(Guardrail):
                 blocking=self.blocking,
             )
 
-        ni_lines = [ln for ln in is_lines if ln.label.strip().lower() == "net income"]
+        ni_lines = [
+            ln for ln in is_lines
+            if any(pat in ln.label.lower() for pat in self._NI_LABEL_PATTERNS)
+        ]
         if not ni_lines:
             return GuardrailResult(
                 self.check_id,
@@ -134,11 +148,12 @@ class ISChecksum(Guardrail):
                 blocking=self.blocking,
             )
         ni_reported = ni_lines[-1].value
+        ni_label_lower = ni_lines[-1].label.lower()
         ni_computed = _sum_lines(
             [
                 ln
                 for ln in is_lines
-                if ln.label.strip().lower() != "net income"
+                if ln.label.lower() != ni_label_lower
                 and not self._is_subtotal(ln.label)
             ]
         )
@@ -174,12 +189,25 @@ class BSChecksum(Guardrail):
     _PASS_TOL = Decimal("0.0001")
     _FAIL_TOL = Decimal("0.001")
 
-    # BS categories we read from :mod:`section_extractor.tools`:
+    # BS categories. Phase 1.5.3 uses BS ``section`` names as
+    # categories; legacy phase-1 categories retained for compatibility
+    # with any canonical states produced pre-1.5.3.
     _ASSET_CATEGORIES = frozenset(
-        {"cash", "operating_assets", "financial_assets", "intangibles"}
+        {
+            # Phase 1.5.3 sections
+            "current_assets", "non_current_assets",
+            # Legacy categories
+            "cash", "operating_assets", "financial_assets", "intangibles",
+        }
     )
     _LIAB_CATEGORIES = frozenset(
-        {"operating_liabilities", "financial_liabilities", "lease_liabilities"}
+        {
+            # Phase 1.5.3 sections
+            "current_liabilities", "non_current_liabilities",
+            # Legacy categories
+            "operating_liabilities", "financial_liabilities",
+            "lease_liabilities",
+        }
     )
     _EQUITY_CATEGORIES = frozenset({"equity", "nci"})
 
@@ -304,21 +332,45 @@ class CFChecksum(Guardrail):
                 blocking=self.blocking,
             )
 
+        # Phase 1.5.3 uses section names as categories; legacy
+        # categories (cfo / cfi / cff / net_change_in_cash) retained
+        # for old canonical states. Sum all non-subtotal lines per
+        # section; then compare section subtotals to Δcash.
         cfo = sum(
-            (ln.value for ln in cf_lines if ln.category == "cfo"), start=Decimal("0")
+            (ln.value for ln in cf_lines
+             if ln.category in ("cfo", "operating")),
+            start=Decimal("0"),
         )
         cfi = sum(
-            (ln.value for ln in cf_lines if ln.category == "cfi"), start=Decimal("0")
+            (ln.value for ln in cf_lines
+             if ln.category in ("cfi", "investing")),
+            start=Decimal("0"),
         )
         cff = sum(
-            (ln.value for ln in cf_lines if ln.category == "cff"), start=Decimal("0")
+            (ln.value for ln in cf_lines
+             if ln.category in ("cff", "financing")),
+            start=Decimal("0"),
         )
         fx = sum(
             (ln.value for ln in cf_lines if ln.category == "fx_effect"),
             start=Decimal("0"),
         )
         computed = cfo + cfi + cff + fx
-        nc_lines = [ln for ln in cf_lines if ln.category == "net_change_in_cash"]
+        # Net-change line: either the legacy "net_change_in_cash"
+        # category OR a line in the "subtotal" section with a
+        # net-change-like label.
+        nc_lines = [
+            ln for ln in cf_lines
+            if ln.category == "net_change_in_cash"
+            or (
+                ln.category == "subtotal"
+                and (
+                    "net change in cash" in ln.label.lower()
+                    or "net increase in cash" in ln.label.lower()
+                    or "net decrease in cash" in ln.label.lower()
+                )
+            )
+        ]
         if not nc_lines:
             return GuardrailResult(
                 self.check_id,

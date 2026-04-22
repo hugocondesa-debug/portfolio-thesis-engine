@@ -1,4 +1,4 @@
-"""Unit tests for :func:`parse_raw_extraction` + unit-scale normalisation."""
+"""Unit tests for ingestion.raw_extraction_parser (Phase 1.5.3)."""
 
 from __future__ import annotations
 
@@ -12,237 +12,291 @@ from portfolio_thesis_engine.ingestion.raw_extraction_parser import (
     normalise_unit_scale,
     parse_raw_extraction,
 )
-from portfolio_thesis_engine.schemas.raw_extraction import RawExtraction
+from portfolio_thesis_engine.schemas.common import Currency
+from portfolio_thesis_engine.schemas.raw_extraction import (
+    DocumentType,
+    ExtractionType,
+    RawExtraction,
+)
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "euroeyes" / "raw_extraction.yaml"
 
 
-def _minimal_payload(unit_scale: str = "units") -> dict:
-    return {
+# ======================================================================
+# Happy path — real fixture
+# ======================================================================
+
+
+class TestParseRealFixture:
+    def test_parses_and_normalises_fixture(self) -> None:
+        raw = parse_raw_extraction(_FIXTURE)
+        assert raw.metadata.ticker == "1846.HK"
+        assert raw.primary_is is not None
+        revenue_line = next(
+            li for li in raw.primary_is.line_items if li.label == "Revenue"
+        )
+        # Fixture declares "millions"; parser multiplies.
+        assert revenue_line.value == Decimal("580000000.0")
+        assert raw.metadata.unit_scale == "units"
+
+    def test_returns_pydantic_object(self) -> None:
+        raw = parse_raw_extraction(_FIXTURE)
+        assert isinstance(raw, RawExtraction)
+
+    def test_idempotent(self) -> None:
+        raw = parse_raw_extraction(_FIXTURE)
+        again = normalise_unit_scale(raw)
+        assert again is raw  # no-op returns same object
+
+
+# ======================================================================
+# Error wrapping
+# ======================================================================
+
+
+class TestErrorWrapping:
+    def test_file_not_found_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(IngestionError, match="file not found"):
+            parse_raw_extraction(tmp_path / "does_not_exist.yaml")
+
+    def test_yaml_syntax_error_raises(self, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("this: : not: valid: yaml: :::", encoding="utf-8")
+        with pytest.raises(IngestionError):
+            parse_raw_extraction(bad)
+
+    def test_schema_violation_raises(self, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text(
+            """
+metadata:
+  ticker: "X"
+  company_name: "X"
+  document_type: "annual_report"
+  extraction_type: "numeric"
+  reporting_currency: "USD"
+  unit_scale: "units"
+  extraction_date: "2025-01-01"
+  fiscal_periods: []
+""",
+            encoding="utf-8",
+        )
+        with pytest.raises(IngestionError, match="schema validation failed"):
+            parse_raw_extraction(bad)
+
+
+# ======================================================================
+# Unit-scale normalisation — line items
+# ======================================================================
+
+
+def _base_payload(
+    extra_is_lines: list[dict] | None = None,
+    extra_bs_lines: list[dict] | None = None,
+) -> dict:
+    payload: dict = {
         "metadata": {
-            "ticker": "TEST",
-            "company_name": "Test Co",
-            "document_type": "annual_report",
-            "extraction_type": "numeric",
-            "reporting_currency": "USD",
-            "unit_scale": unit_scale,
-            "fiscal_year": 2024,
-            "extraction_date": "2025-01-15",
+            "ticker": "X",
+            "company_name": "X",
+            "document_type": DocumentType.ANNUAL_REPORT,
+            "extraction_type": ExtractionType.NUMERIC,
+            "reporting_currency": Currency.USD,
+            "unit_scale": "millions",
+            "extraction_date": "2025-01-01",
             "fiscal_periods": [
                 {"period": "FY2024", "end_date": "2024-12-31", "is_primary": True},
             ],
         },
         "income_statement": {
             "FY2024": {
-                "revenue": "500",
-                "cost_of_sales": "-300",
-                "operating_income": "100",
-                "net_income": "75",
-                "shares_basic_weighted_avg": "200",
-                "extensions": {"other_income": "5"},
+                "line_items": [
+                    {"order": 1, "label": "Revenue", "value": "100"},
+                    {"order": 2, "label": "Cost of sales", "value": "-40"},
+                    {
+                        "order": 3, "label": "Profit for the year",
+                        "value": "30", "is_subtotal": True,
+                    },
+                    *(extra_is_lines or []),
+                ],
+                "profit_attribution": {
+                    "parent": "30",
+                    "non_controlling_interests": "0",
+                    "total": "30",
+                },
+                "earnings_per_share": {
+                    "basic_value": "0.15",
+                    "basic_weighted_avg_shares": "200",
+                },
             },
         },
         "balance_sheet": {
             "FY2024": {
-                "total_assets": "3000",
-                "total_equity": "2000",
-                "total_liabilities": "1000",
-            },
-        },
-        "cash_flow": {
-            "FY2024": {
-                "operating_cash_flow": "130",
-                "capex": "-75",
+                "line_items": [
+                    {
+                        "order": 1, "label": "Total assets",
+                        "value": "500", "section": "total_assets",
+                        "is_subtotal": True,
+                    },
+                    *(extra_bs_lines or []),
+                ],
             },
         },
     }
+    return payload
 
 
-# ======================================================================
-# 1. Happy path — the realistic EuroEyes fixture
-# ======================================================================
+class TestLineItemNormalisation:
+    def test_is_line_items_scaled_by_millions(self) -> None:
+        raw = RawExtraction.model_validate(_base_payload())
+        normalised = normalise_unit_scale(raw)
+        assert normalised.metadata.unit_scale == "units"
+        assert normalised.primary_is is not None
+        revenue = next(
+            li for li in normalised.primary_is.line_items if li.label == "Revenue"
+        )
+        assert revenue.value == Decimal("100") * Decimal("1000000")
 
-
-class TestEuroEyesFixture:
-    def test_parses_successfully(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.metadata.ticker == "1846.HK"
-        # Fixture is millions → parser normalises to units.
-        assert raw.metadata.unit_scale == "units"
-        # Revenue 580M → 580_000_000
-        assert raw.primary_is is not None
-        assert raw.primary_is.revenue == Decimal("580000000.0")
-
-    def test_notes_populated_after_normalisation(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.notes.taxes is not None
-        # Tax rates stay as percentages (not scaled)
-        assert raw.notes.taxes.effective_tax_rate_percent == Decimal("21.9")
-        # But reconciling item amounts are scaled
-        assert raw.notes.taxes.reconciling_items[1].amount == Decimal("1500000.0")
-        # Leases: additions scaled
-        assert raw.notes.leases is not None
-        assert raw.notes.leases.rou_assets_additions == Decimal("55000000.0")
-        # Provisions: amounts scaled
-        assert raw.notes.provisions[0].amount == Decimal("8000000.0")
-        # Goodwill: top-level + by_cgu scaled
-        assert raw.notes.goodwill is not None
-        assert raw.notes.goodwill.closing == Decimal("600000000.0")
-        assert raw.notes.goodwill.by_cgu["Greater China"] == Decimal("420000000.0")
+    def test_profit_attribution_scaled(self) -> None:
+        raw = RawExtraction.model_validate(_base_payload())
+        normalised = normalise_unit_scale(raw)
+        assert normalised.primary_is is not None
+        pa = normalised.primary_is.profit_attribution
+        assert pa is not None
+        assert pa.parent == Decimal("30") * Decimal("1000000")
 
     def test_eps_not_scaled(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.primary_is is not None
-        assert raw.primary_is.eps_basic == Decimal("0.375")
+        """Per-share values pass through without scaling."""
+        raw = RawExtraction.model_validate(_base_payload())
+        normalised = normalise_unit_scale(raw)
+        assert normalised.primary_is is not None
+        eps = normalised.primary_is.earnings_per_share
+        assert eps is not None
+        assert eps.basic_value == Decimal("0.15")
+        assert eps.basic_weighted_avg_shares == Decimal("200")
 
-    def test_shares_not_scaled(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.primary_is is not None
-        assert raw.primary_is.shares_basic_weighted_avg == Decimal("200.0")
-
-    def test_employee_benefits_money_only_scaled(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.notes.employee_benefits is not None
-        # Headcount stays as 850 (count, not money)
-        assert raw.notes.employee_benefits.headcount == Decimal("850")
-        # Compensation scales
-        assert raw.notes.employee_benefits.total_compensation == Decimal("382500000.0")
-
-    def test_sbc_expense_only_scales(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        assert raw.notes.share_based_compensation is not None
-        # Expense scales
-        assert raw.notes.share_based_compensation.expense == Decimal("6500000.0")
-        # Share counts (granted/outstanding) do not scale
-        assert raw.notes.share_based_compensation.stock_options_outstanding == Decimal("2.8")
-
-
-# ======================================================================
-# 2. Unit-scale normalisation — unit tests
-# ======================================================================
-
-
-class TestUnitScaleNormalisation:
-    def test_units_is_noop(self) -> None:
-        raw = RawExtraction.model_validate(_minimal_payload("units"))
-        normed = normalise_unit_scale(raw)
-        assert normed is raw  # Same object — no rebuild.
-
-    def test_thousands_multiplied_by_1000(self) -> None:
-        raw = RawExtraction.model_validate(_minimal_payload("thousands"))
-        normed = normalise_unit_scale(raw)
-        assert normed.metadata.unit_scale == "units"
-        assert normed.primary_is is not None
-        # 500 × 1000 = 500_000
-        assert normed.primary_is.revenue == Decimal("500000")
-        assert normed.primary_is.cost_of_sales == Decimal("-300000")
-        # Extensions also scaled
-        assert normed.primary_is.extensions["other_income"] == Decimal("5000")
-
-    def test_millions_multiplied_by_1_000_000(self) -> None:
-        raw = RawExtraction.model_validate(_minimal_payload("millions"))
-        normed = normalise_unit_scale(raw)
-        assert normed.metadata.unit_scale == "units"
-        assert normed.primary_is is not None
-        assert normed.primary_is.revenue == Decimal("500000000")
-        assert normed.primary_bs is not None
-        assert normed.primary_bs.total_assets == Decimal("3000000000")
-
-    def test_eps_not_scaled_during_normalisation(self) -> None:
-        """EPS / shares are non-monetary and must NOT be multiplied."""
-        raw = RawExtraction.model_validate(_minimal_payload("millions"))
-        # Attach EPS
-        payload = _minimal_payload("millions")
-        payload["income_statement"]["FY2024"]["eps_basic"] = "0.50"
+    def test_thousands_scale(self) -> None:
+        payload = _base_payload()
+        payload["metadata"]["unit_scale"] = "thousands"
         raw = RawExtraction.model_validate(payload)
-        normed = normalise_unit_scale(raw)
-        assert normed.primary_is is not None
-        assert normed.primary_is.eps_basic == Decimal("0.50")  # unchanged
+        normalised = normalise_unit_scale(raw)
+        assert normalised.primary_is is not None
+        revenue = next(
+            li for li in normalised.primary_is.line_items if li.label == "Revenue"
+        )
+        assert revenue.value == Decimal("100000")
 
-    def test_idempotent_second_call(self) -> None:
-        """Calling normalise on already-units data is a no-op."""
-        raw = RawExtraction.model_validate(_minimal_payload("millions"))
-        once = normalise_unit_scale(raw)
-        twice = normalise_unit_scale(once)
-        assert once.primary_is is not None
-        assert twice.primary_is is not None
-        assert once.primary_is.revenue == twice.primary_is.revenue
+    def test_null_values_preserved(self) -> None:
+        payload = _base_payload(
+            extra_is_lines=[{"order": 4, "label": "Deferred tax", "value": None}]
+        )
+        raw = RawExtraction.model_validate(payload)
+        normalised = normalise_unit_scale(raw)
+        assert normalised.primary_is is not None
+        deferred = next(
+            li for li in normalised.primary_is.line_items
+            if li.label == "Deferred tax"
+        )
+        assert deferred.value is None
 
-    def test_notes_money_scaled(self) -> None:
-        payload = _minimal_payload("thousands")
-        payload["notes"] = {
-            "taxes": {
-                "effective_tax_rate_percent": "25",
-                "reconciling_items": [
-                    {"description": "Item A", "amount": "100"},
+
+# ======================================================================
+# Note-table scaling
+# ======================================================================
+
+
+class TestNoteScaling:
+    def test_note_table_decimal_cells_scaled(self) -> None:
+        payload = _base_payload()
+        payload["notes"] = [
+            {
+                "title": "Income tax",
+                "tables": [
+                    {
+                        "columns": ["Label", "HKD millions"],
+                        "rows": [
+                            ["Statutory", "15.84"],
+                            ["Effective", "21.00"],
+                        ],
+                    }
                 ],
-            },
-            "provisions": [
-                {"description": "Warranty", "amount": "50"},
-            ],
+            }
+        ]
+        raw = RawExtraction.model_validate(payload)
+        normalised = normalise_unit_scale(raw)
+        row0 = normalised.notes[0].tables[0].rows[0]
+        # String label passes through
+        assert row0[0] == "Statutory"
+        # Decimal cell scaled
+        assert row0[1] == Decimal("15.84") * Decimal("1000000")
+
+
+# ======================================================================
+# Segments / historical / KPIs scaling
+# ======================================================================
+
+
+class TestSegmentsScaling:
+    def test_segment_metrics_scaled(self) -> None:
+        payload = _base_payload()
+        payload["segments"] = [
+            {
+                "period": "FY2024",
+                "segment_type": "geography",
+                "segments": [
+                    {
+                        "segment_name": "Greater China",
+                        "metrics": {"revenue": "420", "operating_income": "85"},
+                    },
+                ],
+                "inter_segment_eliminations": {"revenue": "-5"},
+            }
+        ]
+        raw = RawExtraction.model_validate(payload)
+        normalised = normalise_unit_scale(raw)
+        sr = normalised.segments[0]
+        assert sr.segments[0].metrics["revenue"] == Decimal("420000000")
+        assert sr.inter_segment_eliminations is not None
+        assert sr.inter_segment_eliminations["revenue"] == Decimal("-5000000")
+
+
+class TestHistoricalScaling:
+    def test_historical_values_scaled(self) -> None:
+        payload = _base_payload()
+        payload["historical"] = {
+            "source": "5Y summary",
+            "years": [2023, 2024],
+            "metrics": {"revenue": ["50", "60"]},
         }
         raw = RawExtraction.model_validate(payload)
-        normed = normalise_unit_scale(raw)
-        # Tax rate unchanged
-        assert normed.notes.taxes is not None
-        assert normed.notes.taxes.effective_tax_rate_percent == Decimal("25")
-        # Reconciling amount scaled
-        assert normed.notes.taxes.reconciling_items[0].amount == Decimal("100000")
-        # Provision amount scaled
-        assert normed.notes.provisions[0].amount == Decimal("50000")
+        normalised = normalise_unit_scale(raw)
+        assert normalised.historical is not None
+        assert normalised.historical.metrics["revenue"][0] == Decimal("50000000")
 
 
-# ======================================================================
-# 3. Error paths
-# ======================================================================
-
-
-class TestErrorPaths:
-    def test_missing_file(self, tmp_path: Path) -> None:
-        with pytest.raises(IngestionError, match="file not found"):
-            parse_raw_extraction(tmp_path / "absent.yaml")
-
-    def test_invalid_yaml(self, tmp_path: Path) -> None:
-        path = tmp_path / "bad.yaml"
-        path.write_text("ticker: [unclosed", encoding="utf-8")
-        with pytest.raises(IngestionError):
-            parse_raw_extraction(path)
-
-    def test_schema_violation_surfaces_as_ingestion_error(
-        self, tmp_path: Path
-    ) -> None:
-        path = tmp_path / "missing_fields.yaml"
-        path.write_text(
-            """
-metadata:
-  ticker: "X"
-  company_name: "Y"
-  document_type: "annual_report"
-  extraction_type: "numeric"
-  reporting_currency: "USD"
-  unit_scale: "units"
-  fiscal_year: 2024
-  extraction_date: "2025-01-01"
-  fiscal_periods: []
-income_statement: {}
-balance_sheet: {}
-""",
-            encoding="utf-8",
-        )
-        with pytest.raises(IngestionError, match="schema validation failed"):
-            parse_raw_extraction(path)
-
-
-# ======================================================================
-# 4. Round-trip from the real fixture
-# ======================================================================
-
-
-class TestRoundTrip:
-    def test_dump_and_reload_preserves_data(self) -> None:
-        raw = parse_raw_extraction(_FIXTURE)
-        dumped = raw.to_yaml()
-        reloaded = RawExtraction.from_yaml(dumped)
-        # After parse + normalise + dump + reload, both are in units.
-        assert reloaded.metadata.unit_scale == "units"
-        assert reloaded == raw
+class TestOperationalKPIScaling:
+    def test_monetary_kpi_scaled(self) -> None:
+        payload = _base_payload()
+        payload["operational_kpis"] = [
+            {
+                "metric_label": "Total compensation",
+                "source": "MD&A",
+                "unit": "USD millions",
+                "values": {"FY2024": "50"},
+            },
+            {
+                "metric_label": "Headcount",
+                "source": "MD&A",
+                "unit": "count",
+                "values": {"FY2024": "850"},
+            },
+        ]
+        raw = RawExtraction.model_validate(payload)
+        normalised = normalise_unit_scale(raw)
+        # Monetary (USD in unit) scaled
+        comp_kpi = normalised.operational_kpis[0]
+        assert comp_kpi.values["FY2024"] == Decimal("50000000")
+        # Count (no currency marker) NOT scaled — the schema coerces
+        # "850" → Decimal("850") at load time but the parser leaves
+        # it at face value.
+        headcount_kpi = normalised.operational_kpis[1]
+        assert headcount_kpi.values["FY2024"] == Decimal("850")
