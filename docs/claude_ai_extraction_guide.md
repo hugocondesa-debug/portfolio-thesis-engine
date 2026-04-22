@@ -43,6 +43,29 @@ The three-page schema reference
 ([`raw_extraction_schema.md`](raw_extraction_schema.md)) is the contract
 — if the YAML validates, the pipeline processes it.
 
+## 1a. The catch-all principle (read this every session)
+
+**Extraction captures what the company reported. Downstream decides
+what it means.**
+
+During extraction you **do not**:
+
+- Calculate or derive values the PDF doesn't publish.
+- Interpret numbers ("meaningful tax inefficiency", "+30% YoY",
+  "material FX risk", "strong growth").
+- Classify beyond the closed schema vocabularies.
+- Guess ambiguous disclosures — flag them in
+  `notes.unknown_sections` with `reviewer_flag: true`.
+
+If you catch yourself writing words like _meaningful, material,
+elevated, concerning, strong, weak, signals, indicates, inefficient_
+in the YAML — stop. Rewrite as a fact, or delete.
+
+Full rationale + bad-vs-good examples in
+[`reference/catch_all_philosophy.md`](reference/catch_all_philosophy.md).
+**Upload that doc to every Claude.ai Project; re-read it when the
+model starts editorialising.**
+
 ## 2. Setup — one Project per profile
 
 The extraction methodology and the required note-set differ by profile,
@@ -99,7 +122,10 @@ starts populating them.
 
 ### 2.2 Knowledge-base contents per Project
 
-Upload these to every Project:
+Upload these to every Project. The Phase 1.5.1 reinforcement (guides
++ reference library) is critical for extraction quality.
+
+**Core contract:**
 
 - **`SPEC_PHASE_0.md`** (repo root) — the canonical spec (context only;
   most of it is app-side).
@@ -107,6 +133,33 @@ Upload these to every Project:
 - **`docs/raw_extraction_schema.md`** — field-by-field schema contract.
 - **`docs/document_types.md`** — which DocumentType to use when.
 - **`docs/required_notes_by_profile.md`** — completeness checklist.
+
+**Operational guides (`docs/guides/`):**
+
+- **`guides/sign_convention_guide.md`** — sign rules IS/BS/CF,
+  parentheses decoding.
+- **`guides/unit_scale_guide.md`** — the #1 bug; EPS + share-count
+  exceptions; verification.
+- **`guides/multi_currency_guide.md`** — reporting vs functional vs
+  subsidiary; cash-by-currency; CTA.
+- **`guides/schema_evolution_guide.md`** — year-to-year changes,
+  restatements, IFRS adoption.
+- **`guides/unknown_sections_protocol.md`** — when/how to use the
+  catchall bucket vs extensions vs typed fields.
+
+**Reference library (`docs/reference/`):**
+
+- **`reference/catch_all_philosophy.md`** — the foundational rule.
+  **Re-read each session.**
+- **`reference/operational_kpis_by_sector.md`** — sector KPI recall
+  list (non-prescriptive — preserve company naming).
+- **`reference/cross_statement_validation_checklist.md`** —
+  pre-submit checks.
+- **`reference/common_pitfalls_library.md`** — 20+ antipatterns with
+  bad-vs-good examples.
+
+**Few-shot fixtures:**
+
 - **`tests/fixtures/euroeyes/raw_extraction_ar_2024.yaml`** — realistic
   AR 2024 example (P1 few-shot).
 - **`tests/fixtures/euroeyes/raw_extraction_interim_h1_2025.yaml`** —
@@ -517,6 +570,23 @@ notes. The schema handles this:
   interim.
 - Consider running the interim extraction as a **separate YAML** from
   the annual — the pipeline supports multiple documents per ticker.
+
+## 4a. When in doubt — quick reference
+
+When something on the page doesn't fit cleanly, consult the relevant
+guide. Each is short (1-3 pages) and example-heavy.
+
+| Situation                                                    | Go to                                                                |
+| ------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Parentheses in a number / unsure about sign                  | [`guides/sign_convention_guide.md`](guides/sign_convention_guide.md) |
+| Suspicious magnitude / mid-document scale change             | [`guides/unit_scale_guide.md`](guides/unit_scale_guide.md)           |
+| Company has operations in multiple currencies                | [`guides/multi_currency_guide.md`](guides/multi_currency_guide.md)   |
+| Line names or classifications changed between years          | [`guides/schema_evolution_guide.md`](guides/schema_evolution_guide.md) |
+| Disclosure doesn't fit any typed field or extensions dict    | [`guides/unknown_sections_protocol.md`](guides/unknown_sections_protocol.md) |
+| Need a sector-specific KPI recall                            | [`reference/operational_kpis_by_sector.md`](reference/operational_kpis_by_sector.md) |
+| Pre-submit sanity check                                      | [`reference/cross_statement_validation_checklist.md`](reference/cross_statement_validation_checklist.md) |
+| The validator surfaced a warn or FAIL you don't understand   | [`reference/common_pitfalls_library.md`](reference/common_pitfalls_library.md) |
+| Tempted to write "meaningful", "material", "elevated", ...   | [`reference/catch_all_philosophy.md`](reference/catch_all_philosophy.md) |
 
 ## 5. Validation commands
 
