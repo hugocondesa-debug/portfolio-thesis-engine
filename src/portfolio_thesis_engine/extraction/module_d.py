@@ -115,6 +115,16 @@ NON_RECURRING_PATTERNS: list[tuple[str, RecurrenceClass, ConfidenceLevel]] = [
 
 _CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
 
+# Phase 1.5.10.1 — parent-line labels that signal the sub-items inherit
+# "core operating + recurring" when explicit patterns don't fire. Core
+# revenue (and by extension its sub-segments) is the dominant case where
+# the parent alone is enough to classify.
+_REVENUE_PARENT = re.compile(
+    r"\b(revenue|sales|turnover|income from operations|"
+    r"operating revenue|service revenue)\b",
+    re.IGNORECASE,
+)
+
 
 def _min_confidence(a: ConfidenceLevel, b: ConfidenceLevel) -> ConfidenceLevel:
     return a if _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] else b
@@ -220,6 +230,7 @@ class ModuleD:
                     table=table,
                     note=note,
                     col_idx=col_idx,
+                    parent_label=line_item.label,
                 )
                 if sub_items:
                     return self._build_decomposition(
@@ -233,7 +244,8 @@ class ModuleD:
         # Strategy 2 — label_fallback. Single-label classification when
         # the label itself matches a regex pattern. Useful for lines
         # whose note isn't structured as a sum (e.g. "Impairment
-        # charge — goodwill, note 12" pointing at narrative).
+        # charge — goodwill, note 12" pointing at narrative). No parent
+        # context here — the parent *is* the line being classified.
         single = self.classify_sub_item(
             label=line_item.label,
             value=line_item.value or Decimal("0"),
@@ -268,9 +280,18 @@ class ModuleD:
         label: str,
         value: Decimal,
         source_page: int | None = None,
+        parent_label: str | None = None,
     ) -> SubItem:
         """Apply overrides first, then regex rules. Return a populated
-        :class:`SubItem`."""
+        :class:`SubItem`.
+
+        Phase 1.5.10.1 — when both dimensions stay ``ambiguous`` after
+        the regex pass AND ``parent_label`` matches
+        :data:`_REVENUE_PARENT`, default to ``operational`` × ``recurring``
+        at ``medium`` confidence. Rationale: core revenue sub-items
+        (per-service revenue, per-SKU, per-region) are the dominant
+        case of "the parent line's classification propagates".
+        """
         override = self.overrides.match(label)
         if override is not None and (
             override.operational is not None or override.recurring is not None
@@ -346,6 +367,31 @@ class ModuleD:
             rec_class = "ambiguous"
             rec_conf = "low"
 
+        # Phase 1.5.10.1 — parent-aware default. Only triggers when
+        # both regex classifications came back ambiguous (no pattern
+        # fired). Explicit matches always take precedence.
+        if (
+            op_class == "ambiguous"
+            and rec_class == "ambiguous"
+            and parent_label is not None
+            and _REVENUE_PARENT.search(parent_label)
+        ):
+            return SubItem(
+                label=label,
+                value=value,
+                operational_classification="operational",
+                recurrence_classification="recurring",
+                action="include",
+                matched_rule=f"parent_aware_default:{parent_label}",
+                rationale=(
+                    f"Sub-item of revenue-like parent ({parent_label!r}); "
+                    "defaults to operational × recurring."
+                ),
+                confidence="medium",
+                source_page=source_page,
+                needs_multi_year_validation=True,
+            )
+
         action = _decide_action(op_class, rec_class)
         return SubItem(
             label=label,
@@ -366,10 +412,14 @@ class ModuleD:
         table: NoteTable,
         note: Note,
         col_idx: int,
+        parent_label: str | None = None,
     ) -> list[SubItem]:
         """Walk table rows, pulling the value from column ``col_idx``
         (identified by :func:`_best_column_match` as the primary-period
-        column), and build :class:`SubItem` objects."""
+        column), and build :class:`SubItem` objects. ``parent_label``
+        is forwarded to :meth:`classify_sub_item` so parent-aware
+        defaults can fire when both dimensions regex-match as ambiguous.
+        """
         source_page = note.source_pages[0] if note.source_pages else None
         sub_items: list[SubItem] = []
         for row in table.rows:
@@ -385,7 +435,11 @@ class ModuleD:
             if lower.startswith("total") or lower.startswith("net total"):
                 continue
             sub_items.append(
-                self.classify_sub_item(label, cell, source_page=source_page)
+                self.classify_sub_item(
+                    label, cell,
+                    source_page=source_page,
+                    parent_label=parent_label,
+                )
             )
         return sub_items
 

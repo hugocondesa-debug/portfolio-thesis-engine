@@ -268,10 +268,17 @@ def _sustainable_oi_derivation_tables(bundle: FichaBundle) -> list[Table]:
     """Phase 1.5.10 — per-line sub-item breakdown for every parent that
     contributed to the sustainable operating income adjustment.
 
-    Shows the Module-D decisions the DCF and NOPAT bridge depend on, with
-    rationale / confidence / matched rule for each sub-item. Renders one
-    table per parent line (scoped to IS lines with at least one
-    ``exclude`` / ``flag_for_review`` sub-item)."""
+    Phase 1.5.10.1: display scope restricted to parent lines that
+    actually enter the sustainable-OI computation (items between Gross
+    Profit and Operating Profit — the ``_NON_RECURRING_OP`` gate the
+    analysis layer uses). Decomposed lines below OP (Finance income /
+    expenses) and core revenue are still persisted on the canonical
+    state for Phase-2 consumers (economic BS, PPA split, etc.) but
+    aren't shown here — they'd be visual noise that doesn't affect
+    the bridge.
+    """
+    from portfolio_thesis_engine.extraction.analysis import _NON_RECURRING_OP
+
     state = bundle.canonical_state
     if state is None:
         return []
@@ -283,6 +290,11 @@ def _sustainable_oi_derivation_tables(bundle: FichaBundle) -> list[Table]:
         if not decomp.sub_items:
             continue
         if key.split(":", 1)[0] != "IS":
+            continue
+        # Phase 1.5.10.1 gate — match the analysis-layer's
+        # non-recurring-candidate regex so the display agrees with the
+        # NOPAT bridge's sustainable OI math.
+        if not _NON_RECURRING_OP.search(decomp.parent_label):
             continue
         if not any(
             s.action in ("exclude", "flag_for_review") for s in decomp.sub_items
