@@ -40,6 +40,7 @@ from portfolio_thesis_engine.schemas.company import (
     IncomeStatementLine,
     MethodologyMetadata,
     ModuleAdjustment,
+    NarrativeContext,
     ReclassifiedStatements,
     ValidationResult,
     ValidationResults,
@@ -252,6 +253,14 @@ class ExtractionCoordinator:
             f"{context.fiscal_period_label}_"
             f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         )
+        # Phase 1.5.14 — preserve narrative context from the raw
+        # extraction. Downstream consumers (Ficha summary, show CLI,
+        # scenario-adjustment exports) rely on it.
+        narrative_context = _build_narrative_context(
+            raw_extraction=context.raw_extraction,
+            primary_period=context.fiscal_period_label,
+        )
+
         return CanonicalCompanyState(
             extraction_id=extraction_id,
             extraction_date=datetime.now(UTC),
@@ -263,6 +272,7 @@ class ExtractionCoordinator:
             validation=validation,
             vintage=VintageAndCascade(),
             methodology=methodology,
+            narrative_context=narrative_context,
             source_documents=source_documents,
         )
 
@@ -404,3 +414,39 @@ def _confidence_for_audit_status(audit_status: Any) -> str:
     if audit_status == AuditStatus.REVIEWED:
         return "MEDIUM"
     return "MEDIUM"
+
+
+# ----------------------------------------------------------------------
+# Phase 1.5.14 — narrative preservation
+# ----------------------------------------------------------------------
+def _build_narrative_context(
+    raw_extraction: RawExtraction,
+    primary_period: str,
+) -> NarrativeContext | None:
+    """Build a :class:`NarrativeContext` from the raw extraction's
+    ``narrative`` block. Returns ``None`` when every narrative bucket
+    is empty — keeps canonical states lean when the source didn't
+    capture qualitative context.
+    """
+    narrative = raw_extraction.narrative
+    if narrative is None:
+        return None
+    buckets = (
+        narrative.key_themes,
+        narrative.risks_mentioned,
+        narrative.guidance_changes,
+        narrative.capital_allocation_comments,
+        narrative.forward_looking_statements,
+    )
+    if not any(buckets):
+        return None
+    return NarrativeContext(
+        key_themes=list(narrative.key_themes),
+        risks_mentioned=list(narrative.risks_mentioned),
+        guidance_changes=list(narrative.guidance_changes),
+        capital_allocation_signals=list(narrative.capital_allocation_comments),
+        forward_looking_statements=list(narrative.forward_looking_statements),
+        source_extraction_period=primary_period,
+        source_document_type=raw_extraction.metadata.document_type.value,
+        extraction_timestamp=datetime.now(UTC),
+    )

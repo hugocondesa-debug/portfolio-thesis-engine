@@ -26,6 +26,12 @@ from portfolio_thesis_engine.schemas.decomposition import (
     LineDecomposition,
     SubItem,
 )
+from portfolio_thesis_engine.schemas.raw_extraction import (
+    CapitalAllocationItem,
+    GuidanceItem,
+    NarrativeItem,
+    RiskItem,
+)
 
 
 class CompanyIdentity(BaseSchema):
@@ -331,12 +337,46 @@ class MethodologyMetadata(BaseSchema):
     source_document_type: str | None = None
 
 
+class NarrativeContext(BaseSchema):
+    """Phase 1.5.14 — qualitative context preserved from the raw
+    extraction through the canonical pipeline.
+
+    Phase 1.5.12's :class:`NarrativeContent` / :class:`NarrativeItem` /
+    :class:`RiskItem` / :class:`GuidanceItem` / :class:`CapitalAllocationItem`
+    capture rich attribution in the extraction YAML (source, page,
+    supporting facts). Pre-1.5.14 the canonical state dropped all of
+    this. Downstream consumers — the Ficha summary, the
+    ``pte show --narrative`` renderer, scenario-adjustment workflows
+    in Claude.ai Project — need the business context to reason about
+    why numbers moved.
+
+    Every list defaults to empty so the canonical state remains valid
+    when the source extraction carried no narrative.
+    """
+
+    key_themes: list[NarrativeItem] = Field(default_factory=list)
+    risks_mentioned: list[RiskItem] = Field(default_factory=list)
+    guidance_changes: list[GuidanceItem] = Field(default_factory=list)
+    capital_allocation_signals: list[CapitalAllocationItem] = Field(
+        default_factory=list
+    )
+    forward_looking_statements: list[NarrativeItem] = Field(default_factory=list)
+
+    source_extraction_period: str
+    source_document_type: str
+    extraction_timestamp: datetime
+
+
 class CanonicalCompanyState(ImmutableSchema):
     """Immutable output of the extraction system for a company.
 
     Represents a complete, reclassified, validated view of the company's
     financial state as of a specific extraction date. Consumed by the
     valuation module (as input) and the portfolio module (for ratios).
+
+    Phase 1.5.14 — :attr:`narrative_context` preserves the qualitative
+    payload from the raw extraction. Optional: legacy canonical states
+    (pre-1.5.14) and extractions without narrative leave it ``None``.
     """
 
     extraction_id: str
@@ -352,5 +392,6 @@ class CanonicalCompanyState(ImmutableSchema):
     validation: ValidationResults
     vintage: VintageAndCascade
     methodology: MethodologyMetadata
+    narrative_context: NarrativeContext | None = None
 
     source_documents: list[str] = Field(default_factory=list)

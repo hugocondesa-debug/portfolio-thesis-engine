@@ -15,6 +15,28 @@ from portfolio_thesis_engine.schemas.position import Position
 from portfolio_thesis_engine.schemas.valuation import Conviction
 
 
+class NarrativeSummary(BaseSchema):
+    """Phase 1.5.14 — condensed narrative snapshot on the Ficha.
+
+    Built by the :class:`FichaComposer` from
+    :attr:`CanonicalCompanyState.narrative_context`. Each bucket holds
+    short bullet strings with optional ``[source: ...]`` attribution
+    baked in. Designed for human scanning + upload to Claude.ai Project
+    for scenario-adjustment workflows where rich business context
+    materially changes how an analyst picks Bear / Base / Bull drivers.
+    """
+
+    source_period: str
+    source_document_type: str
+    source_extraction_timestamp: datetime
+
+    key_themes: list[str] = Field(default_factory=list)
+    primary_risks: list[str] = Field(default_factory=list)
+    management_guidance: list[str] = Field(default_factory=list)
+    capital_allocation: list[str] = Field(default_factory=list)
+    forward_looking_statements: list[str] = Field(default_factory=list)
+
+
 class ThesisStatement(BaseSchema):
     """Investment thesis in one paragraph."""
 
@@ -60,3 +82,8 @@ class Ficha(BaseSchema, VersionedMixin):
     snapshot_age_days: int | None = None
     is_stale: bool = False
     next_earnings_expected: str | None = None
+
+    # Phase 1.5.14 — qualitative payload condensed from the source
+    # extraction. Optional: legacy fichas without narrative leave it
+    # ``None``, as do runs whose source extraction carried no narrative.
+    narrative_summary: NarrativeSummary | None = None

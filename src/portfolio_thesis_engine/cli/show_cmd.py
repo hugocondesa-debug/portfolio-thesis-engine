@@ -190,6 +190,45 @@ def render_segments_block(segments: Any) -> Table | None:
     return table
 
 
+def render_narrative_summary(ficha: Any) -> list[str]:
+    """Phase 1.5.14 — render :attr:`Ficha.narrative_summary` as Rich-
+    markup lines. Each bucket becomes a labelled group of bullets; the
+    source period + document type appear as a subtitle. Returns an
+    empty list when ``ficha`` has no narrative_summary so callers can
+    safely unconditionally print the result."""
+    if ficha is None:
+        return []
+    summary = getattr(ficha, "narrative_summary", None)
+    if summary is None:
+        return []
+
+    lines: list[str] = [
+        (
+            "[bold magenta]Narrative summary[/bold magenta] "
+            f"[dim]({summary.source_period}, {summary.source_document_type})[/dim]"
+        ),
+        "",
+    ]
+
+    def _emit_bucket(label: str, items: list[str]) -> None:
+        if not items:
+            return
+        lines.append(f"[bold]{label}[/bold]")
+        for item in items:
+            lines.append(f"  • {item}")
+        lines.append("")
+
+    _emit_bucket("Key themes", list(summary.key_themes))
+    _emit_bucket("Primary risks", list(summary.primary_risks))
+    _emit_bucket("Management guidance", list(summary.management_guidance))
+    _emit_bucket("Capital allocation", list(summary.capital_allocation))
+    _emit_bucket(
+        "Forward-looking statements",
+        list(summary.forward_looking_statements),
+    )
+    return lines
+
+
 def _unaudited_banner(bundle: FichaBundle) -> Any:
     """Phase 1.5.11 — prominent banner rendered at the top of every
     ``pte show`` view when the underlying canonical state was derived
@@ -992,6 +1031,15 @@ def show(
             "Deep-dive a single scenario (bear | base | bull). Implies --detail."
         ),
     ),
+    narrative: bool = typer.Option(
+        False,
+        "--narrative",
+        help=(
+            "Render the narrative summary (key themes, risks, guidance, "
+            "capital allocation) with source attribution. Useful for "
+            "scenario-adjustment workflows."
+        ),
+    ),
 ) -> None:
     """Render the aggregate :class:`Ficha` view for ``ticker``."""
     bundle = FichaLoader().load(ticker)
@@ -999,8 +1047,15 @@ def show(
         _render_json(bundle)
     elif detail or scenario is not None:
         _render_detail(bundle, scenario_filter=scenario)
+        # Phase 1.5.14 — detail view surfaces narrative by default when
+        # available, so the analyst never has to re-run with --narrative.
+        for line in render_narrative_summary(bundle.ficha):
+            console.print(line)
     else:
         _render_rich(bundle)
+        if narrative:
+            for line in render_narrative_summary(bundle.ficha):
+                console.print(line)
 
     # Exit code: 0 when at least canonical state or ficha is present;
     # 1 when nothing is on record (sentinel for scripts).
