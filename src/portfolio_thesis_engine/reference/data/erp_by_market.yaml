@@ -1,0 +1,10 @@
+# Damodaran Equity Risk Premium by market — 2025 snapshot.
+#
+# Source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html
+# "Mature market" ERP is the US implied ERP; other markets = US + country risk
+# premium (see country_risk_premiums.yaml).
+# Last refreshed manually: 2026-01
+
+vintage: "2025-01"
+mature_market: US
+mature_market_erp: 0.0472   # 4.72 %

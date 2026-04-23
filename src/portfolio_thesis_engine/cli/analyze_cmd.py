@@ -29,6 +29,11 @@ from portfolio_thesis_engine.analytical.analyze import (
     attribute_roic_change,
 )
 from portfolio_thesis_engine.analytical.historicals import HistoricalNormalizer
+from portfolio_thesis_engine.capital import WACCGenerator
+from portfolio_thesis_engine.capital.loaders import (
+    build_generator_inputs_from_state,
+)
+from portfolio_thesis_engine.schemas.cost_of_capital import WACCComputation
 from portfolio_thesis_engine.cli.historicals_cmd import (
     _render_fiscal_year_changes,
     _render_narrative_timeline,
@@ -343,6 +348,62 @@ def _roic_attribution_section(ts: CompanyTimeSeries) -> list[str]:
     return lines
 
 
+def _wacc_section(wacc: WACCComputation | None) -> list[str]:
+    if wacc is None:
+        return []
+    coe = wacc.cost_of_equity
+    lines = ["[bold cyan]Cost of Capital (auto-generated)[/bold cyan]"]
+    lines.append(
+        f"  Currency regime: {coe.currency_regime}"
+        + (
+            f" (|Δinflation| {coe.inflation_differential_abs:.4f})"
+            if coe.inflation_differential_abs is not None
+            else ""
+        )
+    )
+    lines.append(
+        f"  Rf: {coe.risk_free_rate * 100:.2f}% ({coe.risk_free_source})"
+    )
+    lines.append(
+        f"  Industry β: unlevered {coe.industry_unlevered_beta:.2f} "
+        f"({coe.industry_key}) → levered {coe.levered_beta:.2f} "
+        f"(D/E {coe.debt_to_equity:.2f}, t {coe.marginal_tax_rate:.2f})"
+    )
+    lines.append(
+        f"  ERP {coe.mature_market_erp * 100:.2f}% + weighted CRP "
+        f"{coe.weighted_crp * 100:.2f}%"
+    )
+    if coe.revenue_geography:
+        geo_parts = [
+            f"{country} {weight * 100:.0f}%"
+            for country, weight in coe.revenue_geography.items()
+        ]
+        lines.append(f"    Geography: {', '.join(geo_parts)}")
+    lines.append(f"  CoE: {coe.cost_of_equity_final * 100:.2f}%")
+    cod = wacc.cost_of_debt
+    if cod.is_applicable and cod.cost_of_debt_aftertax is not None:
+        lines.append(
+            f"  CoD: pretax {cod.cost_of_debt_pretax * 100:.2f}% "
+            f"(synthetic {cod.synthetic_rating}) → after-tax "
+            f"{cod.cost_of_debt_aftertax * 100:.2f}%"
+        )
+    else:
+        lines.append(f"  CoD: N/A ({cod.rationale or 'not applicable'})")
+    lines.append(
+        f"  Weights: equity {wacc.equity_weight * 100:.1f}%, "
+        f"debt {wacc.debt_weight * 100:.1f}%"
+    )
+    lines.append(
+        f"  [bold]WACC: {wacc.wacc * 100:.2f}%[/bold]"
+    )
+    if wacc.manual_wacc is not None:
+        lines.append(
+            f"  Manual WACC: {wacc.manual_wacc * 100:.2f}% "
+            f"(Δ {wacc.manual_vs_computed_bps:+d} bps vs auto)"
+        )
+    return lines
+
+
 def _restatement_pattern_section(ts: CompanyTimeSeries) -> list[str]:
     patterns = ts.restatement_patterns
     if not patterns:
@@ -484,7 +545,10 @@ def _signal_section(ts: CompanyTimeSeries) -> list[str]:
 # ----------------------------------------------------------------------
 # Markdown export
 # ----------------------------------------------------------------------
-def render_analytical_markdown(ts: CompanyTimeSeries) -> str:
+def render_analytical_markdown(
+    ts: CompanyTimeSeries,
+    auto_wacc: WACCComputation | None = None,
+) -> str:
     """Produce a markdown report spanning every analytical section the
     CLI renders (Sprint 2A.1 expands this from the initial trends +
     signal scaffold to the full report)."""
@@ -733,6 +797,35 @@ def render_analytical_markdown(ts: CompanyTimeSeries) -> str:
                     f"- {g.guidance_text} [{', '.join(g.periods_mentioned)}]{flag}"
                 )
 
+    # Sprint 3 — Cost of capital (auto-generated)
+    if auto_wacc is not None:
+        coe = auto_wacc.cost_of_equity
+        lines.extend([
+            "",
+            "## Cost of Capital (auto-generated)",
+            "",
+            f"- Currency regime: {coe.currency_regime}",
+            f"- Rf: {coe.risk_free_rate * 100:.2f}% ({coe.risk_free_source})",
+            f"- Industry β (unlevered): {coe.industry_unlevered_beta:.2f} ({coe.industry_key})",
+            f"- Levered β: {coe.levered_beta:.2f} (D/E {coe.debt_to_equity:.2f}, tax {coe.marginal_tax_rate:.2f})",
+            f"- ERP + weighted CRP: {(coe.mature_market_erp + coe.weighted_crp) * 100:.2f}%",
+            f"- CoE: {coe.cost_of_equity_final * 100:.2f}%",
+        ])
+        cod = auto_wacc.cost_of_debt
+        if cod.is_applicable and cod.cost_of_debt_aftertax is not None:
+            lines.append(
+                f"- CoD (after-tax): {cod.cost_of_debt_aftertax * 100:.2f}% "
+                f"(synthetic {cod.synthetic_rating})"
+            )
+        else:
+            lines.append(f"- CoD: N/A — {cod.rationale}")
+        lines.append(f"- **WACC: {auto_wacc.wacc * 100:.2f}%**")
+        if auto_wacc.manual_wacc is not None:
+            lines.append(
+                f"- Manual WACC: {auto_wacc.manual_wacc * 100:.2f}% "
+                f"(Δ {auto_wacc.manual_vs_computed_bps:+d} bps)"
+            )
+
     # Investment signal
     if ts.investment_signal is not None:
         s = ts.investment_signal
@@ -776,6 +869,36 @@ def _strip_markup(text: str) -> str:
 # ----------------------------------------------------------------------
 # Runner + Typer entry
 # ----------------------------------------------------------------------
+def _compute_auto_wacc(
+    ticker: str, normalizer: HistoricalNormalizer
+) -> WACCComputation | None:
+    """Best-effort WACC auto-generation. Returns ``None`` on any
+    failure (missing canonical state, unknown currency/industry); the
+    CLI treats auto-WACC as an optional enhancement."""
+    try:
+        states = normalizer._load_all_states(ticker)  # noqa: SLF001
+        if not states:
+            return None
+        state = states[-1]
+        # Pull manual WACC from wacc_inputs.md when available for the
+        # audit-trail comparison.
+        from portfolio_thesis_engine.analytical.historicals import (
+            _load_wacc_for_ticker,
+        )
+
+        manual_wacc = _load_wacc_for_ticker(ticker)
+        manual_decimal = manual_wacc / Decimal("100") if manual_wacc is not None else None
+        inputs = build_generator_inputs_from_state(
+            ticker,
+            state,
+            manual_wacc=manual_decimal,
+            marginal_tax_rate=Decimal("0.165"),
+        )
+        return WACCGenerator().generate(inputs)
+    except Exception:
+        return None
+
+
 def _run_analyze(
     ticker: str, export: Path | None, normalizer: HistoricalNormalizer | None
 ) -> None:
@@ -787,6 +910,7 @@ def _run_analyze(
             "Run `pte process` first."
         )
         raise typer.Exit(code=1)
+    auto_wacc = _compute_auto_wacc(ticker, normalizer)
 
     # 1. Periods
     console.print(_render_periods_table(ts))
@@ -811,6 +935,9 @@ def _run_analyze(
     for line in _roe_5way_attribution_section(ts):
         console.print(line)
     for line in _roic_attribution_section(ts):
+        console.print(line)
+    # 4c. Auto-generated WACC (Sprint 3)
+    for line in _wacc_section(auto_wacc):
         console.print(line)
     # 5. Trends
     trends = _trends_table(ts)
@@ -846,7 +973,10 @@ def _run_analyze(
 
     if export is not None:
         export.parent.mkdir(parents=True, exist_ok=True)
-        export.write_text(render_analytical_markdown(ts), encoding="utf-8")
+        export.write_text(
+            render_analytical_markdown(ts, auto_wacc=auto_wacc),
+            encoding="utf-8",
+        )
         console.print(
             f"\n[dim]Analytical markdown report written to {export}[/dim]"
         )

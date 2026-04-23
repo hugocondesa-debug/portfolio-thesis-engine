@@ -1,0 +1,61 @@
+# Damodaran synthetic credit rating table — 2025 snapshot.
+#
+# Source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html
+# Applied by interest-coverage ratio for large/established companies.
+# Spread is additive on top of the risk-free rate to get pretax cost of debt.
+# Last refreshed manually: 2026-01
+
+vintage: "2025-01"
+applicability: "large_established"  # Alternative table exists for smaller cos
+
+# Ordered from highest to lowest coverage (search high → low).
+# ``min_coverage`` is inclusive lower bound; inf means no upper bound.
+brackets:
+  - rating: "AAA"
+    min_coverage: 12.5
+    spread: 0.0063
+  - rating: "AA"
+    min_coverage: 9.5
+    spread: 0.0078
+  - rating: "AA-"
+    min_coverage: 7.5
+    spread: 0.0098
+  - rating: "A+"
+    min_coverage: 6.0
+    spread: 0.0108
+  - rating: "A"
+    min_coverage: 4.5
+    spread: 0.0122
+  - rating: "A-"
+    min_coverage: 4.0
+    spread: 0.0156
+  - rating: "BBB"
+    min_coverage: 3.0
+    spread: 0.0200
+  - rating: "BB+"
+    min_coverage: 2.5
+    spread: 0.0240
+  - rating: "BB"
+    min_coverage: 2.0
+    spread: 0.0300
+  - rating: "B+"
+    min_coverage: 1.75
+    spread: 0.0378
+  - rating: "B"
+    min_coverage: 1.5
+    spread: 0.0462
+  - rating: "B-"
+    min_coverage: 1.25
+    spread: 0.0513
+  - rating: "CCC"
+    min_coverage: 0.8
+    spread: 0.0865
+  - rating: "CC"
+    min_coverage: 0.5
+    spread: 0.1118
+  - rating: "C"
+    min_coverage: 0.2
+    spread: 0.1405
+  - rating: "D"
+    min_coverage: -1000.0  # catch-all floor
+    spread: 0.1862

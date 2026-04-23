@@ -50,9 +50,11 @@ ENV/
 *.key
 !*.key.example
 
-# Data (never commit)
-data/
-!data/.gitkeep
+# Data (never commit user-generated data — repo-root `/data/` only).
+# Anchored at the repo root so package-internal reference data bundles
+# like `src/portfolio_thesis_engine/reference/data/` stay tracked.
+/data/
+!/data/.gitkeep
 backup/
 *.duckdb
 *.sqlite

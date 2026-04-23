@@ -1,0 +1,53 @@
+# Damodaran Industry Unlevered Betas — 2025 snapshot.
+#
+# Source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/Betas.html
+# Global data, 5-year regression, unlevered for cash.
+# Last refreshed manually: 2026-01
+
+vintage: "2025-01"
+methodology: "5-year monthly regression, unlevered for cash (Global)"
+
+industries:
+  healthcare_services:     0.75
+  healthcare_products:     0.95
+  biotech:                 1.25
+  pharma:                  1.05
+  hospital_care_facilities: 0.80
+  software_system:         1.05
+  software_application:    1.10
+  software_internet:       1.25
+  retail_general:          0.90
+  retail_automotive:       1.00
+  retail_food:             0.55
+  restaurants:             0.95
+  hotel_gaming:            1.25
+  banking_regional:        0.55
+  banking_global:          0.70
+  insurance_life:          0.65
+  insurance_pc:            0.60
+  real_estate_reit:        0.70
+  utilities_general:       0.45
+  utilities_water:         0.45
+  oil_gas_integrated:      0.80
+  oil_gas_exploration:     1.10
+  telecom_wireless:        0.65
+  telecom_services:        0.60
+  media_advertising:       0.90
+  media_entertainment:     1.05
+  transport_airlines:      1.05
+  transport_logistics:     0.80
+  auto_parts:              1.05
+  auto_truck:              1.20
+  chemicals_specialty:     0.85
+  chemicals_basic:         0.95
+  metals_mining:           1.15
+  industrial_machinery:    1.00
+  construction_engineering: 1.15
+  semiconductors:          1.35
+  aerospace_defense:       0.85
+  household_products:      0.65
+  beverages_soft:          0.55
+  beverages_alcohol:       0.70
+  apparel:                 0.95
+  toys_luxury:             1.00
+  education:               0.95

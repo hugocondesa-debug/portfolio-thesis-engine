@@ -1,0 +1,41 @@
+# Damodaran Country Risk Premiums — 2025 snapshot.
+#
+# Source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html
+# Last refreshed manually: 2026-01
+#
+# Values are decimal fractions (0.004 == 40 bps).
+# CRP = country equity risk premium on top of the mature-market ERP.
+
+vintage: "2025-01"
+base_market: "US"
+
+countries:
+  # Europe — developed
+  US:            0.0000
+  Germany:       0.0040
+  Denmark:       0.0020
+  Netherlands:   0.0025
+  France:        0.0075
+  UK:            0.0075
+  Switzerland:   0.0000
+  Spain:         0.0175
+  Italy:         0.0225
+  Portugal:      0.0210
+  # Asia — developed
+  HK:            0.0060
+  Singapore:     0.0025
+  Japan:         0.0070
+  Taiwan:        0.0110
+  # Asia — emerging
+  PRC:           0.0150
+  China:         0.0150   # alias
+  India:         0.0300
+  Indonesia:     0.0340
+  Vietnam:       0.0465
+  # Americas
+  Canada:        0.0000
+  Mexico:        0.0320
+  Brazil:        0.0385
+  # Other
+  Australia:     0.0025
+  NewZealand:    0.0025
