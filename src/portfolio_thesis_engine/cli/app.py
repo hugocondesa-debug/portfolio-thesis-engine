@@ -17,6 +17,7 @@ from portfolio_thesis_engine.cli.setup_cmd import setup
 from portfolio_thesis_engine.cli.show_cmd import show
 from portfolio_thesis_engine.cli.smoke_cmd import smoke_test
 from portfolio_thesis_engine.cli.validate_extraction_cmd import validate_extraction
+from portfolio_thesis_engine.cli.valuation_cmd import valuation
 
 app = typer.Typer(
     name="pte",
@@ -38,6 +39,7 @@ app.command("generate-overrides")(generate_overrides)
 app.command("historicals")(historicals)
 app.command("analyze")(analyze)
 app.command("peers")(peers)
+app.command("valuation")(valuation)
 
 
 if __name__ == "__main__":  # pragma: no cover

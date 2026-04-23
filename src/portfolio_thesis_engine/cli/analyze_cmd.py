@@ -33,6 +33,8 @@ from portfolio_thesis_engine.capital import WACCGenerator
 from portfolio_thesis_engine.capital.loaders import (
     build_generator_inputs_from_state,
 )
+from portfolio_thesis_engine.dcf.orchestrator import DCFOrchestrator
+from portfolio_thesis_engine.dcf.schemas import DCFValuationResult
 from portfolio_thesis_engine.schemas.cost_of_capital import WACCComputation
 from portfolio_thesis_engine.cli.historicals_cmd import (
     _render_fiscal_year_changes,
@@ -348,6 +350,43 @@ def _roic_attribution_section(ts: CompanyTimeSeries) -> list[str]:
     return lines
 
 
+def _dcf_summary_section(result: DCFValuationResult | None) -> list[str]:
+    if result is None or not result.scenarios_run:
+        return []
+    lines = ["[bold cyan]Scenario-weighted DCF[/bold cyan]"]
+    ev = result.expected_value_per_share
+    if ev is not None:
+        upside = (
+            f" ({result.implied_upside_downside_pct:+.1f}% vs market)"
+            if result.implied_upside_downside_pct is not None
+            else ""
+        )
+        lines.append(f"  Expected value: {ev:,.2f}{upside}")
+    base = next(
+        (s for s in result.scenarios_run if s.scenario_name == "base"),
+        result.scenarios_run[0],
+    )
+    lines.append(
+        f"  Base scenario: {base.fair_value_per_share:,.2f} "
+        f"({base.scenario_probability * 100:.0f}% probability)"
+    )
+    if result.p25_value_per_share is not None and result.p75_value_per_share is not None:
+        lines.append(
+            f"  P25-P75 range: {result.p25_value_per_share:,.2f} – "
+            f"{result.p75_value_per_share:,.2f}"
+        )
+    warning_count = sum(
+        1 for w in result.warnings if w.severity != "INFO"
+    )
+    if warning_count:
+        lines.append(
+            f"  Warnings: {warning_count} "
+            f"(see `pte valuation {result.ticker}` for detail)"
+        )
+    lines.append(f"  See `pte valuation {result.ticker}` for full report.")
+    return lines
+
+
 def _wacc_section(wacc: WACCComputation | None) -> list[str]:
     if wacc is None:
         return []
@@ -548,6 +587,7 @@ def _signal_section(ts: CompanyTimeSeries) -> list[str]:
 def render_analytical_markdown(
     ts: CompanyTimeSeries,
     auto_wacc: WACCComputation | None = None,
+    dcf_result: DCFValuationResult | None = None,
 ) -> str:
     """Produce a markdown report spanning every analytical section the
     CLI renders (Sprint 2A.1 expands this from the initial trends +
@@ -826,6 +866,33 @@ def render_analytical_markdown(
                 f"(Δ {auto_wacc.manual_vs_computed_bps:+d} bps)"
             )
 
+    # Sprint 4A-alpha — scenario-weighted DCF summary.
+    if dcf_result is not None and dcf_result.scenarios_run:
+        lines.extend([
+            "",
+            "## Scenario-weighted DCF",
+            "",
+            "| Scenario | Probability | FV / share |",
+            "|---|---:|---:|",
+        ])
+        for v in dcf_result.scenarios_run:
+            lines.append(
+                f"| {v.scenario_name} | "
+                f"{v.scenario_probability * 100:.0f}% | "
+                f"{v.fair_value_per_share:,.2f} |"
+            )
+        if dcf_result.expected_value_per_share is not None:
+            lines.append("")
+            lines.append(
+                f"**Expected value per share:** "
+                f"{dcf_result.expected_value_per_share:,.2f}"
+            )
+        if dcf_result.implied_upside_downside_pct is not None:
+            lines.append(
+                f"**Implied upside/downside:** "
+                f"{dcf_result.implied_upside_downside_pct:+.1f}%"
+            )
+
     # Investment signal
     if ts.investment_signal is not None:
         s = ts.investment_signal
@@ -869,6 +936,15 @@ def _strip_markup(text: str) -> str:
 # ----------------------------------------------------------------------
 # Runner + Typer entry
 # ----------------------------------------------------------------------
+def _compute_dcf(ticker: str) -> DCFValuationResult | None:
+    """Sprint 4A-alpha — best-effort DCF orchestration. Silent
+    failure when scenarios.yaml or valuation_profile.yaml are absent."""
+    try:
+        return DCFOrchestrator().run(ticker)
+    except Exception:
+        return None
+
+
 def _compute_auto_wacc(
     ticker: str, normalizer: HistoricalNormalizer
 ) -> WACCComputation | None:
@@ -911,6 +987,7 @@ def _run_analyze(
         )
         raise typer.Exit(code=1)
     auto_wacc = _compute_auto_wacc(ticker, normalizer)
+    dcf_result = _compute_dcf(ticker)
 
     # 1. Periods
     console.print(_render_periods_table(ts))
@@ -938,6 +1015,9 @@ def _run_analyze(
         console.print(line)
     # 4c. Auto-generated WACC (Sprint 3)
     for line in _wacc_section(auto_wacc):
+        console.print(line)
+    # 4d. Scenario-weighted DCF summary (Sprint 4A-alpha)
+    for line in _dcf_summary_section(dcf_result):
         console.print(line)
     # 5. Trends
     trends = _trends_table(ts)
@@ -974,7 +1054,9 @@ def _run_analyze(
     if export is not None:
         export.parent.mkdir(parents=True, exist_ok=True)
         export.write_text(
-            render_analytical_markdown(ts, auto_wacc=auto_wacc),
+            render_analytical_markdown(
+                ts, auto_wacc=auto_wacc, dcf_result=dcf_result
+            ),
             encoding="utf-8",
         )
         console.print(
