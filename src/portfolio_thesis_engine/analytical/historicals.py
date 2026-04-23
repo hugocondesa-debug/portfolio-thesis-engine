@@ -29,6 +29,8 @@ from portfolio_thesis_engine.schemas.historicals import (
     HistoricalRecord,
     NarrativeTimeline,
     RestatementEvent,
+    RestatementNarrativeLink,
+    RestatementPattern,
     RiskOccurrence,
     ThemeOccurrence,
 )
@@ -40,16 +42,50 @@ from portfolio_thesis_engine.schemas.raw_extraction import (
 from portfolio_thesis_engine.storage.yaml_repo import CompanyStateRepository
 
 # ----------------------------------------------------------------------
-# Constants
+# Constants — Sprint 2B Part B expanded metric list
 # ----------------------------------------------------------------------
 _RESTATEMENT_MATERIALITY_PCT = Decimal("0.5")
-_RESTATEMENT_METRICS = (
+
+# Metric class buckets drive default thresholds and render grouping.
+_RESTATEMENT_HEADLINES = (
     "revenue",
     "operating_income",
     "net_income",
     "total_assets",
     "total_equity",
 )
+_RESTATEMENT_SECONDARY = (
+    "pbt",
+    "income_tax_expense",
+    "finance_income",
+    "finance_expense",
+    "cash_and_equivalents",
+    "financial_debt",
+    "accounts_receivable",
+    "invested_capital",
+)
+_RESTATEMENT_MEMO = (
+    "ebitda",
+    "nopat",
+    "lease_liabilities",
+)
+_RESTATEMENT_METRICS = (
+    _RESTATEMENT_HEADLINES + _RESTATEMENT_SECONDARY + _RESTATEMENT_MEMO
+)
+
+
+def _metric_class(metric: str) -> str:
+    if metric in _RESTATEMENT_HEADLINES:
+        return "headline"
+    if metric in _RESTATEMENT_SECONDARY:
+        return "secondary"
+    return "memo"
+
+
+def _default_threshold_for(metric: str) -> Decimal:
+    """Sprint 2B Part B — headline metrics trigger at 0.5 % delta,
+    secondary/memo at 1.0 %."""
+    return Decimal("0.5") if metric in _RESTATEMENT_HEADLINES else Decimal("1.0")
 
 
 def _classify_restatement_severity(delta_pct: Decimal) -> str:
@@ -122,12 +158,19 @@ class HistoricalNormalizer:
             sorted_records, trends, latest_roic, latest_qoe
         )
 
+        patterns = _detect_restatement_patterns(restatements)
+        narrative_links = _link_restatements_to_narrative(
+            patterns, sorted_records
+        )
+
         return CompanyTimeSeries(
             ticker=ticker,
             identity=identity,
             records=sorted_records,
             fiscal_year_changes=fy_changes,
             restatement_events=restatements,
+            restatement_patterns=patterns,
+            restatement_narrative_links=narrative_links,
             narrative_timeline=narrative_timeline,
             trends=trends,
             investment_signal=signal,
@@ -466,6 +509,31 @@ def _build_record(
         statement="income_statement",
         subtotal_ok=True,
     )
+    # Phase 2 Sprint 2B Part A — PBT + tax expense + finance items feed
+    # DuPont 5-way.
+    pbt = _first_matching_line(
+        state,
+        labels=("profit before tax", "income before tax",
+                "profit before income tax"),
+        statement="income_statement",
+        subtotal_ok=True,
+    )
+    tax_expense = _first_matching_line(
+        state,
+        labels=("income tax expense", "income tax", "tax expense"),
+        statement="income_statement",
+        subtotal_ok=True,
+    )
+    fin_income = _first_matching_line(
+        state,
+        labels=("finance income", "interest income", "investment income"),
+        statement="income_statement",
+    )
+    fin_expense = _first_matching_line(
+        state,
+        labels=("finance expenses", "interest expense", "finance costs"),
+        statement="income_statement",
+    )
     # Phase 2 Sprint 2A.1 — canonical BS line lists don't persist
     # "Total assets"/"Total equity" subtotal rows (issuers report them
     # only in narrative summaries). Fall back to category-sum when the
@@ -547,6 +615,10 @@ def _build_record(
             bridge.operating_income_sustainable if bridge is not None else None
         ),
         net_income=net_income,
+        pbt=pbt,
+        income_tax_expense=tax_expense,
+        finance_income=fin_income,
+        finance_expense=fin_expense,
         ebitda=bridge.ebitda if bridge is not None else None,
         total_assets=total_assets,
         total_equity=total_equity,
@@ -568,6 +640,9 @@ def _build_record(
             ratios.roic_reported if ratios is not None else None
         ),
         roe=ratios.roe if ratios is not None else None,
+        capex_revenue_ratio=(
+            ratios.capex_revenue if ratios is not None else None
+        ),
         cfo=cfo,
         accounts_receivable=accounts_receivable,
         non_recurring_items_share=non_recurring_share,
@@ -664,6 +739,23 @@ def _build_comparative_record(
                 "net income",
                 "net profit",
             ),
+        ),
+        pbt=_find(
+            rs.income_statement,
+            ("profit before tax", "income before tax",
+             "profit before income tax"),
+        ),
+        income_tax_expense=_find(
+            rs.income_statement,
+            ("income tax expense", "income tax", "tax expense"),
+        ),
+        finance_income=_find(
+            rs.income_statement,
+            ("finance income", "interest income", "investment income"),
+        ),
+        finance_expense=_find(
+            rs.income_statement,
+            ("finance expenses", "interest expense", "finance costs"),
         ),
         total_assets=total_assets,
         total_equity=total_equity,
@@ -811,20 +903,28 @@ def _compare_records(
     primary: HistoricalRecord, secondary: HistoricalRecord
 ) -> list[RestatementEvent]:
     """Phase 2 Sprint 2A — produce one :class:`RestatementEvent` per
-    metric whose value disagrees by ≥ 0.5 % between ``primary`` (the
-    winner) and ``secondary``. Severity classified on five levels;
-    NEGLIGIBLE deltas are skipped."""
+    metric whose value disagrees between ``primary`` (the winner) and
+    ``secondary``. Severity is classified on five levels; NEGLIGIBLE
+    deltas are skipped.
+
+    Phase 2 Sprint 2B Part B — per-metric thresholds (headline 0.5 %,
+    secondary/memo 1.0 %) + direction + metric_class fields populated
+    so later pattern detection can summarise the disagreement."""
     events: list[RestatementEvent] = []
     for metric in _RESTATEMENT_METRICS:
-        a = getattr(primary, metric)
-        b = getattr(secondary, metric)
+        a = getattr(primary, metric, None)
+        b = getattr(secondary, metric, None)
         if a is None or b is None or b == 0:
             continue
         delta_abs = a - b
         delta_pct = abs(delta_abs / b) * Decimal("100")
+        threshold = _default_threshold_for(metric)
+        if delta_pct < threshold:
+            continue
         severity = _classify_restatement_severity(delta_pct)
         if severity == "NEGLIGIBLE":
             continue
+        direction = "UPWARD" if delta_abs > 0 else "DOWNWARD"
         events.append(
             RestatementEvent(
                 period=primary.period,
@@ -837,6 +937,8 @@ def _compare_records(
                 source_b_value=a,
                 source_b_period_relation=primary.period_relation,
                 metric=metric,
+                metric_class=_metric_class(metric),  # type: ignore[arg-type]
+                direction=direction,  # type: ignore[arg-type]
                 delta_absolute=delta_abs,
                 delta_pct=delta_pct,
                 is_material=severity in ("MATERIAL", "SIGNIFICANT", "ADVERSE"),
@@ -1068,6 +1170,7 @@ def _enrich_records_with_analytics(
     quality_of_earnings on every record that has the inputs."""
     from portfolio_thesis_engine.analytical.analyze import (
         compute_dupont_3way,
+        compute_dupont_5way,
         compute_qoe,
         compute_roic_decomposition,
     )
@@ -1112,6 +1215,7 @@ def _enrich_records_with_analytics(
         # DuPont + ROIC need no canonical-state-side lookup beyond record
         # fields; QoE uses CFO/non-recurring share fed from the record.
         record.dupont_3way = compute_dupont_3way(record)
+        record.dupont_5way = compute_dupont_5way(record)
         record.roic_decomposition = compute_roic_decomposition(
             record, wacc_pct=wacc_pct
         )
@@ -1135,13 +1239,200 @@ def _enrich_records_with_analytics(
             record.economic_balance_sheet = bs_builder.build(
                 state, record.period
             )
-            continue
-        rs = comparative_rs_by_key.get(
-            (record.source_canonical_state_id, record.period)
+        else:
+            rs = comparative_rs_by_key.get(
+                (record.source_canonical_state_id, record.period)
+            )
+            if rs is not None and rs.balance_sheet:
+                record.economic_balance_sheet = bs_builder.build(
+                    state, record.period
+                )
+
+        # Phase 2 Sprint 2B Polish 1 — promote the aggregated IC out of
+        # the Economic BS view into the record itself so the periods
+        # table shows IC for comparatives too (AnalysisDeriver only
+        # emits IC on the primary period).
+        if (
+            record.invested_capital is None
+            and record.economic_balance_sheet is not None
+            and record.economic_balance_sheet.invested_capital is not None
+        ):
+            record.invested_capital = record.economic_balance_sheet.invested_capital
+
+    # Phase 2 Sprint 2B Polish 3 — apply interim-cap post-pass: interim
+    # reviewed composite can't exceed the most-recent-prior annual
+    # audited composite minus 5 pp. Prevents H1 2025 scoring above
+    # FY2024 just because the interim reports look "clean".
+    _apply_interim_qoe_cap(records)
+
+
+_INTERIM_CAP_PENALTY = 5  # percentage points below prior annual's composite
+
+
+# ----------------------------------------------------------------------
+# Sprint 2B Part B — restatement pattern detection
+# ----------------------------------------------------------------------
+def _detect_restatement_patterns(
+    events: list[RestatementEvent],
+) -> list[RestatementPattern]:
+    """Group events by ``(period, source_a_canonical_id, source_b_canonical_id)``
+    and classify the systemic shape of each group."""
+    if not events:
+        return []
+    groups: dict[tuple[str, str, str], list[RestatementEvent]] = {}
+    for e in events:
+        key = (e.period, e.source_a_canonical_id, e.source_b_canonical_id)
+        groups.setdefault(key, []).append(e)
+
+    patterns: list[RestatementPattern] = []
+    for (period, source_a, source_b), group in groups.items():
+        directions = [e.direction for e in group if e.direction]
+        upward = directions.count("UPWARD")
+        downward = directions.count("DOWNWARD")
+        if upward and not downward:
+            dominant: str = "UPWARD"
+        elif downward and not upward:
+            dominant = "DOWNWARD"
+        else:
+            dominant = "MIXED"
+        metric_classes = sorted({e.metric_class for e in group})
+        systemic = len(group) >= 3 and dominant != "MIXED"
+        classification = _classify_restatement_pattern(
+            group, dominant, systemic, metric_classes
         )
-        if rs is not None and rs.balance_sheet:
-            record.economic_balance_sheet = bs_builder.build(
-                state, record.period
+        patterns.append(
+            RestatementPattern(
+                period_comparison=(
+                    f"{period}: {source_b} (primary) vs {source_a}"
+                ),
+                event_count=len(group),
+                dominant_direction=dominant,  # type: ignore[arg-type]
+                systemic_flag=systemic,
+                classification=classification,  # type: ignore[arg-type]
+                affected_metric_classes=metric_classes,  # type: ignore[arg-type]
+            )
+        )
+    return patterns
+
+
+def _classify_restatement_pattern(
+    events: list[RestatementEvent],
+    dominant: str,
+    systemic: bool,
+    metric_classes: list[str],
+) -> str:
+    if not systemic:
+        return "ONE_OFF_ADJUSTMENT"
+    metrics = {e.metric for e in events}
+    pl_metrics = metrics & set(
+        _RESTATEMENT_HEADLINES[:3] + (
+            "pbt", "income_tax_expense", "finance_income", "finance_expense",
+            "ebitda", "nopat",
+        )
+    )
+    bs_metrics = metrics & set(
+        _RESTATEMENT_HEADLINES[3:] + (
+            "cash_and_equivalents", "financial_debt", "accounts_receivable",
+            "invested_capital", "lease_liabilities",
+        )
+    )
+    if pl_metrics and bs_metrics:
+        return "POLICY_CHANGE"
+    if bs_metrics and not pl_metrics:
+        return "RECLASSIFICATION"
+    # Proportionality check: error corrections tend to move everything by
+    # ~the same % in the same direction.
+    deltas = [abs(e.delta_pct) for e in events]
+    if deltas:
+        spread = max(deltas) - min(deltas)
+        if spread < Decimal("1.0"):
+            return "ERROR_CORRECTION"
+    return "UNKNOWN"
+
+
+def _link_restatements_to_narrative(
+    patterns: list[RestatementPattern],
+    records: list[HistoricalRecord],
+) -> list[RestatementNarrativeLink]:
+    """Phase 2 Sprint 2B Part B — when a restatement pattern is
+    detected, scan the next annual record's narrative_context risks for
+    keywords that plausibly explain the restatement (policy change,
+    reclassification, error correction)."""
+    if not patterns:
+        return []
+    keywords = (
+        "policy", "restatement", "reclassif", "prior-period", "prior period",
+        "correction", "adjustment",
+    )
+    links: list[RestatementNarrativeLink] = []
+    annuals = sorted(
+        [r for r in records if r.period_type == HistoricalPeriodType.ANNUAL],
+        key=lambda r: r.period_end,
+    )
+    for pattern in patterns:
+        affected_period_label = pattern.period_comparison.split(":")[0]
+        candidate = None
+        for r in annuals:
+            if r.period > affected_period_label and r.narrative_summary is not None:
+                candidate = r
+                break
+        if candidate is None or candidate.narrative_summary is None:
+            continue
+        hits: list[str] = []
+        for risk in candidate.narrative_summary.primary_risks or []:
+            risk_text = risk.lower()
+            if any(kw in risk_text for kw in keywords):
+                hits.append(risk)
+        for theme in candidate.narrative_summary.key_themes or []:
+            theme_text = theme.lower()
+            if any(kw in theme_text for kw in keywords):
+                hits.append(theme)
+        if hits:
+            links.append(
+                RestatementNarrativeLink(
+                    restatement_period=affected_period_label,
+                    narrative_period=candidate.period,
+                    linked_theme=hits[0],
+                    relevance="INFERRED",
+                )
+            )
+    return links
+
+
+def _apply_interim_qoe_cap(records: list[HistoricalRecord]) -> None:
+    """Phase 2 Sprint 2B Polish 3 — cap interim / TTM / preliminary
+    composites at the most-recent-prior annual audited composite
+    minus :data:`_INTERIM_CAP_PENALTY` (5 pp). No-op when no prior
+    annual has a composite score, or when the interim already scores
+    below the cap."""
+    annual_composites: list[tuple[date, int]] = [
+        (r.period_end, r.quality_of_earnings.composite_score)
+        for r in records
+        if r.period_type == HistoricalPeriodType.ANNUAL
+        and r.audit_status == AuditStatus.AUDITED
+        and r.quality_of_earnings is not None
+        and r.quality_of_earnings.composite_score is not None
+    ]
+    annual_composites.sort(key=lambda x: x[0])
+    for record in records:
+        if record.period_type == HistoricalPeriodType.ANNUAL:
+            continue
+        qoe = record.quality_of_earnings
+        if qoe is None or qoe.composite_score is None:
+            continue
+        latest_prior_annual_score: int | None = None
+        for end_date, score in annual_composites:
+            if end_date < record.period_end:
+                latest_prior_annual_score = score
+        if latest_prior_annual_score is None:
+            continue
+        cap = latest_prior_annual_score - _INTERIM_CAP_PENALTY
+        if qoe.composite_score > cap:
+            flags = list(qoe.flags)
+            if "CAPPED_BY_PRIOR_ANNUAL" not in flags:
+                flags.append("CAPPED_BY_PRIOR_ANNUAL")
+            record.quality_of_earnings = qoe.model_copy(
+                update={"composite_score": cap, "flags": flags}
             )
 
 
@@ -1183,18 +1474,53 @@ def _compute_trends_wrapper(
     return compute_trends(records)
 
 
+_QOE_PRIORITY = [
+    (HistoricalPeriodType.ANNUAL, AuditStatus.AUDITED),
+    (HistoricalPeriodType.ANNUAL, AuditStatus.REVIEWED),
+    (HistoricalPeriodType.INTERIM, AuditStatus.AUDITED),
+    (HistoricalPeriodType.INTERIM, AuditStatus.REVIEWED),
+    (HistoricalPeriodType.TTM, AuditStatus.REVIEWED),
+    (HistoricalPeriodType.TTM, AuditStatus.UNAUDITED),
+    (HistoricalPeriodType.ANNUAL, AuditStatus.UNAUDITED),
+    (HistoricalPeriodType.PRELIMINARY, AuditStatus.UNAUDITED),
+    (HistoricalPeriodType.INTERIM, AuditStatus.UNAUDITED),
+]
+
+
+def _pick_highest_trust(
+    records: list[HistoricalRecord],
+    accessor: Any,
+) -> tuple[HistoricalRecord | None, Any]:
+    """Phase 2 Sprint 2B Polish 4 — iterate records by (period_type,
+    audit_status) trust priority and return the most recent record
+    where ``accessor(record)`` is not ``None``. Returns ``(record,
+    attribute)`` pair (both ``None`` when nothing matches)."""
+    for period_type, audit in _QOE_PRIORITY:
+        candidates = [
+            r
+            for r in records
+            if r.period_type == period_type
+            and r.audit_status == audit
+            and accessor(r) is not None
+        ]
+        if candidates:
+            winner = max(candidates, key=lambda r: r.period_end)
+            return winner, accessor(winner)
+    return None, None
+
+
 def _latest_roic_decomposition(records: list[HistoricalRecord]) -> Any:
-    for record in reversed(records):
-        if record.roic_decomposition is not None:
-            return record.roic_decomposition
-    return None
+    _, decomp = _pick_highest_trust(
+        records, lambda r: r.roic_decomposition
+    )
+    return decomp
 
 
 def _latest_qoe(records: list[HistoricalRecord]) -> Any:
-    for record in reversed(records):
-        if record.quality_of_earnings is not None:
-            return record.quality_of_earnings
-    return None
+    _, qoe = _pick_highest_trust(
+        records, lambda r: r.quality_of_earnings
+    )
+    return qoe
 
 
 def _synthesise_signal(

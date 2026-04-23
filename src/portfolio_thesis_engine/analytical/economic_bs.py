@@ -98,14 +98,16 @@ class EconomicBSBuilder:
         ppe_net = _sum_matching(bs_lines, _PPE_LABEL)
         rou_assets = _sum_matching(bs_lines, _ROU_LABEL)
         goodwill = _sum_matching(bs_lines, _GOODWILL_LABEL)
-        intangibles_all = _sum_matching(bs_lines, _INTANGIBLE_LABEL)
-        # Intangibles pattern catches goodwill too; subtract so goodwill
-        # is reported separately.
-        operating_intangibles = (
-            intangibles_all - goodwill
-            if intangibles_all is not None and goodwill is not None
-            else intangibles_all
+        # Sprint 2B Part B — only subtract goodwill from the intangibles
+        # total when the intangibles regex actually captured the
+        # goodwill line (e.g. a combined "Intangible assets including
+        # goodwill" subtotal). When "Goodwill" and "Intangible assets"
+        # are separate rows the regex ``r"intangible"`` skips goodwill,
+        # so subtracting would drive operating_intangibles negative.
+        intangibles_all = _sum_matching(
+            bs_lines, _INTANGIBLE_LABEL, exclude_pattern=_GOODWILL_LABEL
         )
+        operating_intangibles = intangibles_all
         accounts_receivable = _sum_matching(bs_lines, _AR_LABEL)
         inventory = _sum_matching(bs_lines, _INVENTORY_LABEL)
         accounts_payable = _sum_matching(bs_lines, _AP_LABEL)
@@ -149,6 +151,25 @@ class EconomicBSBuilder:
         equity_claims = ic.equity_claims if ic is not None else None
         nci_claims = ic.nci_claims if ic is not None else None
         cross_check = ic.cross_check_residual if ic is not None else None
+
+        # Phase 2 Sprint 2B Polish 1 — comparatives have no IC block,
+        # but the operating-side aggregates reconstruct IC via the
+        # identity ``IC = Σ operating assets − operating liabilities``.
+        # Working capital (AR + inventory − AP) already encodes the
+        # current-asset / current-liability netting; the non-current
+        # side is PPE + ROU + goodwill + operating_intangibles. Leave
+        # ``cross_check_residual = None`` since we can't reconcile
+        # against financial-side claims here.
+        if invested_capital is None:
+            invested_capital = _combine(
+                ppe_net,
+                rou_assets,
+                goodwill,
+                operating_intangibles,
+                working_capital,
+                associates_jvs,
+                investment_property,
+            )
 
         total_equity_value: Decimal | None
         if equity_parent is not None or equity_claims is not None:
@@ -202,17 +223,26 @@ def _find_reclassified_statement(
 
 
 def _sum_matching(
-    lines: list, pattern: re.Pattern[str], subtotal_ok: bool = False
+    lines: list,
+    pattern: re.Pattern[str],
+    subtotal_ok: bool = False,
+    exclude_pattern: re.Pattern[str] | None = None,
 ) -> Decimal | None:
+    """Sum BS line values whose label matches ``pattern``. When
+    ``exclude_pattern`` is provided, any line that also matches it is
+    skipped — lets the intangibles aggregator exclude goodwill rows."""
     total: Decimal | None = None
     for line in lines:
         if not subtotal_ok and getattr(line, "is_adjusted", False):
             continue
-        if pattern.search(line.label):
-            value = line.value
-            if value is None:
-                continue
-            total = value if total is None else total + value
+        if not pattern.search(line.label):
+            continue
+        if exclude_pattern is not None and exclude_pattern.search(line.label):
+            continue
+        value = line.value
+        if value is None:
+            continue
+        total = value if total is None else total + value
     return total
 
 

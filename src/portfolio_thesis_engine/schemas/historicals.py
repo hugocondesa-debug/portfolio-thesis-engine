@@ -56,6 +56,49 @@ class ROEDriverAttribution(BaseSchema):
     cross_residual_bps: Decimal
 
 
+class DuPont5Way(BaseSchema):
+    """Phase 2 Sprint 2B Part A — five-way ROE decomposition.
+
+    ``ROE = tax_burden × interest_burden × operating_margin
+           × asset_turnover × financial_leverage``
+
+    Where:
+
+    - ``tax_burden``        = NI / PBT        (1 − effective tax rate)
+    - ``interest_burden``   = PBT / EBIT      (retention after interest)
+    - ``operating_margin``  = EBIT / Revenue
+    - ``asset_turnover``    = Revenue / Total Assets
+    - ``financial_leverage`` = Total Assets / Total Equity
+    """
+
+    period: str
+    tax_burden: Decimal | None = None
+    interest_burden: Decimal | None = None
+    operating_margin: Decimal | None = None
+    asset_turnover: Decimal | None = None
+    financial_leverage: Decimal | None = None
+    roe_computed: Decimal | None = None
+    roe_reported: Decimal | None = None
+    reconciliation_delta: Decimal | None = None
+
+
+class ROE5WayAttribution(BaseSchema):
+    """Period-over-period attribution of ΔROE across the five DuPont-5
+    drivers. Cross-residual absorbs interaction terms (the 5-way
+    additive approximation sheds about 2–5 % of the total in the
+    residual, which is acceptable for a diagnostic)."""
+
+    period_from: str
+    period_to: str
+    roe_delta_bps: Decimal
+    tax_burden_contribution_bps: Decimal
+    interest_burden_contribution_bps: Decimal
+    operating_margin_contribution_bps: Decimal
+    asset_turnover_contribution_bps: Decimal
+    financial_leverage_contribution_bps: Decimal
+    cross_residual_bps: Decimal
+
+
 _ValueSignal = Literal["DESTROYING", "NEUTRAL", "MODEST", "STRONG"]
 
 
@@ -134,15 +177,30 @@ class TrendAnalysis(BaseSchema):
     annuals_used_for_cagr: int = 0
     revenue_trajectory: _Trajectory = "STABLE"
 
+    # Phase 2 Sprint 2B Polish 5 — preliminary signal kept separate
+    # from audited/reviewed trajectory so the PM gets both the rigorous
+    # view and the forward-looking signal without the CAGR math being
+    # corrupted by a 15-month preliminary period.
+    revenue_yoy_growth_preliminary: Decimal | None = None
+    revenue_trajectory_incl_preliminary: _Trajectory = "STABLE"
+    preliminary_signal_period: str | None = None
+
     operating_margin_delta_bps: Decimal | None = None
     operating_margin_trajectory: _MarginTrajectory = "STABLE"
 
     roic_delta_bps: Decimal | None = None
     roic_trajectory: _ROICTrajectory = "STABLE"
     roic_spread_latest_vs_wacc: Decimal | None = None
+    # Phase 2 Sprint 2B Part C — spread trend tracks the direction of
+    # ROIC-vs-WACC over the analysed window.
+    roic_spread_trend: Literal[
+        "IMPROVING_SPREAD", "STABLE_SPREAD", "DETERIORATING_SPREAD"
+    ] = "STABLE_SPREAD"
 
     capex_revenue_ratio: Decimal | None = None
     capex_revenue_trajectory: _CapexTrajectory = "STABLE"
+    working_capital_intensity: Decimal | None = None
+    cfo_revenue_ratio: Decimal | None = None
 
     days_sales_outstanding: Decimal | None = None
     days_inventory: Decimal | None = None
@@ -174,6 +232,11 @@ class InvestmentSignal(BaseSchema):
     balance_sheet_strength: _BSStrength = "UNKNOWN"
 
     management_credibility: _CredibilityTag = "UNKNOWN"
+
+    # Phase 2 Sprint 2B Polish 4 + 5 — caveat fields distinguish the
+    # rigorous audited trajectory from the preliminary forward signal.
+    earnings_quality_source_period: str | None = None
+    preliminary_caveat_bullets: list[str] = Field(default_factory=list)
 
     summary_bullets: list[str] = Field(default_factory=list)
     positioning_considerations: list[str] = Field(default_factory=list)
@@ -222,6 +285,13 @@ class HistoricalRecord(BaseSchema):
     operating_income: Decimal | None = None
     sustainable_operating_income: Decimal | None = None
     net_income: Decimal | None = None
+    # Phase 2 Sprint 2B — PBT + income_tax_expense + finance_income/
+    # finance_expense anchor the DuPont 5-way decomposition (tax burden,
+    # interest burden drivers).
+    pbt: Decimal | None = None
+    income_tax_expense: Decimal | None = None
+    finance_income: Decimal | None = None
+    finance_expense: Decimal | None = None
     ebitda: Decimal | None = None
     total_assets: Decimal | None = None
     total_equity: Decimal | None = None
@@ -237,6 +307,7 @@ class HistoricalRecord(BaseSchema):
     roic_primary: Decimal | None = None
     roic_reported: Decimal | None = None
     roe: Decimal | None = None
+    capex_revenue_ratio: Decimal | None = None
 
     # Phase 2 Sprint 2A.1 — cost of capital + QoE inputs that don't live
     # on the canonical state's per-period analysis block.
@@ -251,6 +322,7 @@ class HistoricalRecord(BaseSchema):
     # Phase 2 Sprint 2A — analytical attachments
     economic_balance_sheet: EconomicBalanceSheet | None = None
     dupont_3way: DuPont3Way | None = None
+    dupont_5way: DuPont5Way | None = None
     roic_decomposition: ROICDecomposition | None = None
     quality_of_earnings: QualityOfEarnings | None = None
 
@@ -264,6 +336,17 @@ _RestatementSeverity = Literal[
 ]
 
 
+_MetricClass = Literal["headline", "secondary", "memo"]
+_RestatementDirection = Literal["UPWARD", "DOWNWARD"]
+_RestatementPatternClass = Literal[
+    "ONE_OFF_ADJUSTMENT",
+    "POLICY_CHANGE",
+    "RECLASSIFICATION",
+    "ERROR_CORRECTION",
+    "UNKNOWN",
+]
+
+
 class RestatementEvent(BaseSchema):
     """Emitted when the same period appears in two canonical states
     with materially different values.
@@ -273,6 +356,11 @@ class RestatementEvent(BaseSchema):
     five-level :attr:`severity` classifier. The legacy ``is_material``
     flag stays for backwards compat; new callers should filter on
     ``severity != 'NEGLIGIBLE'``.
+
+    Phase 2 Sprint 2B Part B adds ``metric_class`` (headline /
+    secondary / memo) so the render can bucket events, and
+    ``direction`` so pattern detection across a period comparison can
+    classify systemic moves.
     """
 
     period: str
@@ -285,11 +373,38 @@ class RestatementEvent(BaseSchema):
     source_b_value: Decimal
     source_b_period_relation: Literal["primary", "comparative"] | None = None
     metric: str
+    metric_class: _MetricClass = "secondary"
+    direction: _RestatementDirection | None = None
     delta_absolute: Decimal
     delta_pct: Decimal
     is_material: bool
     severity: _RestatementSeverity = "NEGLIGIBLE"
     detected_at: datetime
+
+
+class RestatementPattern(BaseSchema):
+    """Phase 2 Sprint 2B Part B — pattern summary for a set of
+    :class:`RestatementEvent` rows that cover the same period
+    comparison (same ``(source_a, source_b)`` pair). Classifies the
+    systemic shape when 3+ events move in the same direction."""
+
+    period_comparison: str
+    event_count: int
+    dominant_direction: Literal["UPWARD", "DOWNWARD", "MIXED"] = "MIXED"
+    systemic_flag: bool = False
+    classification: _RestatementPatternClass = "UNKNOWN"
+    affected_metric_classes: list[_MetricClass] = Field(default_factory=list)
+
+
+class RestatementNarrativeLink(BaseSchema):
+    """Links a restatement pattern to a later period's narrative
+    context that plausibly explains the restatement (e.g. accounting
+    policy note)."""
+
+    restatement_period: str
+    narrative_period: str
+    linked_theme: str
+    relevance: Literal["DIRECT", "INFERRED", "NONE"] = "INFERRED"
 
 
 class FiscalYearChangeEvent(BaseSchema):
@@ -398,6 +513,12 @@ class CompanyTimeSeries(BaseSchema):
         default_factory=list
     )
     restatement_events: list[RestatementEvent] = Field(default_factory=list)
+    restatement_patterns: list[RestatementPattern] = Field(
+        default_factory=list
+    )
+    restatement_narrative_links: list[RestatementNarrativeLink] = Field(
+        default_factory=list
+    )
     notes_evolution: list[NotesEvolution] = Field(default_factory=list)
     narrative_timeline: NarrativeTimeline = Field(
         default_factory=NarrativeTimeline

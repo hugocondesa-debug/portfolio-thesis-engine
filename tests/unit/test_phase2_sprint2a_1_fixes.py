@@ -472,7 +472,11 @@ class TestIssue3EconomicBSComparative:
             "567413"
         )
 
-    def test_economic_bs_comparative_view_has_no_invested_capital(self) -> None:
+    def test_economic_bs_comparative_view_has_no_cross_check_residual(self) -> None:
+        """Sprint 2B Polish 1 — comparative Economic BS now aggregates
+        invested_capital from operating-side line items, but the
+        reconciliation residual still stays ``None`` because Module D
+        only runs on the primary period."""
         state = _canonical_state_euroeyes_like(
             comparative=(
                 "FY2023", date(2023, 12, 31), Decimal("714289"),
@@ -484,9 +488,7 @@ class TestIssue3EconomicBSComparative:
         comparative = next(r for r in ts.records if r.period == "FY2023")
         bs = comparative.economic_balance_sheet
         assert bs is not None
-        # IC/cross_check/residual depend on InvestedCapital block → None
-        # for comparatives.
-        assert bs.invested_capital is None
+        assert bs.invested_capital is not None
         assert bs.cross_check_residual is None
 
 

@@ -81,16 +81,22 @@ def _render_restatements(events: list[RestatementEvent]) -> Table | None:
     )
     table.add_column("Period")
     table.add_column("Metric")
+    table.add_column("Class")
     table.add_column("From (unaudited)", justify="right")
     table.add_column("To (audited)", justify="right")
     table.add_column("Δ%", justify="right")
+    table.add_column("Direction")
+    table.add_column("Severity")
     for e in events:
         table.add_row(
             e.period,
             e.metric,
+            e.metric_class,
             _fmt_money(e.source_a_value),
             _fmt_money(e.source_b_value),
             _fmt_pct(e.delta_pct),
+            e.direction or "—",
+            e.severity,
         )
     return table
 

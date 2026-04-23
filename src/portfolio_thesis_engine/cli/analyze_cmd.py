@@ -24,6 +24,7 @@ from rich.console import Console
 from rich.table import Table
 
 from portfolio_thesis_engine.analytical.analyze import (
+    attribute_roe_5way_change,
     attribute_roe_change,
     attribute_roic_change,
 )
@@ -134,6 +135,79 @@ def _dupont_table(ts: CompanyTimeSeries) -> Table | None:
     return table
 
 
+def _dupont_5way_table(ts: CompanyTimeSeries) -> Table | None:
+    entries = [
+        (r.period, r.dupont_5way) for r in ts.records if r.dupont_5way is not None
+    ]
+    if not entries:
+        return None
+    table = Table(
+        title="DuPont 5-way ROE decomposition",
+        title_style="bold blue",
+    )
+    table.add_column("Period")
+    table.add_column("Tax burden", justify="right")
+    table.add_column("Int burden", justify="right")
+    table.add_column("Op margin", justify="right")
+    table.add_column("Asset turn", justify="right")
+    table.add_column("Leverage", justify="right")
+    table.add_column("ROE (comp)", justify="right")
+    table.add_column("ROE (rep)", justify="right")
+    for period, d in entries:
+        table.add_row(
+            period,
+            _fmt_ratio(d.tax_burden),
+            _fmt_ratio(d.interest_burden),
+            _fmt_pct(d.operating_margin),
+            _fmt_ratio(d.asset_turnover),
+            _fmt_ratio(d.financial_leverage),
+            _fmt_pct(d.roe_computed),
+            _fmt_pct(d.roe_reported),
+        )
+    return table
+
+
+def _roe_5way_attribution_section(ts: CompanyTimeSeries) -> list[str]:
+    annuals = _consecutive_annuals(ts)
+    lines: list[str] = []
+    if len(annuals) < 2:
+        return lines
+    any_shown = False
+    for i in range(1, len(annuals)):
+        a = annuals[i - 1]
+        b = annuals[i]
+        if a.dupont_5way is None or b.dupont_5way is None:
+            continue
+        attr = attribute_roe_5way_change(a.dupont_5way, b.dupont_5way)
+        if attr is None:
+            continue
+        if not any_shown:
+            lines.append("[bold blue]ROE attribution (DuPont 5-way)[/bold blue]")
+            any_shown = True
+        lines.append(
+            f"  {a.period} → {b.period}: ΔROE {_fmt_bps(attr.roe_delta_bps)}"
+        )
+        lines.append(
+            f"    Tax burden contribution:       {_fmt_bps(attr.tax_burden_contribution_bps)}"
+        )
+        lines.append(
+            f"    Interest burden contribution:  {_fmt_bps(attr.interest_burden_contribution_bps)}"
+        )
+        lines.append(
+            f"    Operating margin contribution: {_fmt_bps(attr.operating_margin_contribution_bps)}"
+        )
+        lines.append(
+            f"    Asset turnover contribution:   {_fmt_bps(attr.asset_turnover_contribution_bps)}"
+        )
+        lines.append(
+            f"    Leverage contribution:         {_fmt_bps(attr.financial_leverage_contribution_bps)}"
+        )
+        lines.append(
+            f"    Cross residual:                {_fmt_bps(attr.cross_residual_bps)}"
+        )
+    return lines
+
+
 def _roic_table(ts: CompanyTimeSeries) -> Table | None:
     entries = [
         (r.period, r.roic_decomposition) for r in ts.records
@@ -181,17 +255,41 @@ def _trends_table(ts: CompanyTimeSeries) -> Table | None:
     table.add_row(
         "Annuals available", f"{t.annuals_used_for_cagr}"
     )
-    table.add_row("Revenue YoY growth", _fmt_pct(t.revenue_yoy_growth))
+    table.add_row("Revenue YoY growth (audited)", _fmt_pct(t.revenue_yoy_growth))
+    if t.revenue_yoy_growth_preliminary is not None:
+        label = f"Revenue YoY ({t.preliminary_signal_period or 'preliminary'})"
+        table.add_row(label, _fmt_pct(t.revenue_yoy_growth_preliminary))
     table.add_row("Revenue CAGR (2Y)", _fmt_pct(t.revenue_cagr_2y))
     table.add_row("Revenue CAGR (3Y)", _fmt_pct(t.revenue_cagr_3y))
     table.add_row("Revenue CAGR (5Y)", _fmt_pct(t.revenue_cagr_5y))
-    table.add_row("Revenue trajectory", t.revenue_trajectory)
+    table.add_row("Revenue trajectory (audited)", t.revenue_trajectory)
+    if t.revenue_trajectory_incl_preliminary != t.revenue_trajectory:
+        table.add_row(
+            "Revenue trajectory (incl. prelim)",
+            t.revenue_trajectory_incl_preliminary,
+        )
     table.add_row(
         "Operating margin Δ", _fmt_bps(t.operating_margin_delta_bps)
     )
     table.add_row("Margin trajectory", t.operating_margin_trajectory)
     table.add_row("ROIC Δ", _fmt_bps(t.roic_delta_bps))
     table.add_row("ROIC trajectory", t.roic_trajectory)
+    table.add_row("ROIC spread trend", t.roic_spread_trend)
+    # Sprint 2B Part C — capital intensity / CCC / CFO quality.
+    if t.capex_revenue_ratio is not None:
+        table.add_row("CapEx / Revenue", _fmt_pct(t.capex_revenue_ratio))
+    if t.working_capital_intensity is not None:
+        table.add_row(
+            "Working capital intensity",
+            _fmt_pct(t.working_capital_intensity),
+        )
+    if t.cfo_revenue_ratio is not None:
+        table.add_row("CFO / Revenue", _fmt_pct(t.cfo_revenue_ratio))
+    if t.cash_conversion_cycle is not None:
+        table.add_row(
+            "Cash conversion cycle",
+            f"{t.cash_conversion_cycle:.0f} days",
+        )
     return table
 
 
@@ -241,6 +339,39 @@ def _roic_attribution_section(ts: CompanyTimeSeries) -> list[str]:
         )
         lines.append(
             f"    Cross residual:            {_fmt_bps(attr.cross_residual_bps)}"
+        )
+    return lines
+
+
+def _restatement_pattern_section(ts: CompanyTimeSeries) -> list[str]:
+    patterns = ts.restatement_patterns
+    if not patterns:
+        return []
+    lines = ["[bold red]Restatement patterns[/bold red]"]
+    for p in patterns:
+        lines.append(
+            f"  {p.period_comparison}: {p.event_count} events, "
+            f"{p.dominant_direction}, "
+            f"{'systemic' if p.systemic_flag else 'one-off'} "
+            f"→ {p.classification}"
+        )
+        if p.affected_metric_classes:
+            lines.append(
+                f"    Metric classes: {', '.join(p.affected_metric_classes)}"
+            )
+    return lines
+
+
+def _restatement_narrative_section(ts: CompanyTimeSeries) -> list[str]:
+    links = ts.restatement_narrative_links
+    if not links:
+        return []
+    lines = ["[bold]Restatement ↔ narrative cross-references[/bold]"]
+    for link in links:
+        lines.append(
+            f"  {link.restatement_period} restatement ↔ "
+            f"{link.narrative_period} narrative ({link.relevance}): "
+            f"{link.linked_theme}"
         )
     return lines
 
@@ -328,10 +459,20 @@ def _signal_section(ts: CompanyTimeSeries) -> list[str]:
     lines.append(f"  Capital efficiency: {s.capital_efficiency_trend}")
     lines.append(f"  Margin trend: {s.margin_trend}")
     if s.earnings_quality_score is not None:
+        source = (
+            f" (from {s.earnings_quality_source_period})"
+            if s.earnings_quality_source_period
+            else ""
+        )
         lines.append(
-            f"  Earnings quality composite: {s.earnings_quality_score}/100"
+            f"  Earnings quality composite: {s.earnings_quality_score}/100{source}"
         )
     lines.append(f"  Balance sheet: {s.balance_sheet_strength}")
+    if s.preliminary_caveat_bullets:
+        lines.append("")
+        lines.append("[bold]Preliminary caveats[/bold]")
+        for b in s.preliminary_caveat_bullets:
+            lines.append(f"  ⚠ {b}")
     if s.summary_bullets:
         lines.append("")
         lines.append("[bold]Summary[/bold]")
@@ -416,6 +557,35 @@ def render_analytical_markdown(ts: CompanyTimeSeries) -> str:
         for raw in roe_attr_lines:
             lines.append(_strip_markup(raw))
 
+    # DuPont 5-way
+    dupont5_rows = [r for r in ts.records if r.dupont_5way is not None]
+    if dupont5_rows:
+        lines.extend([
+            "",
+            "## DuPont 5-way ROE decomposition",
+            "",
+            "| Period | Tax burden | Int burden | Op margin % | Asset turn | Leverage | ROE computed | ROE reported |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for r in dupont5_rows:
+            d = r.dupont_5way
+            assert d is not None
+            lines.append(
+                f"| {r.period} | {_fmt_ratio(d.tax_burden)} | "
+                f"{_fmt_ratio(d.interest_burden)} | "
+                f"{_fmt_pct(d.operating_margin)} | "
+                f"{_fmt_ratio(d.asset_turnover)} | "
+                f"{_fmt_ratio(d.financial_leverage)} | "
+                f"{_fmt_pct(d.roe_computed)} | "
+                f"{_fmt_pct(d.roe_reported)} |"
+            )
+    # DuPont 5-way attribution
+    roe5_attr_lines = _roe_5way_attribution_section(ts)
+    if roe5_attr_lines:
+        lines.extend(["", "### ROE 5-way attribution", ""])
+        for raw in roe5_attr_lines:
+            lines.append(_strip_markup(raw))
+
     # ROIC decomposition
     roic_rows = [r for r in ts.records if r.roic_decomposition is not None]
     if roic_rows:
@@ -488,21 +658,39 @@ def render_analytical_markdown(ts: CompanyTimeSeries) -> str:
                 f"{flags} |"
             )
 
-    # Restatement events
+    # Restatement events + patterns + narrative links
     if ts.restatement_events:
         lines.extend([
             "",
             f"## Restatement events ({len(ts.restatement_events)})",
             "",
-            "| Period | Metric | From | To | Δ% | Severity |",
-            "|---|---|---:|---:|---:|---|",
+            "| Period | Metric | Class | From | To | Δ% | Direction | Severity |",
+            "|---|---|---|---:|---:|---:|---|---|",
         ])
         for e in ts.restatement_events:
             lines.append(
-                f"| {e.period} | {e.metric} | "
+                f"| {e.period} | {e.metric} | {e.metric_class} | "
                 f"{_fmt_money(e.source_a_value)} | "
                 f"{_fmt_money(e.source_b_value)} | "
-                f"{_fmt_pct(e.delta_pct)} | {e.severity} |"
+                f"{_fmt_pct(e.delta_pct)} | {e.direction or '—'} | "
+                f"{e.severity} |"
+            )
+    if ts.restatement_patterns:
+        lines.extend(["", "### Restatement patterns", ""])
+        for p in ts.restatement_patterns:
+            lines.append(
+                f"- {p.period_comparison} — {p.event_count} events, "
+                f"{p.dominant_direction}, "
+                f"{'systemic' if p.systemic_flag else 'one-off'} "
+                f"→ {p.classification} "
+                f"(classes: {', '.join(p.affected_metric_classes) or 'n/a'})"
+            )
+    if ts.restatement_narrative_links:
+        lines.extend(["", "### Restatement ↔ narrative links", ""])
+        for link in ts.restatement_narrative_links:
+            lines.append(
+                f"- {link.restatement_period} ↔ {link.narrative_period} "
+                f"({link.relevance}): {link.linked_theme}"
             )
 
     # Fiscal year changes
@@ -606,16 +794,21 @@ def _run_analyze(
     ebs = _economic_bs_table(ts)
     if ebs is not None:
         console.print(ebs)
-    # 3. DuPont
+    # 3. DuPont 3-way + 5-way
     dupont = _dupont_table(ts)
     if dupont is not None:
         console.print(dupont)
+    dupont5 = _dupont_5way_table(ts)
+    if dupont5 is not None:
+        console.print(dupont5)
     # 4. ROIC
     roic = _roic_table(ts)
     if roic is not None:
         console.print(roic)
     # 4b. DuPont + ROIC period-over-period attribution
     for line in _roe_attribution_section(ts):
+        console.print(line)
+    for line in _roe_5way_attribution_section(ts):
         console.print(line)
     for line in _roic_attribution_section(ts):
         console.print(line)
@@ -627,10 +820,19 @@ def _run_analyze(
     qoe = _qoe_table(ts)
     if qoe is not None:
         console.print(qoe)
-    # 7. Restatements
+    # 7. Restatements + pattern analysis + narrative link
     restatements = _render_restatements(ts.restatement_events)
     if restatements is not None:
         console.print(restatements)
+    else:
+        console.print(
+            "[dim]No restatement events detected (all compared values "
+            "within per-metric materiality thresholds).[/dim]"
+        )
+    for line in _restatement_pattern_section(ts):
+        console.print(line)
+    for line in _restatement_narrative_section(ts):
+        console.print(line)
     # 8. Fiscal year changes
     fy = _render_fiscal_year_changes(ts.fiscal_year_changes)
     if fy is not None:
