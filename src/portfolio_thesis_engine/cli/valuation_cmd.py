@@ -90,13 +90,45 @@ def _bridge_section(
     lines = [f"[bold]Projection summary — {scenario_name}[/bold]"]
     lines.append(f"  Sum of explicit PV (Y1-Y5): {_fmt_money(explicit_pv)}")
     lines.append(f"  Sum of fade PV (Y6-Y10): {_fmt_money(fade_pv)}")
-    lines.append(
-        f"  Terminal FCF: {_fmt_money(scenario.terminal_fcf)} × "
-        f"(1 + {scenario.terminal_growth * 100:.2f}%) ÷ "
-        f"({scenario.terminal_wacc * 100:.2f}% − "
-        f"{scenario.terminal_growth * 100:.2f}%)"
-    )
-    lines.append(f"  Terminal value: {_fmt_money(scenario.terminal_value)}")
+    # Sprint 4A-alpha.3 — terminal block branches on the methodology's
+    # terminal_method. Summary dict is populated for TERMINAL_MULTIPLE
+    # runs and lets the CLI render the metric × multiple form.
+    ms = scenario.methodology_summary or {}
+    if ms.get("terminal_method") == "TERMINAL_MULTIPLE":
+        metric = ms.get("terminal_metric") or "EV_EBITDA"
+        metric_value = ms.get("terminal_metric_value")
+        multiple_used = ms.get("terminal_multiple_used")
+        source_note = ms.get("terminal_multiple_source_note") or ""
+        implied_g = ms.get("gordon_implied_growth")
+        lines.append(
+            f"  Terminal metric: {metric} terminal-year = "
+            f"{_fmt_money(metric_value)}"
+        )
+        multiple_str = (
+            f"{multiple_used:.2f}×" if multiple_used is not None else "—"
+        )
+        lines.append(
+            f"  Terminal multiple: {multiple_str} "
+            f"(source: {source_note})"
+        )
+        lines.append(
+            f"  Terminal value = Metric × Multiple = "
+            f"{_fmt_money(scenario.terminal_value)}"
+        )
+        if implied_g is not None:
+            lines.append(
+                f"  Cross-check: implied Gordon g = "
+                f"{implied_g * 100:.2f}% "
+                f"(WACC {scenario.terminal_wacc * 100:.2f}%)"
+            )
+    else:
+        lines.append(
+            f"  Terminal FCF: {_fmt_money(scenario.terminal_fcf)} × "
+            f"(1 + {scenario.terminal_growth * 100:.2f}%) ÷ "
+            f"({scenario.terminal_wacc * 100:.2f}% − "
+            f"{scenario.terminal_growth * 100:.2f}%)"
+        )
+        lines.append(f"  Terminal value: {_fmt_money(scenario.terminal_value)}")
     lines.append(f"  Terminal PV: {_fmt_money(scenario.terminal_pv)}")
     lines.append(f"  Enterprise value: {_fmt_money(scenario.enterprise_value)}")
     lines.append(
@@ -453,11 +485,40 @@ def render_valuation_markdown(
             "",
             f"- Σ explicit PV (Y1-Y5): {_fmt_money(explicit_pv)}",
             f"- Σ fade PV (Y6-Y10): {_fmt_money(fade_pv)}",
-            f"- Terminal FCF: {_fmt_money(base.terminal_fcf)}",
-            f"- Terminal growth: {base.terminal_growth * 100:.2f}%",
-            f"- Terminal WACC: {base.terminal_wacc * 100:.2f}%",
-            f"- Terminal value: {_fmt_money(base.terminal_value)}",
-            f"- Terminal PV: {_fmt_money(base.terminal_pv)}",
+        ])
+        # Sprint 4A-alpha.3 — branch on terminal method for the
+        # terminal-value breakdown.
+        base_ms = base.methodology_summary or {}
+        if base_ms.get("terminal_method") == "TERMINAL_MULTIPLE":
+            metric = base_ms.get("terminal_metric") or "EV_EBITDA"
+            metric_value = base_ms.get("terminal_metric_value")
+            multiple_used = base_ms.get("terminal_multiple_used")
+            source_note = base_ms.get("terminal_multiple_source_note") or ""
+            implied_g = base_ms.get("gordon_implied_growth")
+            lines.extend([
+                f"- Terminal method: TERMINAL_MULTIPLE ({source_note})",
+                f"- Terminal metric ({metric}): {_fmt_money(metric_value)}",
+                f"- Terminal multiple: "
+                + (f"{multiple_used:.2f}×" if multiple_used is not None else "—"),
+                f"- Terminal value (metric × multiple): "
+                f"{_fmt_money(base.terminal_value)}",
+            ])
+            if implied_g is not None:
+                lines.append(
+                    f"- Gordon-implied growth cross-check: "
+                    f"{implied_g * 100:.2f}% (WACC "
+                    f"{base.terminal_wacc * 100:.2f}%)"
+                )
+            lines.append(f"- Terminal PV: {_fmt_money(base.terminal_pv)}")
+        else:
+            lines.extend([
+                f"- Terminal FCF: {_fmt_money(base.terminal_fcf)}",
+                f"- Terminal growth: {base.terminal_growth * 100:.2f}%",
+                f"- Terminal WACC: {base.terminal_wacc * 100:.2f}%",
+                f"- Terminal value: {_fmt_money(base.terminal_value)}",
+                f"- Terminal PV: {_fmt_money(base.terminal_pv)}",
+            ])
+        lines.extend([
             f"- **Enterprise value: {_fmt_money(base.enterprise_value)}**",
             f"- Net debt: {_fmt_money(base.net_debt)}"
             + (" (net cash)" if base.net_debt < 0 else ""),

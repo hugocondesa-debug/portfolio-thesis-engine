@@ -34,6 +34,21 @@ class DCFProfile(StrEnum):
     P6_MATURE_STABLE = "P6"
 
 
+class TerminalMethod(StrEnum):
+    """Sprint 4A-alpha.3 — terminal value methodology for DCF engines.
+
+    ``GORDON_GROWTH`` is the classic Damodaran formulation
+    (``FCF × (1 + g) / (WACC − g)``). ``TERMINAL_MULTIPLE`` anchors
+    the terminal value on an observable market multiple applied to the
+    terminal-year metric (EV/EBITDA, EV/Sales, PE) — useful when
+    Gordon growth is degenerate (WACC ≤ g) or when the analyst wants
+    to cross-validate an intrinsic DCF against a peer-derived exit
+    price."""
+
+    GORDON_GROWTH = "GORDON_GROWTH"
+    TERMINAL_MULTIPLE = "TERMINAL_MULTIPLE"
+
+
 class ValuationMethodology(StrEnum):
     """Sprint 4A-alpha.2 — per-scenario valuation methodology.
 
@@ -166,13 +181,60 @@ class ScenarioDriverOverride(BaseSchema):
 # Discriminated by the ``type`` literal. Pydantic v2 picks the correct
 # class via the ``MethodologyConfig`` Annotated union below.
 class DCFMethodologyConfig(BaseSchema):
-    """M1 / M2 — classic 3-stage (or 2-stage when fade_years=0) DCF."""
+    """M1 / M2 — classic 3-stage (or 2-stage when fade_years=0) DCF.
+
+    Sprint 4A-alpha.3 — ``terminal_method`` now accepts either
+    ``GORDON_GROWTH`` (needs ``terminal_growth``) or
+    ``TERMINAL_MULTIPLE`` (needs the ``terminal_multiple_*`` fields).
+    ``validate_terminal_method_fields`` enforces the required-fields
+    contract.
+    """
 
     type: Literal["DCF_3_STAGE", "DCF_2_STAGE"]
     explicit_years: int = 5
     fade_years: int = 5
-    terminal_method: Literal["GORDON_GROWTH"] = "GORDON_GROWTH"
-    terminal_growth: Decimal = Decimal("0.025")
+    terminal_method: TerminalMethod = TerminalMethod.GORDON_GROWTH
+
+    # Gordon-growth branch
+    terminal_growth: Decimal | None = Decimal("0.025")
+
+    # Terminal-multiple branch (Sprint 4A-alpha.3)
+    terminal_multiple_metric: (
+        Literal["EV_EBITDA", "EV_SALES", "PE"] | None
+    ) = None
+    terminal_multiple_source: (
+        Literal["INDUSTRY_MEDIAN", "PEER_MEDIAN", "USER_SPECIFIED"] | None
+    ) = None
+    terminal_multiple_value: Decimal | None = None
+
+    @model_validator(mode="after")
+    def _validate_terminal_method_fields(self) -> "DCFMethodologyConfig":
+        if self.terminal_method == TerminalMethod.GORDON_GROWTH:
+            if self.terminal_growth is None:
+                raise ValueError(
+                    "GORDON_GROWTH terminal method requires "
+                    "terminal_growth."
+                )
+        elif self.terminal_method == TerminalMethod.TERMINAL_MULTIPLE:
+            if self.terminal_multiple_metric is None:
+                raise ValueError(
+                    "TERMINAL_MULTIPLE terminal method requires "
+                    "terminal_multiple_metric."
+                )
+            if self.terminal_multiple_source is None:
+                raise ValueError(
+                    "TERMINAL_MULTIPLE terminal method requires "
+                    "terminal_multiple_source."
+                )
+            if (
+                self.terminal_multiple_source == "USER_SPECIFIED"
+                and self.terminal_multiple_value is None
+            ):
+                raise ValueError(
+                    "USER_SPECIFIED terminal multiple requires "
+                    "terminal_multiple_value."
+                )
+        return self
 
 
 class MultipleExitMethodologyConfig(BaseSchema):
@@ -443,6 +505,7 @@ __all__ = [
     "ScenarioDriverOverride",
     "ScenarioSet",
     "TargetCapitalStructure",
+    "TerminalMethod",
     "TerminalMultipleScenario",
     "TerminalMultipleValidation",
     "TerminalValueConfig",

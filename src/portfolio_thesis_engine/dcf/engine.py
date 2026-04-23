@@ -139,6 +139,7 @@ class ValuationEngine:
                 valuation_profile=valuation_profile,
                 base_drivers=base_drivers,
                 period_inputs=period_inputs,
+                peer_comparison=peer_comparison,
             )
         if isinstance(methodology, MultipleExitMethodologyConfig):
             valuation = self._multiple_exit.value(
@@ -183,42 +184,59 @@ class ValuationEngine:
         valuation_profile: ValuationProfile,
         base_drivers: dict[str, Any],
         period_inputs: PeriodInputs,
+        peer_comparison: Any | None = None,
     ) -> tuple[DCFValuation, list[ForecastWarning]]:
         """Run the underlying P1 DCF engine with a per-scenario
         override of ``dcf_structure`` (explicit_years / fade_years /
         terminal_growth sourced from the methodology config)."""
+        structure_type = "TWO_STAGE" if methodology.fade_years == 0 else "THREE_STAGE"
         structure = DCFStructure(
-            type="THREE_STAGE" if methodology.fade_years > 0 else "TWO_STAGE",
+            type=structure_type,
             explicit_years=methodology.explicit_years,
             fade_years=methodology.fade_years,
-            terminal_method=methodology.terminal_method,
+            terminal_method=(
+                "TERMINAL_MULTIPLE"
+                if methodology.terminal_method.value == "TERMINAL_MULTIPLE"
+                else "GORDON_GROWTH"
+            ),
         )
         profile_copy = valuation_profile.model_copy(
             update={"dcf_structure": structure}
         )
-        # Update terminal growth via terminal_value block for this run.
-        terminal_value = profile_copy.terminal_value.model_copy(
-            update={"growth_rate": methodology.terminal_growth}
-        )
-        profile_copy = profile_copy.model_copy(
-            update={"terminal_value": terminal_value}
-        )
+        # Update terminal growth via terminal_value block for Gordon
+        # scenarios. TERMINAL_MULTIPLE leaves the existing config intact
+        # and reads methodology fields directly in the engine.
+        if (
+            methodology.terminal_method.value == "GORDON_GROWTH"
+            and methodology.terminal_growth is not None
+        ):
+            terminal_value = profile_copy.terminal_value.model_copy(
+                update={"growth_rate": methodology.terminal_growth}
+            )
+            profile_copy = profile_copy.model_copy(
+                update={"terminal_value": terminal_value}
+            )
         drivers = _merge_scenario_overrides(base_drivers, scenario)
         valuation, warnings = self._dcf._run_scenario(  # noqa: SLF001
             scenario=scenario,
             drivers=drivers,
             valuation_profile=profile_copy,
             period_inputs=period_inputs,
+            peer_comparison=peer_comparison,
         )
         valuation.methodology_used = (
             ValuationMethodology.DCF_3_STAGE
             if methodology.fade_years > 0
             else ValuationMethodology.DCF_2_STAGE
         )
+        # Preserve terminal-multiple details set by ``_run_scenario``
+        # while adding structural metadata.
         valuation.methodology_summary = {
+            **valuation.methodology_summary,
             "explicit_years": methodology.explicit_years,
             "fade_years": methodology.fade_years,
             "terminal_growth": methodology.terminal_growth,
+            "terminal_method": methodology.terminal_method.value,
         }
         return valuation, warnings
 

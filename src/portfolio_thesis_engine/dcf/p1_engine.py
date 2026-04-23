@@ -24,6 +24,7 @@ from decimal import Decimal
 from typing import Any
 
 from portfolio_thesis_engine.dcf.schemas import (
+    DCFMethodologyConfig,
     DCFProfile,
     DCFStageProjection,
     DCFValuation,
@@ -32,6 +33,7 @@ from portfolio_thesis_engine.dcf.schemas import (
     Scenario,
     ScenarioDriverOverride,
     ScenarioSet,
+    TerminalMethod,
     TerminalMultipleValidation,
     ValuationProfile,
 )
@@ -205,6 +207,7 @@ class P1DCFEngine:
         drivers: dict[str, Any],
         valuation_profile: ValuationProfile,
         period_inputs: PeriodInputs,
+        peer_comparison: Any | None = None,
     ) -> tuple[DCFValuation, list[ForecastWarning]]:
         structure = valuation_profile.dcf_structure
         explicit_years = structure.explicit_years
@@ -318,35 +321,64 @@ class P1DCFEngine:
 
             prior_revenue = revenue
 
-        # Terminal value (Gordon growth).
-        terminal_fcf = fade_projs[-1].fcf if fade_projs else explicit_projs[-1].fcf
+        # Terminal value — Sprint 4A-alpha.3 branches on
+        # ``methodology.terminal_method``. Default (no methodology or
+        # GORDON_GROWTH) keeps the Sprint-4A-alpha Gordon formulation.
+        terminal_proj = fade_projs[-1] if fade_projs else explicit_projs[-1]
+        terminal_fcf = terminal_proj.fcf
         terminal_wacc = period_inputs.stage_3_wacc
         terminal_growth_used = terminal_growth
-        if terminal_wacc <= terminal_growth_used:
-            # Degenerate — emit warning and cap terminal_growth below
-            # wacc by 50 bps so math doesn't explode.
-            warning = ForecastWarning(
-                severity="CRITICAL",
-                scenario=scenario.name,
-                metric="terminal_growth",
-                observation=(
-                    f"Terminal growth {terminal_growth_used} >= terminal "
-                    f"WACC {terminal_wacc} → Gordon growth undefined. "
-                    "Capping g at WACC − 50bps to keep arithmetic "
-                    "tractable; re-verify terminal assumptions."
-                ),
-                recommendation=(
-                    "Lower terminal_growth below long-term WACC or "
-                    "switch to TERMINAL_MULTIPLE method."
-                ),
-            )
-            scenario_warnings: list[ForecastWarning] = [warning]
-            terminal_growth_used = terminal_wacc - Decimal("0.005")
-        else:
-            scenario_warnings = []
-        terminal_value = terminal_fcf * (Decimal("1") + terminal_growth_used) / (
-            terminal_wacc - terminal_growth_used
+        scenario_warnings: list[ForecastWarning] = []
+        methodology_cfg = (
+            scenario.methodology
+            if isinstance(scenario.methodology, DCFMethodologyConfig)
+            else None
         )
+        if (
+            methodology_cfg is not None
+            and methodology_cfg.terminal_method == TerminalMethod.TERMINAL_MULTIPLE
+        ):
+            terminal_value, tm_summary, tm_warnings = self._terminal_value_from_multiple(
+                scenario=scenario,
+                methodology=methodology_cfg,
+                terminal_proj=terminal_proj,
+                terminal_wacc=terminal_wacc,
+                period_inputs=period_inputs,
+                peer_comparison=peer_comparison,
+            )
+            scenario_warnings.extend(tm_warnings)
+            # Gordon-implied g implied by the multiple-derived TV —
+            # useful cross-check surfaced in the methodology summary.
+            tm_summary["gordon_implied_growth"] = _gordon_implied_growth(
+                terminal_fcf=terminal_fcf,
+                terminal_value=terminal_value,
+                terminal_wacc=terminal_wacc,
+            )
+        else:
+            if terminal_wacc <= terminal_growth_used:
+                scenario_warnings.append(
+                    ForecastWarning(
+                        severity="CRITICAL",
+                        scenario=scenario.name,
+                        metric="terminal_growth",
+                        observation=(
+                            f"Terminal growth {terminal_growth_used} >= terminal "
+                            f"WACC {terminal_wacc} → Gordon growth undefined. "
+                            "Capping g at WACC − 50bps to keep arithmetic "
+                            "tractable; re-verify terminal assumptions."
+                        ),
+                        recommendation=(
+                            "Lower terminal_growth below long-term WACC or "
+                            "switch to TERMINAL_MULTIPLE method."
+                        ),
+                    )
+                )
+                terminal_growth_used = terminal_wacc - Decimal("0.005")
+            terminal_value = (
+                terminal_fcf * (Decimal("1") + terminal_growth_used)
+                / (terminal_wacc - terminal_growth_used)
+            )
+            tm_summary = None
         terminal_pv = terminal_value / discount_factor_cumulative
 
         # Enterprise → equity bridge.
@@ -411,6 +443,7 @@ class P1DCFEngine:
             ticker=period_inputs.ticker,
             scenario_name=scenario.name,
             scenario_probability=scenario.probability,
+            methodology_summary=tm_summary or {},
             explicit_projections=explicit_projs,
             fade_projections=fade_projs,
             terminal_fcf=terminal_fcf,
@@ -427,6 +460,143 @@ class P1DCFEngine:
             terminal_multiple_validation=validation,
         )
         return valuation, scenario_warnings
+
+    # ------------------------------------------------------------------
+    # Sprint 4A-alpha.3 — TERMINAL_MULTIPLE branch helpers
+    # ------------------------------------------------------------------
+    def _terminal_value_from_multiple(
+        self,
+        *,
+        scenario: Scenario,
+        methodology: DCFMethodologyConfig,
+        terminal_proj: DCFStageProjection,
+        terminal_wacc: Decimal,
+        period_inputs: PeriodInputs,
+        peer_comparison: Any | None,
+    ) -> tuple[Decimal, dict[str, Any], list[ForecastWarning]]:
+        """Compute terminal value as ``terminal_metric × resolved_multiple``.
+
+        Returns ``(terminal_value, summary, warnings)``. Warnings fire
+        when the requested multiple source can't be resolved; in that
+        case ``terminal_value`` falls back to zero and the caller can
+        surface the issue.
+        """
+        warnings: list[ForecastWarning] = []
+        metric_value = _terminal_metric_value(
+            methodology.terminal_multiple_metric, terminal_proj
+        )
+        multiple, source_note, source_warning = _resolve_terminal_multiple(
+            methodology=methodology,
+            period_inputs=period_inputs,
+            peer_comparison=peer_comparison,
+        )
+        if source_warning is not None:
+            warnings.append(
+                ForecastWarning(
+                    severity="CRITICAL",
+                    scenario=scenario.name,
+                    metric="terminal_multiple_source",
+                    observation=source_warning,
+                    recommendation=(
+                        "Switch terminal_multiple_source to USER_SPECIFIED "
+                        "with an explicit value, or wire the required "
+                        "reference data (industry median / peer comparison)."
+                    ),
+                )
+            )
+        terminal_value = (
+            metric_value * multiple if multiple is not None else Decimal("0")
+        )
+        summary: dict[str, Any] = {
+            "terminal_method": "TERMINAL_MULTIPLE",
+            "terminal_metric": methodology.terminal_multiple_metric,
+            "terminal_metric_value": metric_value,
+            "terminal_multiple_source": methodology.terminal_multiple_source,
+            "terminal_multiple_used": multiple,
+            "terminal_multiple_source_note": source_note,
+        }
+        return terminal_value, summary, warnings
+
+
+def _terminal_metric_value(
+    metric: str | None, terminal_proj: DCFStageProjection
+) -> Decimal:
+    """Translate a metric label into the terminal-year value. ``PE``
+    uses NOPAT as a stand-in until Sprint 4A-beta lands the three-
+    statement projection (which will surface full net income)."""
+    if metric == "EV_SALES":
+        return terminal_proj.revenue
+    if metric == "PE":
+        # Net-income proxy pending three-statement projection (4A-beta).
+        return terminal_proj.nopat
+    # Default: EV_EBITDA = operating income + D&A.
+    return terminal_proj.operating_income + terminal_proj.depreciation
+
+
+def _resolve_terminal_multiple(
+    *,
+    methodology: DCFMethodologyConfig,
+    period_inputs: PeriodInputs,
+    peer_comparison: Any | None,
+) -> tuple[Decimal | None, str, str | None]:
+    """Return ``(multiple, note, warning)``. ``warning`` is non-None
+    only when the requested source can't be resolved."""
+    source = methodology.terminal_multiple_source
+    if source == "USER_SPECIFIED":
+        return methodology.terminal_multiple_value, "user-specified", None
+    if source == "INDUSTRY_MEDIAN":
+        value = period_inputs.industry_median_ev_ebitda
+        if value is None:
+            return (
+                None,
+                "industry median (unavailable)",
+                "INDUSTRY_MEDIAN requested but no industry median "
+                "available for this ticker.",
+            )
+        return value, "industry median", None
+    if source == "PEER_MEDIAN":
+        if peer_comparison is None:
+            return (
+                None,
+                "peer median (no peers loaded)",
+                "PEER_MEDIAN requested but no peers.yaml is populated "
+                "for this ticker.",
+            )
+        # Peer median can live under either key depending on the
+        # fetcher convention. Try the Sprint-3 ``ev_to_ebitda`` first,
+        # fall back to ``ev_ebitda`` for forward-compat.
+        median = peer_comparison.peer_median.get(
+            "ev_to_ebitda"
+        ) or peer_comparison.peer_median.get("ev_ebitda")
+        if median is None:
+            return (
+                None,
+                "peer median (metric missing)",
+                "PEER_MEDIAN requested but peer comparison has no "
+                "EV/EBITDA data.",
+            )
+        return median, "peer median", None
+    return None, "unknown source", f"Unknown terminal_multiple_source: {source}"
+
+
+def _gordon_implied_growth(
+    *,
+    terminal_fcf: Decimal,
+    terminal_value: Decimal,
+    terminal_wacc: Decimal,
+) -> Decimal | None:
+    """Back out the Gordon growth rate that would produce the same
+    terminal value given the terminal FCF and WACC:
+
+    ``TV = FCF × (1 + g) / (WACC − g)  →
+     g = (WACC × TV − FCF) / (TV + FCF)``
+
+    Returns ``None`` when the math is undefined (zero denominator)."""
+    if terminal_value + terminal_fcf == 0:
+        return None
+    return (terminal_wacc * terminal_value - terminal_fcf) / (
+        terminal_value + terminal_fcf
+    )
 
 
 def _forecast_coherence_warnings(
