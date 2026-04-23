@@ -13,6 +13,7 @@ from portfolio_thesis_engine.cli.historicals_cmd import historicals
 from portfolio_thesis_engine.cli.ingest_cmd import ingest
 from portfolio_thesis_engine.cli.peers_cmd import peers
 from portfolio_thesis_engine.cli.process_cmd import process
+from portfolio_thesis_engine.cli.reverse_cmd import reverse
 from portfolio_thesis_engine.cli.setup_cmd import setup
 from portfolio_thesis_engine.cli.show_cmd import show
 from portfolio_thesis_engine.cli.smoke_cmd import smoke_test
@@ -40,6 +41,7 @@ app.command("historicals")(historicals)
 app.command("analyze")(analyze)
 app.command("peers")(peers)
 app.command("valuation")(valuation)
+app.command("reverse")(reverse)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -350,6 +350,116 @@ def _roic_attribution_section(ts: CompanyTimeSeries) -> list[str]:
     return lines
 
 
+def _reverse_summary_section(
+    ticker: str, dcf_result: DCFValuationResult | None
+) -> list[str]:
+    """Sprint 4A-alpha.4 Part E — compact market-implied assumptions
+    block. Runs only when (a) DCF result is present, (b) market price
+    is known, and (c) at least one solve converges. Silent otherwise
+    so we never blow up the analyze command."""
+    if dcf_result is None or not dcf_result.scenarios_run:
+        return []
+    if dcf_result.market_price is None or dcf_result.market_price == 0:
+        return []
+    try:
+        from portfolio_thesis_engine.analytical.historicals import (
+            HistoricalNormalizer,
+        )
+        from portfolio_thesis_engine.dcf.profiles import (
+            load_valuation_profile,
+        )
+        from portfolio_thesis_engine.dcf.reverse import (
+            ReverseDCFSolver,
+            assess_plausibility,
+        )
+        from portfolio_thesis_engine.dcf.scenarios import load_scenarios
+
+        scenario_set = load_scenarios(ticker)
+        valuation_profile = load_valuation_profile(ticker)
+        if scenario_set is None:
+            return []
+        base = next(
+            (s for s in scenario_set.scenarios if s.name == "base"),
+            scenario_set.scenarios[0] if scenario_set.scenarios else None,
+        )
+        if base is None:
+            return []
+
+        from portfolio_thesis_engine.dcf.orchestrator import DCFOrchestrator
+
+        orch = DCFOrchestrator()
+        state = orch._latest_canonical_state(ticker)  # noqa: SLF001
+        if state is None:
+            return []
+        stage_1 = orch._stage_1_wacc(ticker, state)  # noqa: SLF001
+        stage_3 = orch._stage_3_wacc(  # noqa: SLF001
+            state, valuation_profile, stage_1
+        )
+        pi = orch._period_inputs(  # noqa: SLF001
+            ticker=ticker,
+            state=state,
+            stage_1_wacc=stage_1,
+            stage_3_wacc=stage_3,
+            valuation_profile=valuation_profile,
+        )
+        peers = orch._load_peer_comparison(ticker)  # noqa: SLF001
+        hist = HistoricalNormalizer().normalize(ticker).records
+
+        solver = ReverseDCFSolver()
+        target = dcf_result.market_price
+        # Focus on the three drivers that typically converge for P1.
+        drivers = ["operating_margin", "wacc", "capex_intensity"]
+        implieds = [
+            solver.solve(
+                scenario=base,
+                valuation_profile=valuation_profile,
+                period_inputs=pi,
+                base_drivers=scenario_set.base_drivers,
+                peer_comparison=peers,
+                solve_for=d,
+                target_fv=target,
+            )
+            for d in drivers
+        ]
+        plausibilities = [
+            assess_plausibility(i, historicals=hist, auto_wacc=stage_1)
+            for i in implieds
+        ]
+    except Exception:
+        return []
+
+    lines = ["[bold cyan]Market-implied assumptions (reverse DCF)[/bold cyan]"]
+    lines.append(
+        f"  Market {target:,.2f} implies (vs base scenario):"
+    )
+    for implied, plaus in zip(implieds, plausibilities, strict=True):
+        if implied.implied_value is None:
+            continue
+        gap_str = (
+            f"{(implied.gap_vs_baseline * Decimal('10000')):+.0f} bps"
+            if implied.gap_vs_baseline is not None
+            else "—"
+        )
+        lines.append(
+            f"    - {implied.display_name}: "
+            f"{implied.implied_value * Decimal('100'):.2f}% "
+            f"({gap_str}, [{plaus.plausibility}])"
+        )
+    low_count = sum(
+        1 for p in plausibilities
+        if p.plausibility in ("LOW", "VERY_LOW")
+    )
+    if low_count:
+        lines.append(
+            f"  {low_count} of {len(plausibilities)} converged drivers rated "
+            "LOW or VERY_LOW plausibility vs company evidence."
+        )
+    lines.append(
+        f"  See `pte reverse {ticker} --enumerate` for the full matrix."
+    )
+    return lines
+
+
 def _dcf_summary_section(result: DCFValuationResult | None) -> list[str]:
     if result is None or not result.scenarios_run:
         return []
@@ -1018,6 +1128,9 @@ def _run_analyze(
         console.print(line)
     # 4d. Scenario-weighted DCF summary (Sprint 4A-alpha)
     for line in _dcf_summary_section(dcf_result):
+        console.print(line)
+    # 4e. Market-implied assumptions summary (Sprint 4A-alpha.4)
+    for line in _reverse_summary_section(ticker, dcf_result):
         console.print(line)
     # 5. Trends
     trends = _trends_table(ts)
