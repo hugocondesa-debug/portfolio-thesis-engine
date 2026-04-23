@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from portfolio_thesis_engine.cli.analyze_cmd import analyze
 from portfolio_thesis_engine.cli.audit_extraction_cmd import audit_extraction
 from portfolio_thesis_engine.cli.cross_check_cmd import cross_check
 from portfolio_thesis_engine.cli.generate_overrides_cmd import generate_overrides
@@ -34,6 +35,7 @@ app.command("validate-extraction")(validate_extraction)
 app.command("audit-extraction")(audit_extraction)
 app.command("generate-overrides")(generate_overrides)
 app.command("historicals")(historicals)
+app.command("analyze")(analyze)
 
 
 if __name__ == "__main__":  # pragma: no cover

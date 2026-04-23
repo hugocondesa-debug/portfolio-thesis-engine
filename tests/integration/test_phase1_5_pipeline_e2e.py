@@ -298,8 +298,12 @@ class TestPhase1_5E2E:
         assert Decimal("15") < ratios.operating_margin < Decimal("25")
 
         # Reclassified statements carry every non-None typed field.
-        assert len(state.reclassified_statements) == 1
+        # Phase 2 Sprint 2A — primary at [0] plus optional comparatives
+        # appended when the raw extraction carries prior-period data.
+        # EuroEyes AR 2024 fixture has FY2023 comparative → 2 entries.
+        assert len(state.reclassified_statements) >= 1
         rs = state.reclassified_statements[0]
+        assert rs.period.label == "FY2024"
         assert len(rs.income_statement) > 0
         assert len(rs.balance_sheet) > 0
         assert len(rs.cash_flow) > 0

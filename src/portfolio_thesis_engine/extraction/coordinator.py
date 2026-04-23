@@ -177,7 +177,7 @@ class ExtractionCoordinator:
         decomposition_coverage: Any = None,
     ) -> CanonicalCompanyState:
         analysis = self._analysis.derive(context, decompositions=decompositions)
-        reclassified = self._reclassified_statements(context)
+        reclassified_list = self._all_reclassified_statements(context)
         adjustments = self._partition_adjustments(context)
         # Phase 1.5.10 — attach Module D output so downstream consumers
         # (display, guardrails, Phase-2 modules) can query it without
@@ -266,7 +266,7 @@ class ExtractionCoordinator:
             extraction_date=datetime.now(UTC),
             as_of_date=as_of_date,
             identity=identity,
-            reclassified_statements=[reclassified],
+            reclassified_statements=reclassified_list,
             adjustments=adjustments,
             analysis=analysis,
             validation=validation,
@@ -280,6 +280,9 @@ class ExtractionCoordinator:
     def _reclassified_statements(
         self, context: ExtractionContext
     ) -> ReclassifiedStatements:
+        """Build the primary-period reclassified statement. Phase 2
+        Sprint 2A callers that need the full per-period list use
+        :meth:`_all_reclassified_statements` instead."""
         raw = context.raw_extraction
         is_lines = _render_is_lines(raw.primary_is)
         bs_lines = _render_bs_lines(raw.primary_bs)
@@ -294,6 +297,52 @@ class ExtractionCoordinator:
             is_checksum_pass=True,
             cf_checksum_pass=True,
         )
+
+    def _all_reclassified_statements(
+        self, context: ExtractionContext
+    ) -> list[ReclassifiedStatements]:
+        """Phase 2 Sprint 2A — produce one :class:`ReclassifiedStatements`
+        per period the raw extraction carries data for. Primary sits at
+        index ``0``; comparatives follow in the order they appear in
+        ``metadata.fiscal_periods``.
+
+        Modules A/B/C/D / DCF continue to read
+        ``reclassified_statements[0]`` (primary-only semantics preserved
+        by construction). Downstream analytics
+        (:class:`HistoricalNormalizer`) walks ``[1:]`` for comparative
+        records so TTM + DuPont trend attribution can activate.
+        """
+        raw = context.raw_extraction
+        result: list[ReclassifiedStatements] = [
+            self._reclassified_statements(context)
+        ]
+
+        primary_label = context.primary_period.label
+        seen = {primary_label}
+
+        for fp in raw.metadata.fiscal_periods:
+            if fp.period in seen:
+                continue
+            seen.add(fp.period)
+            is_period = raw.income_statement.get(fp.period)
+            bs_period = raw.balance_sheet.get(fp.period)
+            cf_period = raw.cash_flow.get(fp.period)
+            # Skip periods with no IS data — the comparative is
+            # useless for historicals without at least revenue.
+            if is_period is None:
+                continue
+            result.append(
+                ReclassifiedStatements(
+                    period=parse_fiscal_period(fp.period),
+                    income_statement=_render_is_lines(is_period),
+                    balance_sheet=_render_bs_lines(bs_period),
+                    cash_flow=_render_cf_lines(cf_period),
+                    bs_checksum_pass=True,
+                    is_checksum_pass=True,
+                    cf_checksum_pass=True,
+                )
+            )
+        return result
 
     def _partition_adjustments(
         self, context: ExtractionContext

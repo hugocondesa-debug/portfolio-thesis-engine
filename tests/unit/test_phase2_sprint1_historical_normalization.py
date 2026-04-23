@@ -281,17 +281,21 @@ class TestHistoricalSchemas:
         assert len(ts.records) == 2
 
     def test_restatement_event_materiality_threshold(self) -> None:
+        """Phase 2 Sprint 2A tightened the threshold to 0.5 % and
+        added five severity levels. Below 0.5 % (NEGLIGIBLE) still
+        produces no event."""
         primary = _historical_record(
             period="FY2024", revenue=Decimal("1000"), source_id="audited"
         )
-        # Secondary 0.5 % off — below threshold, no event.
+        # Secondary 0.2 % off — NEGLIGIBLE, no event.
         secondary_tiny = _historical_record(
-            period="FY2024", revenue=Decimal("995"), source_id="prelim",
+            period="FY2024", revenue=Decimal("998"), source_id="prelim",
             audit_status=AuditStatus.UNAUDITED,
         )
         assert _compare_records(primary, secondary_tiny) == []
 
-        # Secondary 5 % off — material, emits event.
+        # Secondary 5 % off — SIGNIFICANT, emits event with
+        # ``is_material=True``.
         secondary_big = _historical_record(
             period="FY2024", revenue=Decimal("950"), source_id="prelim",
             audit_status=AuditStatus.UNAUDITED,
@@ -300,6 +304,7 @@ class TestHistoricalSchemas:
         assert len(events) == 1
         assert events[0].metric == "revenue"
         assert events[0].is_material is True
+        assert events[0].severity == "SIGNIFICANT"
 
     def test_fiscal_year_change_event_detection_when_period_end_shifts(
         self,

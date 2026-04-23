@@ -42,7 +42,27 @@ from portfolio_thesis_engine.storage.yaml_repo import CompanyStateRepository
 # ----------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------
-_RESTATEMENT_MATERIALITY_PCT = Decimal("1.0")
+_RESTATEMENT_MATERIALITY_PCT = Decimal("0.5")
+_RESTATEMENT_METRICS = (
+    "revenue",
+    "operating_income",
+    "net_income",
+    "total_assets",
+    "total_equity",
+)
+
+
+def _classify_restatement_severity(delta_pct: Decimal) -> str:
+    abs_pct = abs(delta_pct)
+    if abs_pct < Decimal("0.5"):
+        return "NEGLIGIBLE"
+    if abs_pct < Decimal("1"):
+        return "MINOR"
+    if abs_pct < Decimal("5"):
+        return "MATERIAL"
+    if abs_pct < Decimal("10"):
+        return "SIGNIFICANT"
+    return "ADVERSE"
 _AUDIT_PRIORITY = {
     AuditStatus.AUDITED: 0,
     AuditStatus.REVIEWED: 1,
@@ -81,14 +101,26 @@ class HistoricalNormalizer:
             records.append(self._record_from_primary(state))
             records.extend(self._records_from_comparatives(state))
 
-        deduped, restatements = _dedupe_with_restatements(records)
+        deduped, restatements = _dedupe_with_restatements(
+            records, primary_wins=True
+        )
         ttm = _build_ttm_record(deduped)
         if ttm is not None:
             deduped.append(ttm)
         sorted_records = sorted(deduped, key=lambda r: r.period_end)
 
+        # Phase 2 Sprint 2A — analytical enrichment. Populates
+        # economic_balance_sheet + DuPont + ROIC decomposition + QoE
+        # per record; trends + investment_signal at the top level.
+        _enrich_records_with_analytics(sorted_records, states, ticker=ticker)
         fy_changes = _detect_fiscal_year_changes(sorted_records)
         narrative_timeline = _build_narrative_timeline(sorted_records)
+        trends = _compute_trends_wrapper(sorted_records)
+        latest_roic = _latest_roic_decomposition(sorted_records)
+        latest_qoe = _latest_qoe(sorted_records)
+        signal = _synthesise_signal(
+            sorted_records, trends, latest_roic, latest_qoe
+        )
 
         return CompanyTimeSeries(
             ticker=ticker,
@@ -97,6 +129,8 @@ class HistoricalNormalizer:
             fiscal_year_changes=fy_changes,
             restatement_events=restatements,
             narrative_timeline=narrative_timeline,
+            trends=trends,
+            investment_signal=signal,
             generated_at=datetime.now(UTC),
             source_canonical_state_ids=[s.extraction_id for s in states],
         )
@@ -192,12 +226,51 @@ class HistoricalNormalizer:
     def _records_from_comparatives(
         self, state: CanonicalCompanyState
     ) -> list[HistoricalRecord]:
-        """Phase 2 Sprint 1 starter: we don't yet unpack comparatives
-        into separate records because canonical_state flattens them.
-        Future sprint: when reclassified_statements carries multiple
-        periods, emit one per comparative."""
-        _ = state
-        return []
+        """Phase 2 Sprint 2A — walk every reclassified statement after
+        the primary ([0]) and emit one record per comparative. NOPAT
+        bridge + invested capital + ratios remain primary-only
+        (AnalysisDeriver hasn't been multi-period-ified yet); comparative
+        records expose revenue / operating_income / net_income / total
+        assets / equity from the IS + BS line lists.
+        """
+        if len(state.reclassified_statements) <= 1:
+            return []
+        primary_audit = _resolve_audit_status(state)
+        doc_type = _resolve_source_document_type(state)
+        source_id = state.extraction_id
+        source_date = (
+            state.extraction_date.date()
+            if isinstance(state.extraction_date, datetime)
+            else date.today()
+        )
+        out: list[HistoricalRecord] = []
+        for rs in state.reclassified_statements[1:]:
+            label = rs.period.label
+            period_end = _period_end_from_label(
+                label,
+                fallback_month=state.identity.fiscal_year_end_month,
+            )
+            period_type = _classify_period_type(
+                period_label=label,
+                audit_status=state.validation.confidence_rating,
+                document_type=doc_type,
+                audit_status_value=primary_audit.value,
+            )
+            period_start = _period_start_for(period_end, period_type)
+            out.append(
+                _build_comparative_record(
+                    rs=rs,
+                    period_label=label,
+                    period_start=period_start,
+                    period_end=period_end,
+                    period_type=period_type,
+                    audit_status=primary_audit,
+                    source_id=source_id,
+                    source_document_type=doc_type,
+                    source_document_date=source_date,
+                )
+            )
+        return out
 
 
 # ----------------------------------------------------------------------
@@ -393,12 +466,20 @@ def _build_record(
         statement="income_statement",
         subtotal_ok=True,
     )
+    # Phase 2 Sprint 2A.1 — canonical BS line lists don't persist
+    # "Total assets"/"Total equity" subtotal rows (issuers report them
+    # only in narrative summaries). Fall back to category-sum when the
+    # subtotal line is absent so DuPont has the denominators it needs.
     total_assets = _first_matching_line(
         state,
         labels=("total assets",),
         statement="balance_sheet",
         subtotal_ok=True,
     )
+    if total_assets is None:
+        total_assets = _sum_bs_categories(
+            state, {"non_current_assets", "current_assets"}
+        )
     total_equity = _first_matching_line(
         state,
         labels=("total equity", "total shareholders' equity",
@@ -406,6 +487,27 @@ def _build_record(
         statement="balance_sheet",
         subtotal_ok=True,
     )
+    if total_equity is None:
+        total_equity = _sum_bs_categories(state, {"equity"})
+
+    # Phase 2 Sprint 2A.1 — CFO, AR, non-recurring share feed Sprint 2A
+    # QoE scoring and DuPont. CFO = "Cash generated from operations" +
+    # taxes paid + interest received (operating section net). Trade
+    # receivables come from the BS line list. Non-recurring share =
+    # |non_recurring_operating_items| ÷ reported operating income.
+    cfo = _derive_cfo(state)
+    accounts_receivable = _first_matching_line(
+        state,
+        labels=("trade receivables", "trade and other receivables",
+                "accounts receivable"),
+        statement="balance_sheet",
+        subtotal_ok=False,
+    )
+    non_recurring_share: Decimal | None = None
+    if bridge is not None and bridge.non_recurring_operating_items and operating_income_value:
+        non_recurring_share = (
+            abs(bridge.non_recurring_operating_items) / abs(operating_income_value)
+        )
 
     # Phase 2 Sprint 1.1 — always resolve to a non-'unknown' label via
     # the heuristic helper. Legacy canonical states without an explicit
@@ -429,6 +531,7 @@ def _build_record(
         period_start=period_start,
         period_end=period_end,
         period_type=period_type,
+        period_relation="primary",
         fiscal_year_basis=f"calendar_{period_end.month:02d}",
         audit_status=audit_status,
         source_canonical_state_id=state.extraction_id,
@@ -465,7 +568,111 @@ def _build_record(
             ratios.roic_reported if ratios is not None else None
         ),
         roe=ratios.roe if ratios is not None else None,
+        cfo=cfo,
+        accounts_receivable=accounts_receivable,
+        non_recurring_items_share=non_recurring_share,
         narrative_summary=narrative_summary,
+    )
+
+
+def _build_comparative_record(
+    *,
+    rs: Any,
+    period_label: str,
+    period_start: date,
+    period_end: date,
+    period_type: HistoricalPeriodType,
+    audit_status: AuditStatus,
+    source_id: str,
+    source_document_type: str,
+    source_document_date: date,
+) -> HistoricalRecord:
+    """Construct a comparative record from a single ReclassifiedStatements
+    entry (no NOPAT bridge / IC / ratios available — primary-only for
+    those in Sprint 2A)."""
+    from portfolio_thesis_engine.schemas.raw_extraction import DocumentType
+
+    def _find(lines: list[Any], labels: tuple[str, ...]) -> Decimal | None:
+        normalised = tuple(lbl.lower() for lbl in labels)
+        for line in lines:
+            if line.label.lower() in normalised:
+                return line.value
+        return None
+
+    try:
+        source_doc_enum: DocumentType | str = DocumentType(source_document_type)
+    except ValueError:
+        source_doc_enum = source_document_type
+
+    total_assets = _find(rs.balance_sheet, ("total assets",))
+    if total_assets is None:
+        total_assets = _sum_bs_category_from_lines(
+            rs.balance_sheet, {"non_current_assets", "current_assets"}
+        )
+    total_equity = _find(
+        rs.balance_sheet,
+        (
+            "total equity",
+            "total shareholders' equity",
+            "equity attributable to owners",
+        ),
+    )
+    if total_equity is None:
+        total_equity = _sum_bs_category_from_lines(
+            rs.balance_sheet, {"equity"}
+        )
+
+    revenue = _find(
+        rs.income_statement,
+        ("revenue", "total revenue", "sales", "turnover"),
+    )
+    operating_income = _find(
+        rs.income_statement,
+        (
+            "operating profit",
+            "operating income",
+            "profit from operations",
+        ),
+    )
+    # Phase 2 Sprint 2A.1 — derive operating_margin_reported for
+    # comparatives so trend analysis can compute margin_delta_bps against
+    # the primary period.
+    operating_margin = (
+        (operating_income / revenue) * Decimal("100")
+        if operating_income is not None and revenue not in (None, Decimal("0"))
+        else None
+    )
+
+    return HistoricalRecord(
+        period=period_label,
+        period_start=period_start,
+        period_end=period_end,
+        period_type=period_type,
+        period_relation="comparative",
+        fiscal_year_basis=f"calendar_{period_end.month:02d}",
+        audit_status=audit_status,
+        source_canonical_state_id=source_id,
+        source_document_type=source_doc_enum,
+        source_document_date=source_document_date,
+        revenue=revenue,
+        operating_income=operating_income,
+        net_income=_find(
+            rs.income_statement,
+            (
+                "profit for the year",
+                "profit for the period",
+                "net income",
+                "net profit",
+            ),
+        ),
+        total_assets=total_assets,
+        total_equity=total_equity,
+        accounts_receivable=_find(
+            rs.balance_sheet,
+            ("trade receivables", "trade and other receivables",
+             "accounts receivable"),
+        ),
+        operating_margin_reported=operating_margin,
     )
 
 
@@ -495,41 +702,128 @@ def _first_matching_line(
     return None
 
 
+def _sum_bs_categories(
+    state: CanonicalCompanyState, categories: set[str]
+) -> Decimal | None:
+    """Phase 2 Sprint 2A.1 — sum BS lines whose ``category`` is in
+    ``categories``. Returns ``None`` when no line matches."""
+    if not state.reclassified_statements:
+        return None
+    total: Decimal | None = None
+    for line in state.reclassified_statements[0].balance_sheet:
+        if line.category in categories:
+            total = line.value if total is None else total + line.value
+    return total
+
+
+def _sum_bs_category_from_lines(
+    lines: list[Any], categories: set[str]
+) -> Decimal | None:
+    total: Decimal | None = None
+    for line in lines:
+        if line.category in categories:
+            total = line.value if total is None else total + line.value
+    return total
+
+
+_CFO_LABELS = (
+    "cash generated from operations",
+    "net cash from operating activities",
+    "net cash generated from operating activities",
+    "net cash inflow from operating activities",
+    "cash flow from operating activities",
+)
+
+
+def _derive_cfo(state: CanonicalCompanyState) -> Decimal | None:
+    """Extract CFO from the canonical cash-flow statement.
+
+    Prefer explicit labels like ``"Net cash from operating activities"``.
+    Fall back to ``"Cash generated from operations" + interest received
+    − income tax paid`` — the sub-total + reconciliation items as many
+    IFRS issuers (EuroEyes) present them.
+    """
+    if not state.reclassified_statements:
+        return None
+    lines = state.reclassified_statements[0].cash_flow
+    normalised = tuple(lbl for lbl in _CFO_LABELS)
+    for line in lines:
+        if line.label.lower() in normalised:
+            return line.value
+    # Fallback: sum of operating-section lines.
+    operating_total: Decimal | None = None
+    for line in lines:
+        if line.category == "operating":
+            operating_total = (
+                line.value if operating_total is None else operating_total + line.value
+            )
+    return operating_total
+
+
 # ----------------------------------------------------------------------
 # Restatement detection
 # ----------------------------------------------------------------------
+_RELATION_PRIORITY = {"primary": 0, "comparative": 1}
+
+
 def _dedupe_with_restatements(
     records: list[HistoricalRecord],
+    primary_wins: bool = True,
 ) -> tuple[list[HistoricalRecord], list[RestatementEvent]]:
+    """Group by period, pick the winner per the priority hierarchy
+    (period_relation → audit_status), compare every non-winner against
+    the winner and emit :class:`RestatementEvent` on material deltas.
+
+    Phase 2 Sprint 2A — with ``primary_wins=True`` the dedupe honours
+    the Sprint 2A convention that a period's primary observation
+    (from an AR whose PRIMARY period is that period) beats any later
+    comparative (from an AR whose primary was *another* period but
+    included this one as a prior-year comparison column).
+    """
     grouped: dict[str, list[HistoricalRecord]] = {}
     for record in records:
         grouped.setdefault(record.period, []).append(record)
 
+    def _sort_key(r: HistoricalRecord) -> tuple[int, int, float]:
+        relation_rank = (
+            _RELATION_PRIORITY.get(r.period_relation, 2)
+            if primary_wins
+            else 0
+        )
+        audit_rank = _AUDIT_PRIORITY.get(r.audit_status, 3)
+        # Most recent source_document_date tiebreaker (negated so newer
+        # sorts earlier).
+        date_rank = -r.source_document_date.toordinal()
+        return relation_rank, audit_rank, date_rank
+
     deduped: list[HistoricalRecord] = []
     restatements: list[RestatementEvent] = []
-    for period, group in grouped.items():
-        group.sort(key=lambda r: _AUDIT_PRIORITY.get(r.audit_status, 3))
-        primary = group[0]
-        deduped.append(primary)
+    for _period, group in grouped.items():
+        group.sort(key=_sort_key)
+        winner = group[0]
+        deduped.append(winner)
         for secondary in group[1:]:
-            restatements.extend(_compare_records(primary, secondary))
+            restatements.extend(_compare_records(winner, secondary))
     return deduped, restatements
 
 
 def _compare_records(
     primary: HistoricalRecord, secondary: HistoricalRecord
 ) -> list[RestatementEvent]:
+    """Phase 2 Sprint 2A — produce one :class:`RestatementEvent` per
+    metric whose value disagrees by ≥ 0.5 % between ``primary`` (the
+    winner) and ``secondary``. Severity classified on five levels;
+    NEGLIGIBLE deltas are skipped."""
     events: list[RestatementEvent] = []
-    metrics = ("revenue", "operating_income", "net_income")
-    for metric in metrics:
+    for metric in _RESTATEMENT_METRICS:
         a = getattr(primary, metric)
         b = getattr(secondary, metric)
         if a is None or b is None or b == 0:
             continue
         delta_abs = a - b
         delta_pct = abs(delta_abs / b) * Decimal("100")
-        is_material = delta_pct > _RESTATEMENT_MATERIALITY_PCT
-        if not is_material:
+        severity = _classify_restatement_severity(delta_pct)
+        if severity == "NEGLIGIBLE":
             continue
         events.append(
             RestatementEvent(
@@ -537,13 +831,16 @@ def _compare_records(
                 source_a_canonical_id=secondary.source_canonical_state_id,
                 source_a_audit=secondary.audit_status,
                 source_a_value=b,
+                source_a_period_relation=secondary.period_relation,
                 source_b_canonical_id=primary.source_canonical_state_id,
                 source_b_audit=primary.audit_status,
                 source_b_value=a,
+                source_b_period_relation=primary.period_relation,
                 metric=metric,
                 delta_absolute=delta_abs,
                 delta_pct=delta_pct,
-                is_material=is_material,
+                is_material=severity in ("MATERIAL", "SIGNIFICANT", "ADVERSE"),
+                severity=severity,
                 detected_at=datetime.now(UTC),
             )
         )
@@ -757,6 +1054,157 @@ def _build_narrative_timeline(
         guidance_evolution=guidance_occurrences,
         capital_allocation_evolution=cap_alloc_occurrences,
     )
+
+
+# ----------------------------------------------------------------------
+# Phase 2 Sprint 2A — analytical enrichment
+# ----------------------------------------------------------------------
+def _enrich_records_with_analytics(
+    records: list[HistoricalRecord],
+    states: list[CanonicalCompanyState],
+    ticker: str | None = None,
+) -> None:
+    """Populate economic_balance_sheet + DuPont + ROIC decomposition +
+    quality_of_earnings on every record that has the inputs."""
+    from portfolio_thesis_engine.analytical.analyze import (
+        compute_dupont_3way,
+        compute_qoe,
+        compute_roic_decomposition,
+    )
+    from portfolio_thesis_engine.analytical.economic_bs import (
+        EconomicBSBuilder,
+    )
+
+    state_by_id: dict[str, CanonicalCompanyState] = {
+        s.extraction_id: s for s in states
+    }
+    bs_builder = EconomicBSBuilder()
+
+    # Phase 2 Sprint 2A.1 — WACC flows from the ticker's
+    # wacc_inputs.md. Loading is best-effort: tickers without the file
+    # simply keep ``record.wacc = None`` and ROIC decomposition skips the
+    # spread calculation.
+    wacc_pct = _load_wacc_for_ticker(ticker)
+
+    # Build a secondary lookup: (canonical_state_id, period_label) → rs
+    # so comparative records can find their comparative
+    # ReclassifiedStatements without walking the list twice.
+    comparative_rs_by_key: dict[tuple[str, str], Any] = {}
+    for state in states:
+        for rs in state.reclassified_statements[1:]:
+            comparative_rs_by_key[(state.extraction_id, rs.period.label)] = rs
+
+    # Track prior-year annual record per metric so YoY-sensitive scoring
+    # (CFO/NI ratios, AR growth) has a reference point when wired.
+    records_by_year: dict[int, HistoricalRecord] = {
+        r.period_end.year: r
+        for r in records
+        if r.period_type == HistoricalPeriodType.ANNUAL
+    }
+
+    for record in records:
+        state = state_by_id.get(record.source_canonical_state_id)
+
+        # WACC attaches regardless of IC availability.
+        if wacc_pct is not None:
+            record.wacc = wacc_pct
+
+        # DuPont + ROIC need no canonical-state-side lookup beyond record
+        # fields; QoE uses CFO/non-recurring share fed from the record.
+        record.dupont_3way = compute_dupont_3way(record)
+        record.roic_decomposition = compute_roic_decomposition(
+            record, wacc_pct=wacc_pct
+        )
+
+        prior = records_by_year.get(record.period_end.year - 1)
+        record.quality_of_earnings = compute_qoe(
+            record,
+            cfo=record.cfo,
+            prior_revenue=prior.revenue if prior is not None else None,
+            prior_ar=prior.accounts_receivable if prior is not None else None,
+            non_recurring_items_share=record.non_recurring_items_share,
+        )
+
+        # Economic BS:
+        #   - primary records: full view (uses IC block)
+        #   - comparative records: BS-only view (IC block absent)
+        #   - TTM / derived records: skipped (no source canonical state)
+        if state is None:
+            continue
+        if record.period_relation == "primary":
+            record.economic_balance_sheet = bs_builder.build(
+                state, record.period
+            )
+            continue
+        rs = comparative_rs_by_key.get(
+            (record.source_canonical_state_id, record.period)
+        )
+        if rs is not None and rs.balance_sheet:
+            record.economic_balance_sheet = bs_builder.build(
+                state, record.period
+            )
+
+
+def _load_wacc_for_ticker(ticker: str | None) -> Decimal | None:
+    """Phase 2 Sprint 2A.1 — look up ``wacc_inputs.md`` for the ticker
+    and return ``WACCInputs.wacc`` as a percentage. Silently returns
+    ``None`` when the ticker is missing, the file is absent, or the file
+    fails to parse — analytical enrichment must not crash when WACC
+    inputs haven't been prepared."""
+    if not ticker:
+        return None
+    try:
+        from portfolio_thesis_engine.ingestion.wacc_parser import (
+            parse_wacc_inputs,
+        )
+        from portfolio_thesis_engine.shared.config import settings
+        from portfolio_thesis_engine.storage.base import normalise_ticker
+
+        path = (
+            settings.data_dir
+            / "documents"
+            / normalise_ticker(ticker)
+            / "wacc_inputs"
+            / "wacc_inputs.md"
+        )
+        if not path.exists():
+            return None
+        wacc_inputs = parse_wacc_inputs(path)
+        return wacc_inputs.wacc
+    except Exception:
+        return None
+
+
+def _compute_trends_wrapper(
+    records: list[HistoricalRecord],
+) -> Any:
+    from portfolio_thesis_engine.analytical.analyze import compute_trends
+
+    return compute_trends(records)
+
+
+def _latest_roic_decomposition(records: list[HistoricalRecord]) -> Any:
+    for record in reversed(records):
+        if record.roic_decomposition is not None:
+            return record.roic_decomposition
+    return None
+
+
+def _latest_qoe(records: list[HistoricalRecord]) -> Any:
+    for record in reversed(records):
+        if record.quality_of_earnings is not None:
+            return record.quality_of_earnings
+    return None
+
+
+def _synthesise_signal(
+    records: list[HistoricalRecord], trends: Any, latest_roic: Any, latest_qoe: Any
+) -> Any:
+    from portfolio_thesis_engine.analytical.analyze import (
+        synthesise_investment_signal,
+    )
+
+    return synthesise_investment_signal(records, trends, latest_roic, latest_qoe)
 
 
 __all__ = [
