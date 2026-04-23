@@ -142,25 +142,13 @@ def _candidate_extraction_files(ticker: str) -> list[Path]:
     return sorted(seen, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def _peek_audit_metadata(path: Path) -> tuple[str, str, str]:
-    """Cheap YAML peek: return ``(audit_status, document_type, period)``
-    without parsing the whole extraction. Falls back to ``"audited"`` /
-    ``"unknown"`` / ``""`` when any field is missing."""
-    import yaml
-
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return "audited", "unknown", ""
-    metadata = raw.get("metadata") or {}
-    audit = str(metadata.get("audit_status") or "audited").lower()
-    doc_type = str(metadata.get("document_type") or "unknown")
-    # primary_period label — first entry in fiscal_periods list.
-    fps = metadata.get("fiscal_periods") or []
-    period = ""
-    if fps and isinstance(fps, list) and isinstance(fps[0], dict):
-        period = str(fps[0].get("period") or "")
-    return audit, doc_type, period
+# Phase 1.5.13.2 — delegate to the coordinator's single authoritative
+# peek implementation (3-tier audit-status resolution). Importing from
+# the coordinator module keeps the old-but-still-exercised CLI entry
+# points working without duplicating the logic.
+from portfolio_thesis_engine.pipeline.coordinator import (  # noqa: E402
+    _peek_audit_metadata as _peek_audit_metadata,
+)
 
 
 def _select_extraction_by_base_period(
@@ -369,11 +357,13 @@ def process(
     """Run the Phase 1.5 pipeline end-to-end for ``ticker``."""
     try:
         wacc_resolved = _resolve_wacc_path(ticker, wacc_path or None)
-        extraction_resolved = _select_extraction_by_base_period(
-            ticker,
-            extraction_path or None,
-            base_period or _BASE_PERIOD_AUTO,
-        )
+        # Phase 1.5.13 — when the caller passes --extraction-path
+        # explicitly, resolve it now (it wins over --base-period). When
+        # absent, leave resolution to the coordinator so the policy-
+        # based selection is captured in the run log.
+        explicit_extraction: Path | None = None
+        if extraction_path:
+            explicit_extraction = _resolve_extraction_path(ticker, extraction_path)
     except typer.BadParameter as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(code=2) from e
@@ -384,7 +374,8 @@ def process(
         return await coord.process(
             ticker,
             wacc_path=wacc_resolved,
-            extraction_path=extraction_resolved,
+            extraction_path=explicit_extraction,
+            base_period=base_period or _BASE_PERIOD_AUTO,
             force=force,
             skip_cross_check=skip_cross_check,
             force_cost_override=force_cost_override,

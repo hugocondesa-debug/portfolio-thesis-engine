@@ -513,7 +513,8 @@ class PipelineCoordinator:
         ticker: str,
         *,
         wacc_path: Path,
-        extraction_path: Path,
+        extraction_path: Path | None = None,
+        base_period: str | None = None,
         force: bool = False,
         skip_cross_check: bool = False,
         force_cost_override: bool = False,
@@ -526,6 +527,20 @@ class PipelineCoordinator:
         :class:`ExtractionValidationBlocked` when strict validation
         FAILs. Cross-check FAIL raises :class:`CrossCheckBlocked` when
         ``skip_cross_check=False``.
+
+        Phase 1.5.13 — :param:`base_period` selects between multiple
+        ingested extractions:
+
+        - ``None`` / ``"AUTO"`` — most recent by mtime (warns via a
+          :class:`StageOutcome` message when the selection is unaudited).
+        - ``"LATEST-AUDITED"`` — most recent ``AUDITED`` file; raises
+          :class:`PipelineError` when no audited extraction exists.
+        - any other string — explicit period label (``"FY2024"``,
+          ``"H1_2025"``, ``"FY2025-preliminary"``), matched against the
+          primary-period label or filename stem.
+
+        When both :param:`extraction_path` and :param:`base_period` are
+        given, ``extraction_path`` wins (explicit > policy).
         """
         started = datetime.now(UTC)
         outcome = PipelineOutcome(
@@ -545,6 +560,18 @@ class PipelineCoordinator:
             try:
                 # Stage 1 — ingestion check
                 self._stage_check_ingestion(ticker, outcome, force=force)
+
+                # Phase 1.5.13 — resolve which extraction file to load
+                # based on ``base_period`` policy. When an explicit
+                # ``extraction_path`` was passed it wins; otherwise the
+                # coordinator picks among every ``raw_extraction*.yaml``
+                # discoverable for the ticker.
+                if extraction_path is None:
+                    extraction_path = self._select_base_extraction(
+                        ticker=ticker,
+                        base_period=base_period,
+                        outcome=outcome,
+                    )
 
                 # Stage 2 — WACC
                 wacc_inputs = self._stage_load_wacc(wacc_path, outcome)
@@ -709,6 +736,97 @@ class PipelineCoordinator:
         )
         return wacc_inputs
 
+    # ------------------------------------------------------------------
+    # Phase 1.5.13 — base-period selection
+    # ------------------------------------------------------------------
+    def _select_base_extraction(
+        self,
+        ticker: str,
+        base_period: str | None,
+        outcome: PipelineOutcome,
+    ) -> Path:
+        """Phase 1.5.13 — resolve which ``raw_extraction*.yaml`` to load.
+
+        Walks :class:`DocumentRepository` + ``~/data_inputs/<ticker>/``
+        for every ``raw_extraction*.yaml``, peeks metadata (audit_status
+        + document_type + primary period) on each, and applies the
+        policy. Emits :class:`StageOutcome` messages for transparency.
+        """
+        candidates = _candidate_extractions(ticker, self.document_repo)
+        if not candidates:
+            raise PipelineError(
+                f"No ingested raw_extraction*.yaml found for {ticker}."
+            )
+        policy = (base_period or "AUTO").upper()
+        metadata = [(p, *_peek_audit_metadata(p)) for p in candidates]
+
+        # Single-candidate shortcut only applies to AUTO — LATEST-
+        # AUDITED must still enforce the audit filter even when one
+        # file exists.
+        if len(candidates) == 1 and policy == "AUTO":
+            return candidates[0]
+
+        if policy == "AUTO":
+            path, audit, _doc, period = metadata[0]
+            if audit == "unaudited":
+                outcome.stages.append(
+                    StageOutcome(
+                        stage=PipelineStage.CHECK_INGESTION,
+                        status="ok",
+                        duration_ms=0,
+                        message=(
+                            f"AUTO selected unaudited extraction "
+                            f"({path.name}, period={period}). Pass "
+                            "--base-period LATEST-AUDITED to skip "
+                            "preliminary sources."
+                        ),
+                        data={
+                            "base_period_policy": policy,
+                            "selected": path.name,
+                            "audit_status": audit,
+                        },
+                    )
+                )
+            return path
+
+        if policy == "LATEST-AUDITED":
+            for path, audit, _doc, _period in metadata:
+                if audit == "audited":
+                    return path
+            raise PipelineError(
+                f"No audited extraction found for {ticker} "
+                f"(checked {len(metadata)} candidate(s): "
+                + ", ".join(f"{p.name}→{a}" for p, a, *_ in metadata)
+                + "). Remove --base-period LATEST-AUDITED or ingest "
+                "an audited source."
+            )
+
+        # Explicit period label — qualifier-aware match against the
+        # candidate's primary period + audit status. Filename-stem
+        # substring match survives as a secondary signal (some legacy
+        # fixtures don't set the period label consistently).
+        target = base_period or ""
+        target_lower = target.lower()
+        matches = [
+            (p, audit, doc, period)
+            for p, audit, doc, period in metadata
+            if _match_period(audit, period, target)
+            or target_lower in p.stem.lower()
+        ]
+        if not matches:
+            available = ", ".join(
+                f"{p.name} (period={per}, audit={aud})"
+                for p, aud, _doc, per in metadata
+            )
+            raise PipelineError(
+                f"--base-period {base_period!r} did not match any extraction "
+                f"for {ticker}. Candidates: {available}"
+            )
+        # Prefer audited → reviewed → unaudited when multiple match.
+        _priority = {"audited": 0, "reviewed": 1, "unaudited": 2}
+        matches.sort(key=lambda m: _priority.get(m[1], 3))
+        return matches[0][0]
+
     def _stage_load_extraction(
         self, extraction_path: Path, outcome: PipelineOutcome
     ) -> RawExtraction:
@@ -734,6 +852,14 @@ class PipelineCoordinator:
                 f"Failed to parse raw_extraction at {extraction_path}: {e}"
             ) from e
 
+        # Phase 1.5.13 — stage message surfaces document_type +
+        # primary period + audit_status so it's immediately obvious
+        # which document the pipeline is processing (especially in
+        # multi-document runs driven by --base-period).
+        primary = (
+            raw.primary_period.period if raw.metadata.fiscal_periods else "n/a"
+        )
+        audit_status = raw.metadata.audit_status.value
         outcome.stages.append(
             StageOutcome(
                 stage=PipelineStage.LOAD_EXTRACTION,
@@ -741,12 +867,15 @@ class PipelineCoordinator:
                 duration_ms=_ms_since(t0),
                 message=(
                     f"Loaded + normalised {raw.metadata.document_type.value} for "
-                    f"{raw.metadata.ticker} "
-                    f"({len(raw.metadata.fiscal_periods)} fiscal period(s))."
+                    f"{raw.metadata.ticker} (period={primary}, "
+                    f"audit_status={audit_status}, "
+                    f"{len(raw.metadata.fiscal_periods)} fiscal period(s))."
                 ),
                 data={
                     "document_type": raw.metadata.document_type.value,
                     "extraction_type": raw.metadata.extraction_type.value,
+                    "primary_period": primary,
+                    "audit_status": audit_status,
                     "fiscal_periods": [
                         fp.period for fp in raw.metadata.fiscal_periods
                     ],
@@ -844,19 +973,26 @@ class PipelineCoordinator:
         # yfinance yet. Skipping is the honest outcome — SKIP not
         # WARN, because the external source doesn't *disagree*, it
         # doesn't exist.
-        if raw_extraction.metadata.audit_status == AuditStatus.UNAUDITED:
+        #
+        # Phase 1.5.13.2 — also skip for REVIEWED (interim reports):
+        # FMP / yfinance snapshot annual data; comparing an H1 /
+        # quarterly figure against an annual snapshot produces huge
+        # false-positive deltas.
+        non_audited = (AuditStatus.UNAUDITED, AuditStatus.REVIEWED)
+        if raw_extraction.metadata.audit_status in non_audited:
+            audit_label = raw_extraction.metadata.audit_status.value
             outcome.stages.append(
                 StageOutcome(
                     stage=PipelineStage.CROSS_CHECK,
                     status="skip",
                     duration_ms=_ms_since(t0),
                     message=(
-                        "cross_check skipped — unaudited period, no external "
-                        "source available (FMP / yfinance populate after "
-                        "audited release)."
+                        f"cross_check skipped — {audit_label} source; "
+                        "external providers (FMP / yfinance) snapshot "
+                        "annual audited figures only."
                     ),
                     data={
-                        "audit_status": raw_extraction.metadata.audit_status.value,
+                        "audit_status": audit_label,
                     },
                 )
             )
@@ -1343,6 +1479,168 @@ def _null_ctx() -> Iterator[None]:
 
 def _ms_since(t0: float) -> int:
     return int((perf_counter() - t0) * 1000)
+
+
+# ----------------------------------------------------------------------
+# Phase 1.5.13 — base-period helpers (module level for testability)
+# ----------------------------------------------------------------------
+# Phase 1.5.13.1 — pattern is anchored at the end (``\.yaml$``) but
+# NOT at the start, so ingest-renamed files like
+# ``2025-06-30_raw_extraction_interim_h1_2025.yaml`` are discovered.
+# We keep the pattern fragment ``raw_extraction`` to exclude unrelated
+# YAMLs (``wacc_inputs.yaml`` etc.). Callers must use ``.search()``
+# (not ``.match()``) so the pattern fires anywhere in the filename.
+_EXTRACTION_FILE_PATTERN = re.compile(r"raw_extraction.*\.yaml$", re.IGNORECASE)
+
+
+def _candidate_extractions(
+    ticker: str, document_repo: DocumentRepository
+) -> list[Path]:
+    """Every ``raw_extraction*.yaml`` file we can find for a ticker,
+    across the :class:`DocumentRepository` + the ``~/data_inputs/``
+    layout. Sorted newest-first by mtime so ``AUTO`` picks index 0."""
+    seen: set[Path] = set()
+    try:
+        for path in document_repo.list_documents(ticker):
+            if _EXTRACTION_FILE_PATTERN.search(path.name):
+                seen.add(path)
+    except Exception:
+        # A missing / unreadable repo shouldn't crash the resolver;
+        # fall through to the ``data_inputs`` fallback.
+        pass
+    try:
+        from portfolio_thesis_engine.storage.base import normalise_ticker
+
+        base = Path.home() / "data_inputs" / normalise_ticker(ticker)
+        if base.exists():
+            # Phase 1.5.13.1 — leading ``*`` so date-prefixed files
+            # (``2025-06-30_raw_extraction_interim_h1_2025.yaml``)
+            # are discovered alongside legacy un-prefixed ones.
+            for path in base.glob("*raw_extraction*.yaml"):
+                seen.add(path)
+    except Exception:
+        pass
+    return sorted(seen, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+# Phase 1.5.13.2/13.3 — document-type → audit-status default.
+# Canonical mapping lives on :mod:`schemas.raw_extraction` so the
+# :class:`DocumentMetadata` model_validator and this selector apply
+# the same heuristic. Re-exported here as the previously-public
+# ``_audit_from_document_type`` name so existing tests keep working.
+from portfolio_thesis_engine.schemas.raw_extraction import (  # noqa: E402
+    _AUDIT_STATUS_BY_DOC_TYPE as _AUDIT_STATUS_BY_DOC_TYPE,
+    audit_status_for_document_type as _audit_from_document_type,
+)
+
+
+# Phase 1.5.13.2 — period-label qualifier parsing
+_PERIOD_QUALIFIERS: frozenset[str] = frozenset(
+    {"preliminary", "audited", "reviewed", "unaudited"}
+)
+
+
+def _parse_period_label(label: str) -> tuple[str, str | None]:
+    """Split an explicit ``--base-period`` label into ``(base, qualifier)``.
+
+    Examples::
+
+        FY2024              → ("FY2024", None)
+        FY2025-preliminary  → ("FY2025", "preliminary")
+        H1_2025             → ("H1_2025", None)
+        FY2024-audited      → ("FY2024", "audited")
+
+    Only the suffixes in :data:`_PERIOD_QUALIFIERS` are treated as
+    qualifiers; everything else stays part of the base. Preserves the
+    caller's casing so downstream matches honour ``FY`` / ``H1`` etc.
+    """
+    lowered = label.lower()
+    for qualifier in _PERIOD_QUALIFIERS:
+        suffix = f"-{qualifier}"
+        if lowered.endswith(suffix):
+            base = label[: -len(suffix)]
+            return base, qualifier
+    return label, None
+
+
+def _match_period(
+    audit: str,
+    period: str,
+    target_label: str,
+) -> bool:
+    """Return ``True`` when the candidate's ``(audit, period)`` satisfies
+    the target label. Qualifier semantics:
+
+    - ``preliminary`` → audit must be ``unaudited``.
+    - ``audited`` / ``reviewed`` / ``unaudited`` → literal match.
+
+    Literal equality always wins — some extractions encode the
+    qualifier directly in ``metadata.fiscal_periods[].period`` (e.g.
+    ``"FY2025-preliminary"``), in which case we honour the caller's
+    target verbatim without splitting.
+    """
+    if period.lower() == target_label.lower():
+        return True
+    target_base, qualifier = _parse_period_label(target_label)
+    if period.lower() != target_base.lower():
+        return False
+    if qualifier is None:
+        return True
+    if qualifier == "preliminary":
+        return audit == "unaudited"
+    return audit == qualifier
+
+
+def _peek_audit_metadata(path: Path) -> tuple[str, str, str]:
+    """Cheap YAML peek: return ``(audit_status, document_type, period)``
+    without parsing the whole extraction.
+
+    Phase 1.5.13.2 — three-tier audit-status resolution:
+
+    1. ``metadata.audit_status`` (top-level, explicit) wins.
+    2. First primary ``fiscal_periods[*].audit_status`` (per-period,
+       how interim reports typically carry it).
+    3. Document-type default via :data:`_AUDIT_STATUS_BY_DOC_TYPE`
+       (``interim_report`` → ``reviewed``, ``preliminary_results`` →
+       ``unaudited``, ``annual_report`` → ``audited``, etc.).
+
+    Fixes a cascading bug where interim YAMLs — which carry
+    ``audit_status`` per-period instead of top-level — were defaulted
+    to ``"audited"`` and consequently beat real audited ARs in the
+    ``LATEST-AUDITED`` policy race.
+    """
+    import yaml
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return "audited", "unknown", ""
+    metadata = raw.get("metadata") or {}
+    doc_type = str(metadata.get("document_type") or "unknown")
+
+    fps = metadata.get("fiscal_periods") or []
+    period = ""
+    if fps and isinstance(fps, list) and isinstance(fps[0], dict):
+        period = str(fps[0].get("period") or "")
+
+    explicit = metadata.get("audit_status")
+    if explicit:
+        return str(explicit).lower(), doc_type, period
+
+    # Per-period fallback — pick the primary period's status; if no
+    # period is flagged primary, use the first entry.
+    primary_audit: Any = None
+    for fp in fps:
+        if isinstance(fp, dict) and fp.get("is_primary"):
+            primary_audit = fp.get("audit_status")
+            break
+    if primary_audit is None and fps and isinstance(fps[0], dict):
+        primary_audit = fps[0].get("audit_status")
+    if primary_audit:
+        return str(primary_audit).lower(), doc_type, period
+
+    # Tier 3 — derive from document type.
+    return _audit_from_document_type(doc_type), doc_type, period
 
 
 # Re-export for convenience

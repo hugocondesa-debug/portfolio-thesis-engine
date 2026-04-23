@@ -208,8 +208,14 @@ def _unaudited_banner(bundle: FichaBundle) -> Any:
     source = prelim.get("source_document") if isinstance(prelim, dict) else None
     expected = prelim.get("expected_audit_date") if isinstance(prelim, dict) else None
     caveat = prelim.get("caveat_text") if isinstance(prelim, dict) else None
+    doc_type = getattr(state.methodology, "source_document_type", None)
 
     lines: list[str] = [f"[bold yellow]⚠  {audit.upper()} PRELIMINARY RESULTS[/bold yellow]", ""]
+    # Phase 1.5.13 — identify the source document type so the analyst
+    # sees whether the banner reflects an IR presentation, a
+    # preliminary RNS, or another unaudited filing.
+    if doc_type:
+        lines.append(f"[dim]Document type:[/dim] {doc_type}")
     if source:
         lines.append(f"[dim]Based on:[/dim] {source}")
     if expected:

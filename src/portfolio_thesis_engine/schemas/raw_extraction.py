@@ -85,6 +85,42 @@ class AuditStatus(StrEnum):
         return None
 
 
+# Phase 1.5.13.3 — canonical document-type → audit-status mapping used
+# both by :class:`DocumentMetadata` (when a YAML omits the top-level
+# ``audit_status``) and the pipeline selector (
+# :func:`portfolio_thesis_engine.pipeline.coordinator._audit_from_document_type`).
+# Centralising here avoids a circular import and keeps the heuristic
+# in one place.
+_AUDIT_STATUS_BY_DOC_TYPE: dict[str, str] = {
+    "annual_report": "audited",
+    "form_10k": "audited",
+    "form_20f": "audited",
+    "aif": "audited",
+    "prc_annual": "audited",
+    "interim_report": "reviewed",
+    "form_10q": "reviewed",
+    "form_6k": "reviewed",
+    "quarterly_update": "reviewed",
+    "preliminary_results": "unaudited",
+    "preliminary_announcement": "unaudited",
+    "investor_presentation": "unaudited",
+    "earnings_call_transcript": "unaudited",
+    "earnings_call": "unaudited",
+    "earnings_call_slides": "unaudited",
+    "press_release": "unaudited",
+    # Legacy safest-default buckets.
+    "wacc_inputs": "audited",
+    "other": "audited",
+    "unknown": "audited",
+}
+
+
+def audit_status_for_document_type(doc_type: str) -> str:
+    """Return the document-type default audit status. Safe fallback:
+    unknown / unmapped types default to ``"audited"``."""
+    return _AUDIT_STATUS_BY_DOC_TYPE.get(doc_type.lower(), "audited")
+
+
 class DocumentType(StrEnum):
     """Source-document kind. Drives which sections the extractor
     expects and which validation checks apply."""
@@ -113,6 +149,7 @@ class DocumentType(StrEnum):
     # --- Narrative: investor materials ----------------------------
     EARNINGS_CALL = "earnings_call"
     EARNINGS_CALL_SLIDES = "earnings_call_slides"
+    EARNINGS_CALL_TRANSCRIPT = "earnings_call_transcript"
     INVESTOR_PRESENTATION = "investor_presentation"
     INVESTOR_DAY = "investor_day"
     ANALYST_DAY = "analyst_day"
@@ -187,11 +224,18 @@ class FiscalPeriodData(BaseSchema):
     ``period`` is the label keying the IS / BS / CF dicts; ``end_date``
     is the last calendar day of the period. ``period_type`` lets
     downstream logic reason about year-vs-interim scope.
+
+    Phase 1.5.13.3 — optional :attr:`audit_status` per period. Interim
+    reports commonly disclose one audit status per period (``H1_2025``
+    unaudited / reviewed, ``H1_2024`` audited); the document-level
+    :class:`DocumentMetadata.audit_status` is then derived from the
+    *primary* period's flag via the 3-tier resolver.
     """
 
     period: str = Field(min_length=1)
     end_date: ISODate
     is_primary: bool = False
+    audit_status: str | None = None
     period_type: PeriodType = "FY"
 
 
@@ -265,6 +309,51 @@ class DocumentMetadata(FlexibleSchema):
                 "with at least those fields, or omit the flag entirely."
             )
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_audit_status(cls, values: Any) -> Any:
+        """Phase 1.5.13.3 — same 3-tier audit-status resolution the
+        pipeline selector uses:
+
+        1. explicit top-level ``audit_status`` wins,
+        2. primary ``fiscal_periods[*].audit_status`` (interim YAMLs
+           typically carry it per-period),
+        3. document-type default via
+           :func:`audit_status_for_document_type`
+           (``interim_report`` → ``reviewed``, ``preliminary_results``
+           → ``unaudited``, ``annual_report`` → ``audited``).
+
+        Fixes the cascading bug where interim YAMLs without a top-level
+        ``audit_status`` defaulted to ``AUDITED`` at Pydantic load time
+        and bypassed the Phase 1.5.11 cross-check skip.
+        """
+        if not isinstance(values, dict):
+            return values
+        if values.get("audit_status"):
+            return values
+        # Tier 2 — per-period fallback (primary, then first).
+        fps = values.get("fiscal_periods") or []
+        primary_audit: Any = None
+        for fp in fps:
+            if isinstance(fp, dict) and fp.get("is_primary"):
+                primary_audit = fp.get("audit_status")
+                break
+        if primary_audit is None and fps and isinstance(fps[0], dict):
+            primary_audit = fps[0].get("audit_status")
+        if primary_audit:
+            values["audit_status"] = str(primary_audit).lower()
+            return values
+        # Tier 3 — document-type default.
+        doc_type = values.get("document_type")
+        if doc_type:
+            doc_label = (
+                doc_type.value
+                if hasattr(doc_type, "value")
+                else str(doc_type)
+            )
+            values["audit_status"] = audit_status_for_document_type(doc_label)
+        return values
 
 
 # ======================================================================
