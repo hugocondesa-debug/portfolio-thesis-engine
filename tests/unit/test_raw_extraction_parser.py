@@ -282,7 +282,9 @@ class TestSegmentsScaling:
         ]
         raw = RawExtraction.model_validate(payload)
         normalised = normalise_unit_scale(raw)
-        sr = normalised.segments[0]
+        # Phase 1.5.12 — legacy Phase-1 segment-reporting entries live on
+        # ``segments.legacy_periods``.
+        sr = normalised.segments.legacy_periods[0]
         assert sr.segments[0].metrics["revenue"] == Decimal("420000000")
         assert sr.inter_segment_eliminations is not None
         assert sr.inter_segment_eliminations["revenue"] == Decimal("-5000000")
@@ -321,11 +323,12 @@ class TestOperationalKPIScaling:
         ]
         raw = RawExtraction.model_validate(payload)
         normalised = normalise_unit_scale(raw)
-        # Monetary (USD in unit) scaled
-        comp_kpi = normalised.operational_kpis[0]
+        # Phase 1.5.12 — KPIs now live on ``operational_kpis.legacy_kpis``
+        # when the extractor emitted the Phase-1 list form.
+        comp_kpi = normalised.operational_kpis.legacy_kpis[0]
         assert comp_kpi.values["FY2024"] == Decimal("50000000")
         # Count (no currency marker) NOT scaled — the schema coerces
         # "850" → Decimal("850") at load time but the parser leaves
         # it at face value.
-        headcount_kpi = normalised.operational_kpis[1]
+        headcount_kpi = normalised.operational_kpis.legacy_kpis[1]
         assert headcount_kpi.values["FY2024"] == Decimal("850")

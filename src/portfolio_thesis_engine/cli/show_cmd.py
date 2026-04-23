@@ -52,6 +52,144 @@ def _format_pct(value: Any) -> str:
     return f"{value:.2f}%"
 
 
+def render_narrative_section(narrative: Any) -> list[str]:
+    """Phase 1.5.12 — render a :class:`NarrativeContent` object as a
+    list of Rich-markup lines. Structured items expose their
+    ``tag``/``source``/``page`` attributes as compact annotations;
+    plain-string items (auto-promoted by the schema) render as bare
+    bullets. The list-of-lines return shape keeps the renderer
+    testable without depending on a ``Console`` instance.
+    """
+    lines: list[str] = []
+    if narrative is None:
+        return lines
+
+    def _emit(bucket_label: str, items: list[Any], item_kind: str) -> None:
+        if not items:
+            return
+        lines.append(f"[bold]{bucket_label}[/bold]")
+        for item in items:
+            lines.append(_format_narrative_entry(item, item_kind))
+        lines.append("")
+
+    _emit("Key themes", list(narrative.key_themes), "narrative")
+    _emit("Risks", list(narrative.risks_mentioned), "risk")
+    _emit("Guidance", list(narrative.guidance_changes), "guidance")
+    _emit(
+        "Forward-looking statements",
+        list(narrative.forward_looking_statements),
+        "narrative",
+    )
+    _emit(
+        "Capital allocation",
+        list(narrative.capital_allocation_comments),
+        "capital",
+    )
+    _emit("Q&A highlights", list(narrative.q_and_a_highlights), "narrative")
+    return lines
+
+
+def _format_narrative_entry(item: Any, kind: str) -> str:
+    """Phase 1.5.12 — format one narrative / risk / guidance / capital-
+    allocation entry for display. Shape of ``item`` varies by kind."""
+    if kind == "risk":
+        risk = getattr(item, "risk", None) or ""
+        detail = getattr(item, "detail", None)
+        source = getattr(item, "source", None)
+        body = risk if not detail else f"{risk} — {detail}"
+        return _decorate_entry(body, source=source, page=getattr(item, "page", None))
+    if kind == "guidance":
+        metric = getattr(item, "metric", None) or ""
+        statement = getattr(item, "statement", None)
+        direction = getattr(item, "direction", None)
+        period = getattr(item, "period", None)
+        parts = [metric]
+        if direction:
+            parts.append(f"({direction})")
+        if statement:
+            parts.append(f"— {statement}")
+        if period:
+            parts.append(f"[period: {period}]")
+        return _decorate_entry(
+            " ".join(parts),
+            source=getattr(item, "source", None),
+        )
+    if kind == "capital":
+        area = getattr(item, "area", None) or "General"
+        detail = getattr(item, "detail", None)
+        amount = getattr(item, "amount", None)
+        period = getattr(item, "period", None)
+        body = f"[{area}]"
+        if amount:
+            body += f" {amount}"
+        if detail:
+            body += f" — {detail}"
+        if period:
+            body += f" ({period})"
+        return _decorate_entry(
+            body, source=getattr(item, "source", None)
+        )
+    # narrative
+    text = getattr(item, "text", None) or ""
+    tag = getattr(item, "tag", None)
+    source = getattr(item, "source", None)
+    page = getattr(item, "page", None)
+    body = text if not tag else f"[{tag}] {text}"
+    return _decorate_entry(body, source=source, page=page)
+
+
+def _decorate_entry(body: str, source: Any = None, page: Any = None) -> str:
+    line = f"  • {body}"
+    if source or page:
+        footnote_bits: list[str] = []
+        if source:
+            footnote_bits.append(str(source))
+        if page is not None:
+            footnote_bits.append(f"p. {page}")
+        line += f"  [dim]¹ {', '.join(footnote_bits)}[/dim]"
+    return line
+
+
+def render_segments_block(segments: Any) -> Table | None:
+    """Phase 1.5.12 — render a :class:`SegmentsBlock`'s ``by_geography``
+    data as a Rich :class:`Table`. Returns ``None`` when the block is
+    empty / carries only legacy list data."""
+    if segments is None:
+        return None
+    by_geo = getattr(segments, "by_geography", None)
+    if not by_geo:
+        return None
+    periods = sorted(by_geo.keys())
+    if not periods:
+        return None
+    # Gather all geographies across all periods.
+    geographies: set[str] = set()
+    for period_payload in by_geo.values():
+        if isinstance(period_payload, dict):
+            geographies.update(period_payload.keys())
+    if not geographies:
+        return None
+    table = Table(title="Segments — by geography", title_style="bold blue")
+    table.add_column("Geography")
+    for period in periods:
+        table.add_column(period, justify="right")
+    for geo in sorted(geographies):
+        row = [geo]
+        for period in periods:
+            period_payload = by_geo.get(period, {})
+            cell = period_payload.get(geo, {}) if isinstance(period_payload, dict) else {}
+            if isinstance(cell, dict):
+                revenue = cell.get("revenue")
+                if revenue is None:
+                    row.append("—")
+                else:
+                    row.append(_format_money(revenue))
+            else:
+                row.append(str(cell))
+        table.add_row(*row)
+    return table
+
+
 def _unaudited_banner(bundle: FichaBundle) -> Any:
     """Phase 1.5.11 — prominent banner rendered at the top of every
     ``pte show`` view when the underlying canonical state was derived

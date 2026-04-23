@@ -65,11 +65,24 @@ class AuditStatus(StrEnum):
     confidence downgrade. Defaults to :attr:`AUDITED` for backwards
     compatibility — every extraction produced pre-1.5.11 is treated
     as audited.
+
+    Phase 1.5.12: accepts case-insensitive input ("UNAUDITED" →
+    :attr:`UNAUDITED`). The Claude.ai extractor prompt tends to emit
+    uppercase enum values; rejecting them would be needlessly strict.
     """
 
     AUDITED = "audited"
     REVIEWED = "reviewed"  # auditor reviewed but not full audit
     UNAUDITED = "unaudited"
+
+    @classmethod
+    def _missing_(cls, value: Any) -> AuditStatus | None:
+        if isinstance(value, str):
+            lowered = value.lower()
+            for member in cls:
+                if member.value == lowered:
+                    return member
+        return None
 
 
 class DocumentType(StrEnum):
@@ -234,6 +247,25 @@ class DocumentMetadata(FlexibleSchema):
     audit_status: AuditStatus = AuditStatus.AUDITED
     preliminary_flag: PreliminaryFlag | None = None
 
+    @field_validator("preliminary_flag", mode="before")
+    @classmethod
+    def _coerce_bool_preliminary_flag(cls, value: Any) -> Any:
+        """Phase 1.5.12 — ``preliminary_flag: false`` (common extractor
+        output when the source is fully audited) is coerced to ``None``.
+        Bare ``true`` is rejected — if the source is preliminary, the
+        extractor MUST supply ``source_document`` + ``caveat_text`` so
+        the display banner has content to render.
+        """
+        if value is False:
+            return None
+        if value is True:
+            raise ValueError(
+                "preliminary_flag: true is not allowed without "
+                "source_document and caveat_text. Provide a mapping "
+                "with at least those fields, or omit the flag entirely."
+            )
+        return value
+
 
 # ======================================================================
 # Statement line items
@@ -302,7 +334,13 @@ class ProfitAttribution(BaseSchema):
 class EarningsPerShare(BaseSchema):
     """Standard IS EPS footer. Units captured verbatim ("HK cents",
     "USD", etc.) so downstream code can reason about the
-    denomination."""
+    denomination.
+
+    Phase 1.5.12 — :attr:`source_note` captures the note number the
+    EPS footer points to (e.g. ``"13"``). Int values are coerced to
+    str so legacy extractions (``source_note: 13``) validate; the
+    field stays optional so older fixtures without it keep working.
+    """
 
     basic_value: Decimal | None = None
     basic_unit: str | None = None
@@ -311,6 +349,18 @@ class EarningsPerShare(BaseSchema):
     basic_weighted_avg_shares: Decimal | None = None
     diluted_weighted_avg_shares: Decimal | None = None
     shares_unit: str | None = None
+    source_note: str | None = None
+
+    @field_validator("source_note", mode="before")
+    @classmethod
+    def _coerce_eps_source_note(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, int | float):
+            return str(value)
+        return value
 
 
 class IncomeStatementPeriod(FlexibleSchema):
@@ -384,6 +434,11 @@ class Note(FlexibleSchema):
     against regex patterns and iterate the ``tables`` list looking
     for known row labels. Flexible — allows extra fields like
     ``narrative_summary_fr`` or sector-specific annotations.
+
+    Phase 1.5.12 — :attr:`source_pages` accepts either ``int`` (wrapped
+    to ``[int]``) or ``list[int]``. Some extractors emit a single int
+    when the note occupies one page; the validator normalises without
+    forcing the extractor to wrap.
     """
 
     note_number: str | None = None
@@ -391,6 +446,19 @@ class Note(FlexibleSchema):
     source_pages: list[int] = Field(default_factory=list)
     tables: list[NoteTable] = Field(default_factory=list)
     narrative_summary: str | None = None
+
+    @field_validator("source_pages", mode="before")
+    @classmethod
+    def _wrap_int_source_pages(cls, value: Any) -> Any:
+        # Phase 1.5.12.1 — synthesized "absence" notes may carry
+        # ``source_pages: None`` (the extractor acknowledging the note
+        # exists in the report but not citing a page). Normalise to an
+        # empty list instead of rejecting.
+        if value is None:
+            return []
+        if isinstance(value, int) and not isinstance(value, bool):
+            return [value]
+        return value
 
 
 # ======================================================================
@@ -419,6 +487,104 @@ class SegmentReporting(FlexibleSchema):
     segment_type: str = Field(min_length=1)
     segments: list[SegmentMetrics] = Field(default_factory=list)
     inter_segment_eliminations: dict[str, Decimal | None] | None = None
+
+
+# ======================================================================
+# Phase 1.5.12 — Segments rich block + Operational-KPI block
+# ======================================================================
+class SegmentMeta(FlexibleSchema):
+    """Qualitative context for segment disclosures (reporting basis,
+    CODM reference, customer concentration, etc.).
+
+    Phase 1.5.12.1 — ``extra="allow"`` (via :class:`FlexibleSchema`)
+    so issuers can add fields like
+    ``operating_profit_by_segment_disclosed`` or
+    ``rationale_no_op_profit`` without schema edits. Also accepts
+    ``segments_identified`` as an integer count (coerced to empty
+    list) — count-only metadata carries no semantic value without the
+    names, so we treat it as equivalent to "not disclosed in list form".
+    """
+
+    reporting_basis: str | None = None
+    segments_identified: list[str] = Field(default_factory=list)
+    codm: str | None = None
+    non_segment_disclosures: str | None = None
+    customer_concentration: str | None = None
+
+    @field_validator("segments_identified", mode="before")
+    @classmethod
+    def _coerce_int_segments_identified(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, int) and not isinstance(value, bool):
+            return []
+        return value
+
+
+class SegmentsBlock(FlexibleSchema):
+    """Rich segment disclosure block.
+
+    Accepts nested ``{period: {segment_name: metrics}}`` maps across
+    multiple axes (geography, product, channel) plus per-period non-
+    current-asset snapshots and EBITDA→PAT reconciliation bridges.
+    Flexible — issuer-specific axes (``by_therapeutic_area``,
+    ``by_business_line``, ...) survive without schema edits.
+
+    When an extractor emits the legacy Phase-1 list shape, the
+    :meth:`RawExtraction._normalise_segments` validator wraps the list
+    into ``segment_meta.segments_identified`` so downstream callers
+    see a consistent :class:`SegmentsBlock`.
+    """
+
+    by_geography: dict[str, dict[str, dict[str, Any]]] | None = None
+    by_product: dict[str, dict[str, dict[str, Any]]] | None = None
+    by_channel: dict[str, dict[str, dict[str, Any]]] | None = None
+    non_current_assets_by_location: dict[str, dict[str, Decimal | None]] | None = None
+    ebitda_to_pat_bridge: dict[str, dict[str, Decimal | None]] | None = None
+    segment_meta: SegmentMeta | None = None
+    # Legacy list-shape data persisted when the Phase-1 list form
+    # arrives (callers that ignore SegmentsBlock can still reach it).
+    legacy_periods: list[SegmentReporting] = Field(default_factory=list)
+
+
+class OperationalKPIsBlock(FlexibleSchema):
+    """Rich operational-KPI disclosure block.
+
+    ``metrics`` keyed by metric name, value is a dict mapping period →
+    raw value (``"H1_2025": 47`` or ``"total_revenue_hkd": "377.1M"``).
+    ``metric_sources`` is a parallel map for attribution; Phase
+    1.5.12.1 widens the value type to ``str | list[str]`` so the
+    extractor can cite multiple notes / sections at once
+    (``primary_notes: ["6", "7", "13"]``). ``targets`` is optional —
+    populated when the extractor captures KPI targets alongside
+    actuals.
+
+    When the legacy Phase-1 ``list[OperationalKPI]`` shape arrives,
+    :meth:`RawExtraction._normalise_kpis` folds each entry into
+    :attr:`legacy_kpis`.
+    """
+
+    metrics: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    metric_sources: dict[str, str | list[str]] = Field(default_factory=dict)
+    targets: dict[str, dict[str, Any]] | None = None
+    # Legacy list form persisted verbatim for callers that iterate it.
+    legacy_kpis: list[OperationalKPI] = Field(default_factory=list)
+
+    @field_validator("metric_sources", mode="before")
+    @classmethod
+    def _validate_metric_sources(cls, value: Any) -> Any:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            return value
+        for key, val in value.items():
+            if isinstance(val, (str, list)):
+                continue
+            raise ValueError(
+                f"metric_sources[{key!r}] must be str or list[str], "
+                f"got {type(val).__name__}"
+            )
+        return value
 
 
 class HistoricalDataSeries(BaseSchema):
@@ -454,50 +620,314 @@ class OperationalKPI(FlexibleSchema):
 
 
 # ======================================================================
-# Narrative
+# Narrative — Phase 1.5.12 structured types
 # ======================================================================
-class GuidanceChangeItem(BaseSchema):
+_Confidence = Literal["high", "medium", "low"]
+_Severity = Literal["high", "medium", "low"]
+
+
+class NarrativeItem(BaseSchema):
+    """Phase 1.5.12 — structured narrative entry (key theme, forward-
+    looking statement, Q&A highlight, ...). Plain strings are auto-
+    promoted to ``NarrativeItem(text=...)`` by the parent :class:`Narrative`
+    validators, so legacy ``list[str]`` fixtures validate unchanged.
+    """
+
+    text: str = Field(min_length=1)
+    tag: str | None = None
+    supporting_facts: list[str] = Field(default_factory=list)
+    source: str | None = None
+    page: int | None = None
+    confidence: _Confidence | None = None
+
+
+class RiskItem(BaseSchema):
+    """Phase 1.5.12 — structured risk disclosure."""
+
+    risk: str = Field(min_length=1)
+    detail: str | None = None
+    severity: _Severity | None = None
+    source: str | None = None
+    page: int | None = None
+
+
+class GuidanceItem(BaseSchema):
+    """Phase 1.5.12 — structured forward guidance / target disclosure.
+
+    Supersedes the Phase-1 ``GuidanceChangeItem`` (which had only
+    metric / old / new / direction). Legacy dicts with that shape are
+    accepted by the :class:`Narrative._normalise_guidance_items`
+    validator and translated into ``statement`` + ``direction`` fields.
+    """
+
     metric: str = Field(min_length=1)
-    old: str = ""
-    new: str = ""
-    direction: Literal["up", "down", "unchanged"] = "unchanged"
+    direction: str | None = None
+    value: str | None = None
+    period: str | None = None
+    statement: str | None = None
+    source: str | None = None
 
 
-class QAItem(BaseSchema):
-    question: str = Field(min_length=1)
-    answer: str = Field(min_length=1)
-    speaker: str = ""
-    topic: str = ""
+class CapitalAllocationItem(BaseSchema):
+    """Phase 1.5.12 — capital-allocation commentary entry."""
+
+    area: str = Field(min_length=1)
+    detail: str | None = None
+    amount: str | None = None
+    period: str | None = None
+    source: str | None = None
+
+
+# Phase-1 legacy names preserved as thin aliases so existing imports keep
+# working. Tests / pipeline code pinning the old names continues to work;
+# the schema fields below use the new superset types.
+GuidanceChangeItem = GuidanceItem
+QAItem = NarrativeItem
 
 
 class NarrativeContent(BaseSchema):
     """Qualitative content from narrative documents (earnings calls,
-    MD&A, investor presentations). Phase 1.5.3 keeps the shape; Phase
-    2 wires the processing pipeline."""
+    MD&A, investor presentations).
 
-    key_themes: list[str] = Field(default_factory=list)
-    guidance_changes: list[GuidanceChangeItem] = Field(default_factory=list)
-    risks_mentioned: list[str] = Field(default_factory=list)
-    q_and_a_highlights: list[QAItem] = Field(default_factory=list)
-    forward_looking_statements: list[str] = Field(default_factory=list)
-    capital_allocation_comments: list[str] = Field(default_factory=list)
+    Phase 1.5.12 — every list accepts either structured items
+    (:class:`NarrativeItem` / :class:`RiskItem` / :class:`GuidanceItem`
+    / :class:`CapitalAllocationItem`) or plain strings. Plain strings
+    are auto-promoted via field validators so Phase-1 fixtures stay
+    valid.
+    """
+
+    key_themes: list[NarrativeItem] = Field(default_factory=list)
+    guidance_changes: list[GuidanceItem] = Field(default_factory=list)
+    risks_mentioned: list[RiskItem] = Field(default_factory=list)
+    q_and_a_highlights: list[NarrativeItem] = Field(default_factory=list)
+    forward_looking_statements: list[NarrativeItem] = Field(default_factory=list)
+    capital_allocation_comments: list[CapitalAllocationItem] = Field(default_factory=list)
+
+    # ── Backward-compat promotion validators ─────────────────────
+    @field_validator(
+        "key_themes", "forward_looking_statements", mode="before"
+    )
+    @classmethod
+    def _promote_strings_to_narrative_items(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        promoted: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                promoted.append({"text": item})
+            elif isinstance(item, dict) and "text" not in item:
+                # Heuristic mapping for the Claude.ai extractor output
+                # {theme|statement, fact?, source?}.
+                text = (
+                    item.get("theme")
+                    or item.get("statement")
+                    or item.get("fact")
+                    or ""
+                )
+                promoted.append(
+                    {
+                        "text": text or "(empty)",
+                        "tag": item.get("theme"),
+                        "supporting_facts": (
+                            [item["fact"]] if item.get("fact") else []
+                        ),
+                        "source": item.get("source"),
+                        "page": item.get("page"),
+                    }
+                )
+            else:
+                promoted.append(item)
+        return promoted
+
+    @field_validator("q_and_a_highlights", mode="before")
+    @classmethod
+    def _promote_qa_items(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        promoted: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                promoted.append({"text": item})
+            elif isinstance(item, dict) and "text" not in item:
+                # Legacy QAItem shape {question, answer, speaker, topic}.
+                q = item.get("question", "")
+                a = item.get("answer", "")
+                text = (
+                    f"Q: {q}\nA: {a}" if q and a
+                    else (q or a or "(empty)")
+                )
+                promoted.append(
+                    {
+                        "text": text,
+                        "tag": item.get("speaker") or item.get("topic"),
+                        "source": item.get("source"),
+                        "page": item.get("page"),
+                    }
+                )
+            else:
+                promoted.append(item)
+        return promoted
+
+    @field_validator("risks_mentioned", mode="before")
+    @classmethod
+    def _promote_risks(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        promoted: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                promoted.append({"risk": item})
+            elif isinstance(item, dict) and "risk" not in item:
+                risk = (
+                    item.get("theme")
+                    or item.get("name")
+                    or item.get("title")
+                    or item.get("detail")
+                    or "(unspecified)"
+                )
+                promoted.append(
+                    {
+                        "risk": risk,
+                        "detail": item.get("detail"),
+                        "severity": item.get("severity"),
+                        "source": item.get("source"),
+                        "page": item.get("page"),
+                    }
+                )
+            else:
+                promoted.append(item)
+        return promoted
+
+    @field_validator("capital_allocation_comments", mode="before")
+    @classmethod
+    def _promote_capital_allocation(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        promoted: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                promoted.append({"area": "General", "detail": item})
+            elif isinstance(item, dict) and "area" not in item:
+                area = (
+                    item.get("category")
+                    or item.get("bucket")
+                    or item.get("theme")
+                    or "General"
+                )
+                promoted.append(
+                    {
+                        "area": area,
+                        "detail": item.get("detail") or item.get("statement"),
+                        "amount": item.get("amount"),
+                        "period": item.get("period"),
+                        "source": item.get("source"),
+                    }
+                )
+            else:
+                promoted.append(item)
+        return promoted
+
+    @field_validator("guidance_changes", mode="before")
+    @classmethod
+    def _promote_guidance(cls, value: Any) -> Any:
+        """Legacy shapes accepted:
+
+        - plain str ``"Revenue to grow 10 %"`` → ``metric="unspecified"``
+          + ``statement=str``.
+        - ``{guidance, statement, period, source}`` (Claude.ai extractor):
+          → ``metric=guidance``.
+        - ``{metric, old, new, direction}`` (Phase 1 ``GuidanceChangeItem``)
+          → ``metric`` kept, ``statement=f"{old} → {new}"``.
+        """
+        if not isinstance(value, list):
+            return value
+        promoted: list[Any] = []
+        for item in value:
+            if isinstance(item, str):
+                promoted.append({"metric": "unspecified", "statement": item})
+            elif isinstance(item, dict) and "metric" not in item:
+                metric = (
+                    item.get("guidance")
+                    or item.get("kpi")
+                    or item.get("measure")
+                    or "unspecified"
+                )
+                promoted.append(
+                    {
+                        "metric": metric,
+                        "direction": item.get("direction"),
+                        "value": item.get("value"),
+                        "period": item.get("period"),
+                        "statement": item.get("statement"),
+                        "source": item.get("source"),
+                    }
+                )
+            elif isinstance(item, dict) and (
+                "old" in item or "new" in item
+            ):
+                # Phase-1 GuidanceChangeItem shape — bridge old/new into
+                # a single statement for the new schema.
+                old = item.get("old") or ""
+                new = item.get("new") or ""
+                statement = (
+                    f"{old} → {new}".strip(" →") if (old or new) else None
+                )
+                promoted.append(
+                    {
+                        "metric": item["metric"],
+                        "direction": item.get("direction"),
+                        "statement": statement,
+                    }
+                )
+            else:
+                promoted.append(item)
+        return promoted
 
 
 # ======================================================================
 # Top-level
 # ======================================================================
 class RawExtraction(BaseSchema):
-    """Complete human-produced extraction for one source document."""
+    """Complete human-produced extraction for one source document.
+
+    Phase 1.5.12 — ``segments`` and ``operational_kpis`` accept either
+    the legacy Phase-1 list shape (preserved verbatim on
+    :attr:`SegmentsBlock.legacy_periods` /
+    :attr:`OperationalKPIsBlock.legacy_kpis`) or the richer dict shape
+    emitted by the Claude.ai extractor (by_geography / metrics /
+    metric_sources / ...).
+    """
 
     metadata: DocumentMetadata
     income_statement: dict[str, IncomeStatementPeriod] = Field(default_factory=dict)
     balance_sheet: dict[str, BalanceSheetPeriod] = Field(default_factory=dict)
     cash_flow: dict[str, CashFlowPeriod] = Field(default_factory=dict)
     notes: list[Note] = Field(default_factory=list)
-    segments: list[SegmentReporting] = Field(default_factory=list)
+    segments: SegmentsBlock = Field(default_factory=SegmentsBlock)
     historical: HistoricalDataSeries | None = None
-    operational_kpis: list[OperationalKPI] = Field(default_factory=list)
+    operational_kpis: OperationalKPIsBlock = Field(
+        default_factory=lambda: OperationalKPIsBlock()
+    )
     narrative: NarrativeContent | None = None
+
+    @field_validator("segments", mode="before")
+    @classmethod
+    def _normalise_segments(cls, value: Any) -> Any:
+        if value is None:
+            return SegmentsBlock()
+        if isinstance(value, list):
+            # Legacy Phase-1 form: list[SegmentReporting].
+            return SegmentsBlock(legacy_periods=value)
+        return value
+
+    @field_validator("operational_kpis", mode="before")
+    @classmethod
+    def _normalise_kpis(cls, value: Any) -> Any:
+        if value is None:
+            return OperationalKPIsBlock()
+        if isinstance(value, list):
+            return OperationalKPIsBlock(legacy_kpis=value)
+        return value
 
     # ── Validators ──────────────────────────────────────────────
     @model_validator(mode="after")
@@ -533,7 +963,13 @@ class RawExtraction(BaseSchema):
                     f"numeric extraction: primary period {primary.period!r} "
                     f"income_statement has no line_items"
                 )
-            if primary.period not in self.balance_sheet:
+            # Phase 1.5.12.1 — BS + CF required only for audited /
+            # reviewed documents. Preliminary investor presentations
+            # commonly disclose IS only; the pipeline surfaces the
+            # consequences (W.CAPEX / W.CF / BS-identity SKIP) via the
+            # validator + banner rather than blocking at load time.
+            is_unaudited = meta.audit_status == AuditStatus.UNAUDITED
+            if not is_unaudited and primary.period not in self.balance_sheet:
                 raise ValueError(
                     f"numeric extraction: primary period {primary.period!r} "
                     f"has no balance_sheet entry"

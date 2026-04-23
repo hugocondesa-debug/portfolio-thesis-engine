@@ -117,13 +117,32 @@ def normalise_unit_scale(raw: RawExtraction) -> RawExtraction:
         period: _scale_cf(sp, factor) for period, sp in raw.cash_flow.items()
     }
     new_notes = [_scale_note(n, factor) for n in raw.notes]
-    new_segments = [_scale_segment_reporting(s, factor) for s in raw.segments]
+    # Phase 1.5.12 — segments / operational_kpis are now
+    # ``SegmentsBlock`` / ``OperationalKPIsBlock`` wrappers. Scale the
+    # legacy list form (which preserves the Phase-1 SegmentReporting /
+    # OperationalKPI shape); dict/Decimal parts of the rich block
+    # would need separate handling and Phase-2 work covers that.
+    new_segments = raw.segments.model_copy(
+        update={
+            "legacy_periods": [
+                _scale_segment_reporting(s, factor)
+                for s in raw.segments.legacy_periods
+            ],
+        }
+    )
     new_historical = (
         _scale_historical(raw.historical, factor)
         if raw.historical is not None
         else None
     )
-    new_kpis = [_scale_operational_kpi(k, factor) for k in raw.operational_kpis]
+    new_kpis = raw.operational_kpis.model_copy(
+        update={
+            "legacy_kpis": [
+                _scale_operational_kpi(k, factor)
+                for k in raw.operational_kpis.legacy_kpis
+            ],
+        }
+    )
 
     return raw.model_copy(
         update={
