@@ -102,6 +102,35 @@ def _fake_providers() -> tuple[MagicMock, MagicMock]:
             "marketCap": 2_460_000_000,
         }
     )
+    # Sprint 4A-alpha.7 — period-aware variant returns the same single-
+    # period bundle the gate now asks for when fiscal_year is supplied.
+    fmp.get_fundamentals_for_period = AsyncMock(
+        return_value={
+            "income_statement": [
+                {
+                    "calendarYear": "2024",
+                    "revenue": 715_682_000,
+                    "operatingIncome": 130_682_000,
+                    "netIncome": 84_359_000,
+                }
+            ],
+            "balance_sheet": [
+                {
+                    "calendarYear": "2024",
+                    "totalAssets": 3_750_000_000,
+                    "totalStockholdersEquity": 2_210_000_000,
+                    "cashAndCashEquivalents": 550_000_000,
+                }
+            ],
+            "cash_flow": [
+                {
+                    "calendarYear": "2024",
+                    "operatingCashFlow": 145_000_000,
+                    "capitalExpenditure": -120_000_000,
+                }
+            ],
+        }
+    )
 
     yf = MagicMock()
     yf.get_fundamentals = AsyncMock(
@@ -136,6 +165,33 @@ def _fake_providers() -> tuple[MagicMock, MagicMock]:
                     "marketCap": 2_440_000_000,
                 }
             ]
+        }
+    )
+    yf.get_fundamentals_for_period = AsyncMock(
+        return_value={
+            "income_statement": [
+                {
+                    "period": "2024-12-31",
+                    "Total Revenue": 716_000_000,
+                    "Operating Income": 131_000_000,
+                    "Net Income": 84_000_000,
+                }
+            ],
+            "balance_sheet": [
+                {
+                    "period": "2024-12-31",
+                    "Total Assets": 3_745_000_000,
+                    "Stockholders Equity": 2_205_000_000,
+                    "Cash And Cash Equivalents": 548_000_000,
+                }
+            ],
+            "cash_flow": [
+                {
+                    "period": "2024-12-31",
+                    "Operating Cash Flow": 144_000_000,
+                    "Capital Expenditure": -119_000_000,
+                }
+            ],
         }
     )
     return fmp, yf

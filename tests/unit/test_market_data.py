@@ -356,3 +356,165 @@ class TestContextManager:
         client = httpx.AsyncClient(transport=transport, base_url=FMPProvider.BASE_URL)
         async with FMPProvider(api_key="x", client=client) as p:
             await p.get_quote("AAPL")
+
+
+# ======================================================================
+# Sprint 4A-alpha.7 — get_fundamentals_for_period
+# ======================================================================
+
+
+def _period_handler(
+    rows_by_path: dict[str, list[dict[str, Any]]],
+) -> Any:
+    """Build an httpx handler serving ``rows_by_path[path_suffix]``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        for suffix, rows in rows_by_path.items():
+            if request.url.path.endswith(suffix):
+                return httpx.Response(200, json=rows)
+        return httpx.Response(404)
+
+    return handler
+
+
+class TestFMPPeriodAwareFundamentals:
+    """FMP :meth:`get_fundamentals_for_period` — Sprint 4A-alpha.7."""
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_FMP_01_returns_matching_year(self) -> None:
+        handler = _period_handler(
+            {
+                "/income-statement": [
+                    {"calendarYear": "2024", "revenue": 715682000, "date": "2024-12-31"},
+                    {"calendarYear": "2023", "revenue": 714289000, "date": "2023-12-31"},
+                    {"calendarYear": "2022", "revenue": 610291000, "date": "2022-12-31"},
+                ],
+                "/balance-sheet-statement": [
+                    {"calendarYear": "2023", "totalAssets": 1000}
+                ],
+                "/cash-flow-statement": [
+                    {"calendarYear": "2023", "operatingCashFlow": 200}
+                ],
+            }
+        )
+        p = _make_provider(handler)
+        result = await p.get_fundamentals_for_period("1846.HK", 2023)
+        assert result is not None
+        assert result["income_statement"][0]["revenue"] == 714289000
+        assert result["balance_sheet"][0]["totalAssets"] == 1000
+        assert result["cash_flow"][0]["operatingCashFlow"] == 200
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_FMP_02_returns_none_when_year_unavailable(
+        self,
+    ) -> None:
+        handler = _period_handler(
+            {
+                "/income-statement": [
+                    {"calendarYear": "2024", "revenue": 715682000},
+                ],
+                "/balance-sheet-statement": [{"calendarYear": "2024"}],
+                "/cash-flow-statement": [{"calendarYear": "2024"}],
+            }
+        )
+        p = _make_provider(handler)
+        result = await p.get_fundamentals_for_period("1846.HK", 2015)
+        assert result is None
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_FMP_03_handles_empty_response(self) -> None:
+        """Empty list across all three endpoints → None."""
+        handler = _period_handler(
+            {
+                "/income-statement": [],
+                "/balance-sheet-statement": [],
+                "/cash-flow-statement": [],
+            }
+        )
+        p = _make_provider(handler)
+        result = await p.get_fundamentals_for_period("UNKNOWN", 2024)
+        assert result is None
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_FMP_04_handles_string_calendar_year(
+        self,
+    ) -> None:
+        """``calendarYear`` arrives as string; filter converts to int."""
+        # Dedicated assertion: same year, string vs int both match.
+        handler = _period_handler(
+            {
+                "/income-statement": [
+                    {"calendarYear": "2024", "revenue": 100},
+                ],
+                "/balance-sheet-statement": [],
+                "/cash-flow-statement": [],
+            }
+        )
+        p = _make_provider(handler)
+        result = await p.get_fundamentals_for_period("T", 2024)
+        assert result is not None
+        assert result["income_statement"][0]["revenue"] == 100
+        assert result["balance_sheet"] == []
+        await p.aclose()
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_FMP_05_skips_malformed_items(self) -> None:
+        """Items lacking ``calendarYear`` skipped; other items still matched."""
+        handler = _period_handler(
+            {
+                "/income-statement": [
+                    {"date": "2024-12-31", "revenue": 999},  # no calendarYear
+                    {"calendarYear": "2023", "revenue": 500},
+                ],
+                "/balance-sheet-statement": [],
+                "/cash-flow-statement": [],
+            }
+        )
+        p = _make_provider(handler)
+        # Request 2024 — malformed 2024 is skipped, only 2023 has cal_year
+        result_2024 = await p.get_fundamentals_for_period("T", 2024)
+        assert result_2024 is None
+        # Request 2023 — returns the well-formed item.
+        result_2023 = await p.get_fundamentals_for_period("T", 2023)
+        assert result_2023 is not None
+        assert result_2023["income_statement"][0]["revenue"] == 500
+        await p.aclose()
+
+
+# ======================================================================
+# Sprint 4A-alpha.7 — backward compatibility
+# ======================================================================
+
+
+class TestBackwardCompatibility:
+    """Existing :meth:`get_fundamentals` path unchanged post-sprint."""
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_BC_01_get_fundamentals_unchanged(self) -> None:
+        """Existing latest-annual path still returns list-of-periods bundle."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            assert request.url.params["limit"] == "5"
+            if path.endswith("/income-statement"):
+                return httpx.Response(
+                    200,
+                    json=[
+                        {"calendarYear": "2024", "revenue": 100},
+                        {"calendarYear": "2023", "revenue": 90},
+                    ],
+                )
+            if path.endswith("/balance-sheet-statement"):
+                return httpx.Response(200, json=[{"calendarYear": "2024"}])
+            if path.endswith("/cash-flow-statement"):
+                return httpx.Response(200, json=[{"calendarYear": "2024"}])
+            return httpx.Response(404)
+
+        p = _make_provider(handler)
+        data = await p.get_fundamentals("1846.HK")
+        # Still returns multi-year lists (unchanged from pre-sprint).
+        assert len(data["income_statement"]) == 2
+        assert data["income_statement"][0]["revenue"] == 100
+        await p.aclose()

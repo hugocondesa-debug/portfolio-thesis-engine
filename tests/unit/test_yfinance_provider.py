@@ -313,3 +313,152 @@ class TestSearchTickers:
             yf.Search.return_value = fake_search
             p = YFinanceProvider()
             assert await p.search_tickers("x") == []
+
+
+# ======================================================================
+# Sprint 4A-alpha.7 — get_fundamentals_for_period
+# ======================================================================
+
+
+from portfolio_thesis_engine.market_data.yfinance_provider import (
+    _df_to_period_record,
+)
+
+
+def _multi_year_df() -> pd.DataFrame:
+    """3-year DataFrame with Timestamp columns (most-recent first)."""
+    cols = [
+        pd.Timestamp("2024-12-31"),
+        pd.Timestamp("2023-12-31"),
+        pd.Timestamp("2022-12-31"),
+    ]
+    return pd.DataFrame(
+        {
+            cols[0]: {"Total Revenue": 715_682_000.0, "Net Income": 82_285_000.0},
+            cols[1]: {"Total Revenue": 714_289_000.0, "Net Income": 131_242_000.0},
+            cols[2]: {"Total Revenue": 610_291_000.0, "Net Income": 120_000_000.0},
+        }
+    )
+
+
+class TestYFinancePeriodAwareFundamentals:
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_YF_01_returns_matching_year(self) -> None:
+        df = _multi_year_df()
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=df.copy(),
+                balance_sheet=df.copy(),
+                cashflow=df.copy(),
+            )
+            p = YFinanceProvider()
+            result = await p.get_fundamentals_for_period("1846.HK", 2023)
+        assert result is not None
+        assert result["income_statement"][0]["Total Revenue"] == 714_289_000.0
+        assert result["income_statement"][0]["Net Income"] == 131_242_000.0
+        assert result["income_statement"][0]["period"] == "2023-12-31"
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_YF_02_returns_none_when_year_unavailable(
+        self,
+    ) -> None:
+        df = _multi_year_df()
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=df.copy(),
+                balance_sheet=df.copy(),
+                cashflow=df.copy(),
+            )
+            p = YFinanceProvider()
+            # 2015 is before the provider's history — None.
+            result = await p.get_fundamentals_for_period("1846.HK", 2015)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_YF_03_handles_empty_dataframe(self) -> None:
+        empty = pd.DataFrame()
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=empty, balance_sheet=empty, cashflow=empty
+            )
+            p = YFinanceProvider()
+            result = await p.get_fundamentals_for_period("GHOST", 2024)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_YF_04_skips_nan_values(self) -> None:
+        col = pd.Timestamp("2024-12-31")
+        df = pd.DataFrame(
+            {col: {"Total Revenue": 100.0, "Net Income": float("nan")}}
+        )
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=df,
+                balance_sheet=pd.DataFrame(),
+                cashflow=pd.DataFrame(),
+            )
+            p = YFinanceProvider()
+            result = await p.get_fundamentals_for_period("X", 2024)
+        assert result is not None
+        record = result["income_statement"][0]
+        assert record["Total Revenue"] == 100.0
+        assert "Net Income" not in record  # NaN skipped
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_YF_05_non_calendar_fiscal_year_matches(
+        self,
+    ) -> None:
+        """Companies with FY ending mid-year: ``.year`` still matches."""
+        col = pd.Timestamp("2024-06-30")
+        df = pd.DataFrame({col: {"Total Revenue": 200.0}})
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=df,
+                balance_sheet=pd.DataFrame(),
+                cashflow=pd.DataFrame(),
+            )
+            p = YFinanceProvider()
+            result = await p.get_fundamentals_for_period("X", 2024)
+        assert result is not None
+        assert result["income_statement"][0]["Total Revenue"] == 200.0
+        assert result["income_statement"][0]["period"] == "2024-06-30"
+
+
+class TestDfToPeriodRecordHelper:
+    def test_none_returns_none(self) -> None:
+        assert _df_to_period_record(None, 2024) is None
+
+    def test_empty_dataframe_returns_none(self) -> None:
+        assert _df_to_period_record(pd.DataFrame(), 2024) is None
+
+    def test_skips_nan_values(self) -> None:
+        col = pd.Timestamp("2024-01-01")
+        df = pd.DataFrame({col: {"A": 1.0, "B": float("nan")}})
+        record = _df_to_period_record(df, 2024)
+        assert record is not None
+        assert record["A"] == 1.0
+        assert "B" not in record
+
+
+# ======================================================================
+# Sprint 4A-alpha.7 — backward compatibility
+# ======================================================================
+
+
+class TestYFinanceBackwardCompatibility:
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_BC_02_get_fundamentals_unchanged(self) -> None:
+        """Legacy multi-year path still returns full list of period records."""
+        df = _multi_year_df()
+        with patch(_YF_MODULE) as yf:
+            yf.Ticker.return_value = _mock_ticker(
+                financials=df.copy(),
+                balance_sheet=df.copy(),
+                cashflow=df.copy(),
+            )
+            p = YFinanceProvider()
+            data = await p.get_fundamentals("1846.HK")
+        # Three years of data preserved (unchanged pre-sprint behaviour).
+        assert len(data["income_statement"]) == 3
+        assert data["income_statement"][0]["period"] == "2024-12-31"
+        assert data["income_statement"][2]["period"] == "2022-12-31"

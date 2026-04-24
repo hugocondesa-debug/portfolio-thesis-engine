@@ -131,6 +131,48 @@ class YFinanceProvider(MarketDataProvider):
 
         return await asyncio.to_thread(_sync)
 
+    async def get_fundamentals_for_period(
+        self,
+        ticker: str,
+        fiscal_year: int,
+    ) -> dict[str, Any] | None:
+        """Sprint 4A-alpha.7 — period-aware fundamentals via yfinance.
+
+        yfinance ``Ticker.financials`` / ``.balance_sheet`` / ``.cashflow``
+        return DataFrames with :class:`pandas.Timestamp` columns whose
+        ``.year`` attribute carries the fiscal year (calendar-year
+        reporters map directly; non-calendar reporters map by the year
+        the FY ends in — e.g. FY ending June 2024 → ``.year == 2024``).
+
+        Returns a bundle shaped like :meth:`get_fundamentals` but with
+        single-element lists (bundle-shape compatibility with the
+        cross-check gate extractors). ``None`` when no DataFrame has a
+        column matching the year.
+        """
+
+        def _sync() -> dict[str, Any] | None:
+            try:
+                t = yf.Ticker(ticker)
+                income = _df_to_period_record(t.financials, fiscal_year)
+                balance = _df_to_period_record(t.balance_sheet, fiscal_year)
+                cashflow = _df_to_period_record(t.cashflow, fiscal_year)
+            except Exception as e:  # noqa: BLE001
+                raise MarketDataError(
+                    f"yfinance fundamentals_for_period failed for "
+                    f"{ticker!r} / {fiscal_year}: {e}"
+                ) from e
+
+            if income is None and balance is None and cashflow is None:
+                return None
+
+            return {
+                "income_statement": [income] if income is not None else [],
+                "balance_sheet": [balance] if balance is not None else [],
+                "cash_flow": [cashflow] if cashflow is not None else [],
+            }
+
+        return await asyncio.to_thread(_sync)
+
     # ------------------------------------------------------------------
     async def get_key_metrics(self, ticker: str) -> dict[str, Any]:
         """Derive a compact metrics record from :attr:`Ticker.info`."""
@@ -216,3 +258,46 @@ def _df_to_records(df: Any) -> list[dict[str, Any]]:
             row[str(item)] = float(value) if hasattr(value, "__float__") else value
         records.append(row)
     return records
+
+
+def _df_to_period_record(df: Any, fiscal_year: int) -> dict[str, Any] | None:
+    """Sprint 4A-alpha.7 — return a single period's record from a
+    yfinance DataFrame, filtered by ``fiscal_year``.
+
+    Matches the first column whose ``.year`` attribute equals
+    ``fiscal_year``. Returns ``None`` when the DataFrame is empty,
+    missing, or has no matching column. Output shape matches a single
+    element of :func:`_df_to_records` so downstream extractors can use
+    ``records[0]`` uniformly.
+    """
+    if df is None:
+        return None
+    try:
+        if df.empty:
+            return None
+    except AttributeError:
+        return None
+
+    matching_col = None
+    for col in df.columns:
+        col_year = getattr(col, "year", None)
+        if col_year == fiscal_year:
+            matching_col = col
+            break
+    if matching_col is None:
+        return None
+
+    period_label = (
+        matching_col.date().isoformat()
+        if hasattr(matching_col, "date")
+        else str(matching_col)
+    )
+    row: dict[str, Any] = {"period": period_label}
+    for item, value in df[matching_col].items():
+        try:
+            if value != value:  # NaN != NaN
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        row[str(item)] = float(value) if hasattr(value, "__float__") else value
+    return row

@@ -169,6 +169,70 @@ class FMPProvider(MarketDataProvider):
             "cash_flow": cashflow if isinstance(cashflow, list) else [],
         }
 
+    async def get_fundamentals_for_period(
+        self,
+        ticker: str,
+        fiscal_year: int,
+    ) -> dict[str, Any] | None:
+        """Sprint 4A-alpha.7 — filter ``/income-statement`` /
+        ``/balance-sheet-statement`` / ``/cash-flow-statement`` responses
+        down to the requested fiscal year via the ``calendarYear`` field.
+
+        Returns a bundle shaped like :meth:`get_fundamentals` but with
+        single-element lists so the :mod:`cross_check.gate` metric
+        extractors work unchanged. ``None`` when none of the three
+        endpoints have data for the year (provider lacks historical
+        depth). Network / auth errors propagate.
+        """
+        income_list = await self._get(
+            "/income-statement", {"symbol": ticker, "limit": 10}
+        )
+        balance_list = await self._get(
+            "/balance-sheet-statement", {"symbol": ticker, "limit": 10}
+        )
+        cashflow_list = await self._get(
+            "/cash-flow-statement", {"symbol": ticker, "limit": 10}
+        )
+
+        income = self._filter_by_year(income_list, fiscal_year)
+        balance = self._filter_by_year(balance_list, fiscal_year)
+        cashflow = self._filter_by_year(cashflow_list, fiscal_year)
+
+        if income is None and balance is None and cashflow is None:
+            return None
+
+        # Return single-element lists — preserves the shape the cross-
+        # check extractors already expect (records[0] via _first()).
+        return {
+            "income_statement": [income] if income is not None else [],
+            "balance_sheet": [balance] if balance is not None else [],
+            "cash_flow": [cashflow] if cashflow is not None else [],
+        }
+
+    @staticmethod
+    def _filter_by_year(
+        items: Any,
+        fiscal_year: int,
+    ) -> dict[str, Any] | None:
+        """Return the FMP statement item whose ``calendarYear`` matches
+        ``fiscal_year``. Tolerates string / int representations and
+        skips malformed items silently."""
+        if not isinstance(items, list) or not items:
+            return None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            cal_year_raw = item.get("calendarYear")
+            if cal_year_raw is None:
+                continue
+            try:
+                cal_year = int(str(cal_year_raw))
+            except (ValueError, TypeError):
+                continue
+            if cal_year == fiscal_year:
+                return item
+        return None
+
     async def get_key_metrics(self, ticker: str) -> dict[str, Any]:
         data = await self._get("/key-metrics", {"symbol": ticker, "limit": 5})
         if not isinstance(data, list) or not data:

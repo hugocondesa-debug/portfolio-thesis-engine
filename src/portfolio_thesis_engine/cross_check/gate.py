@@ -259,10 +259,23 @@ class CrossCheckGate:
         ticker: str,
         extracted_values: dict[str, Decimal],
         period: str,
+        fiscal_year: int | None = None,
     ) -> CrossCheckReport:
         """Run the check end-to-end. Never raises for network failures —
-        falls back to UNAVAILABLE and records the error on the report."""
-        fmp_data, yf_data, provider_errors = await self._fetch_all(ticker)
+        falls back to UNAVAILABLE and records the error on the report.
+
+        Sprint 4A-alpha.7 — when ``fiscal_year`` is provided, the gate
+        uses the period-aware provider methods so the comparison is
+        against the correct historical year instead of the latest
+        annual snapshot. Omit (or pass ``None``) for the legacy
+        latest-annual path (preserved for peers / historical analysis).
+        """
+        if fiscal_year is not None:
+            fmp_data, yf_data, provider_errors = await self._fetch_all_for_period(
+                ticker, fiscal_year
+            )
+        else:
+            fmp_data, yf_data, provider_errors = await self._fetch_all(ticker)
 
         metrics: list[CrossCheckMetric] = []
         for metric_name in _METRIC_CATALOGUE:
@@ -328,6 +341,69 @@ class CrossCheckGate:
             if isinstance(result, BaseException):
                 # TickerNotFound / MarketDataError → capture, leave bundle empty
                 errors[label] = f"{type(result).__name__}: {result}"
+                target[bundle] = {}
+            elif isinstance(result, dict):
+                target[bundle] = result
+            else:
+                target[bundle] = {}
+        return fmp_data, yf_data, errors
+
+    # ------------------------------------------------------------------
+    async def _fetch_all_for_period(
+        self, ticker: str, fiscal_year: int
+    ) -> tuple[
+        dict[str, dict[str, Any]],
+        dict[str, dict[str, Any]],
+        dict[str, str],
+    ]:
+        """Sprint 4A-alpha.7 — period-aware fetch.
+
+        Uses :meth:`MarketDataProvider.get_fundamentals_for_period` for
+        IS/BS/CF (filtered to ``fiscal_year``) but keeps
+        :meth:`get_key_metrics` as-is. Key metrics are TTM-current
+        (market cap, shares outstanding) and are intentionally
+        period-agnostic — re-using the existing helper avoids false
+        UNAVAILABLE markers for market-data-only metrics.
+
+        A provider returning ``None`` (no data for the year) is captured
+        as an error entry and the bundle is left empty; the gate then
+        marks affected metrics UNAVAILABLE via the neutral status path.
+        """
+        fmp_jobs = [
+            self.fmp.get_fundamentals_for_period(ticker, fiscal_year),
+            self.fmp.get_key_metrics(ticker),
+        ]
+        yf_jobs = [
+            self.yfinance.get_fundamentals_for_period(ticker, fiscal_year),
+            self.yfinance.get_key_metrics(ticker),
+        ]
+        raw = await asyncio.gather(*fmp_jobs, *yf_jobs, return_exceptions=True)
+
+        errors: dict[str, str] = {}
+        fmp_data: dict[str, dict[str, Any]] = {}
+        yf_data: dict[str, dict[str, Any]] = {}
+
+        labels = (
+            "fmp.fundamentals",
+            "fmp.key_metrics",
+            "yf.fundamentals",
+            "yf.key_metrics",
+        )
+        bundles_by_label = {
+            "fmp.fundamentals": (_FUNDAMENTALS, fmp_data),
+            "fmp.key_metrics": (_KEY_METRICS, fmp_data),
+            "yf.fundamentals": (_FUNDAMENTALS, yf_data),
+            "yf.key_metrics": (_KEY_METRICS, yf_data),
+        }
+        for label, result in zip(labels, raw, strict=True):
+            bundle, target = bundles_by_label[label]
+            if isinstance(result, BaseException):
+                errors[label] = f"{type(result).__name__}: {result}"
+                target[bundle] = {}
+            elif result is None:
+                errors[label] = (
+                    f"Period {fiscal_year} unavailable from provider"
+                )
                 target[bundle] = {}
             elif isinstance(result, dict):
                 target[bundle] = result

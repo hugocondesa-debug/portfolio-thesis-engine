@@ -702,3 +702,82 @@ class TestGuardrailFailure:
         )
         assert outcome.success is False
         assert outcome.overall_guardrail_status == GuardrailStatus.FAIL
+
+
+# ======================================================================
+# Sprint 4A-alpha.7 — fiscal_year propagation into gate.check
+# ======================================================================
+
+
+class TestCoordinatorFiscalYearPropagation:
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_COORD_01_passes_fiscal_year_to_gate(
+        self, _setup: dict[str, object]
+    ) -> None:
+        """Coordinator threads ``raw_extraction.metadata.fiscal_year``
+        (already int in the schema) into ``gate.check``."""
+        coord = _setup["coord"]  # type: ignore[index]
+        gate = _setup["gate"]  # type: ignore[index]
+        wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
+
+        await coord.process(
+            "1846.HK",
+            wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
+        )
+        gate.check.assert_awaited_once()
+        call = gate.check.await_args
+        # Kwargs-based call — fiscal_year is the int from the extraction.
+        assert call.kwargs["fiscal_year"] == 2024
+        assert call.kwargs["ticker"] == "1846.HK"
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_COORD_02_forwards_none_when_metadata_missing(
+        self, _setup: dict[str, object]
+    ) -> None:
+        """Exercise ``_stage_cross_check`` directly with a RawExtraction
+        whose ``metadata.fiscal_year`` has been cleared — the coordinator
+        must forward ``None`` to the gate (backward-compat latest-annual
+        path) rather than crashing."""
+        from portfolio_thesis_engine.schemas.raw_extraction import (
+            RawExtraction,
+        )
+
+        coord = _setup["coord"]  # type: ignore[index]
+        gate = _setup["gate"]  # type: ignore[index]
+
+        raw = RawExtraction.from_yaml(_EXTRACTION_FIXTURE.read_text())
+        raw.metadata.fiscal_year = None
+
+        outcome = MagicMock()
+        outcome.stages = []
+
+        await coord._stage_cross_check(  # noqa: SLF001
+            ticker="1846.HK",
+            raw_extraction=raw,
+            outcome=outcome,
+            skip_cross_check=False,
+        )
+        gate.check.assert_awaited_once()
+        call = gate.check.await_args
+        assert call.kwargs["fiscal_year"] is None
+
+    @pytest.mark.asyncio
+    async def test_P2_S4A_ALPHA_7_COORD_03_skip_cross_check_still_skips(
+        self, _setup: dict[str, object]
+    ) -> None:
+        """``--skip-cross-check`` continues to bypass the gate even after
+        the fiscal_year wiring was added."""
+        coord = _setup["coord"]  # type: ignore[index]
+        gate = _setup["gate"]  # type: ignore[index]
+        wacc_path = _setup["wacc_path"]  # type: ignore[index]
+        extraction_path = _setup["extraction_path"]  # type: ignore[index]
+
+        await coord.process(
+            "1846.HK",
+            wacc_path=wacc_path,  # type: ignore[arg-type]
+            extraction_path=extraction_path,  # type: ignore[arg-type]
+            skip_cross_check=True,
+        )
+        gate.check.assert_not_awaited()

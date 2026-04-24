@@ -999,10 +999,15 @@ class PipelineCoordinator:
             return None
 
         extracted_values = _extract_cross_check_values(raw_extraction)
+        # Sprint 4A-alpha.7 — pass the int fiscal year so the gate can
+        # filter provider responses by period. ``raw_extraction.metadata
+        # .fiscal_year`` is already ``int | None``; when ``None`` the gate
+        # falls back to its pre-4A-alpha.7 latest-annual path.
         report = await self.cross_check_gate.check(
             ticker=ticker,
             extracted_values=extracted_values,
             period=raw_extraction.primary_period.period,
+            fiscal_year=raw_extraction.metadata.fiscal_year,
         )
         status = (
             "fail" if report.overall_status == CrossCheckStatus.FAIL else "ok"

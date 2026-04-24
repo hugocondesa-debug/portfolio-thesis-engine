@@ -45,6 +45,36 @@ class MarketDataProvider(ABC):
         """Return bundled fundamentals (IS, BS, CF) used for peer Level C."""
 
     @abstractmethod
+    async def get_fundamentals_for_period(
+        self,
+        ticker: str,
+        fiscal_year: int,
+    ) -> dict[str, Any] | None:
+        """Return fundamentals (IS, BS, CF) for a specific fiscal year.
+
+        Sprint 4A-alpha.7 — period-aware variant of
+        :meth:`get_fundamentals`. Returns the same bundle shape (three
+        keyed lists of period dicts) but filtered to a single year::
+
+            {
+                "income_statement": [single_period_dict],
+                "balance_sheet": [single_period_dict],
+                "cash_flow": [single_period_dict],
+            }
+
+        Returning **single-element lists** (rather than bare dicts) keeps
+        the bundle shape compatible with the :mod:`cross_check.gate`
+        metric extractors (which call ``records[0]`` on each list).
+
+        Returns ``None`` when the provider has no data for that fiscal
+        year. Implementations must never raise for missing periods —
+        callers treat ``None`` as "provider lacks depth for this year"
+        and let the gate surface UNAVAILABLE without failing the run.
+        Network / auth errors continue to raise :class:`MarketDataError`
+        subclasses.
+        """
+
+    @abstractmethod
     async def get_key_metrics(self, ticker: str) -> dict[str, Any]:
         """Return key metrics (multiples, ratios) for ``ticker``."""
 
