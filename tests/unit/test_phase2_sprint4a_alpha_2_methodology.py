@@ -264,15 +264,18 @@ class TestPartBDispatcher:
         )
 
     def test_dispatcher_ddm_emits_not_implemented_warning(self) -> None:
+        """Sprint 4B implemented DDM, but the dispatcher still raises
+        :class:`NotImplementedError` when it has no three-statement
+        projection to consume. The aggregation pipeline converts it into
+        a CRITICAL warning so the scenario drops cleanly."""
         ss = _ss([_scenario(methodology=DDMMethodologyConfig())])
         result = ValuationEngine().run(
             valuation_profile=_vp(), scenario_set=ss, period_inputs=_pi()
         )
-        # DDM scenario skipped → result has no scenario, one CRITICAL
-        # warning pointing to Sprint 4B.
         assert result.scenarios_run == []
         assert any(
-            w.severity == "CRITICAL" and "Sprint 4B" in w.observation
+            w.severity == "CRITICAL"
+            and "three-statement projection" in w.observation
             for w in result.warnings
         )
 

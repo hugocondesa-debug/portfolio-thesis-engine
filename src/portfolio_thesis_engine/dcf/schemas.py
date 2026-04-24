@@ -282,16 +282,24 @@ class AssetBasedMethodologyConfig(BaseSchema):
     components: list[dict[str, Any]] = Field(default_factory=list)
 
 
-# Sprint 4B / 4C stubs — accepted in YAML but raise in the dispatcher.
+# Sprint 4B — DDM / RESIDUAL_INCOME implemented. FFO / normalized /
+# through-cycle still raise in the dispatcher.
 class DDMMethodologyConfig(BaseSchema):
     type: Literal["DDM"] = "DDM"
     payout_ratio: Decimal | None = None
     terminal_growth: Decimal = Decimal("0.025")
+    # Sprint 4B additions — horizon + scenario-level CoE override.
+    # Backward-compat: scenarios.yaml entries that only set payout_ratio
+    # / terminal_growth continue to load because these fields default.
+    explicit_years: int = 5
+    cost_of_equity_override: Decimal | None = None
 
 
 class ResidualIncomeMethodologyConfig(BaseSchema):
     type: Literal["RESIDUAL_INCOME"] = "RESIDUAL_INCOME"
     terminal_growth: Decimal = Decimal("0.025")
+    explicit_years: int = 5
+    cost_of_equity_override: Decimal | None = None
 
 
 class FFOBasedMethodologyConfig(BaseSchema):

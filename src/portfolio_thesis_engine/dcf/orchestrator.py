@@ -53,7 +53,8 @@ class DCFOrchestrator:
         if scenario_set is None:
             return None
 
-        stage_1_wacc = self._stage_1_wacc(ticker, state)
+        stage_1_wacc_result = self._stage_1_wacc_result(ticker, state)
+        stage_1_wacc = stage_1_wacc_result.wacc
         stage_3_wacc = self._stage_3_wacc(
             state, valuation_profile, stage_1_wacc
         )
@@ -64,7 +65,10 @@ class DCFOrchestrator:
             stage_1_wacc=stage_1_wacc,
             stage_3_wacc=stage_3_wacc,
             valuation_profile=valuation_profile,
+            cost_of_equity=stage_1_wacc_result.cost_of_equity.cost_of_equity_final,
         )
+
+        forecast_result = self._maybe_run_forecast(ticker, scenario_set)
 
         if valuation_profile.profile.code == DCFProfile.P1_INDUSTRIAL_SERVICES:
             peer_comparison = self._load_peer_comparison(ticker)
@@ -73,11 +77,32 @@ class DCFOrchestrator:
                 scenario_set=scenario_set,
                 period_inputs=period_inputs,
                 peer_comparison=peer_comparison,
+                forecast_result=forecast_result,
             )
         raise NotImplementedError(
             f"DCF profile {valuation_profile.profile.code} is planned "
             "for Sprint 4A-beta / 4B / 4C."
         )
+
+    # ------------------------------------------------------------------
+    def _maybe_run_forecast(self, ticker: str, scenario_set):
+        """Run the Sprint 4A-beta forecast orchestrator when any scenario
+        uses a methodology that needs a three-statement projection
+        (DDM, RESIDUAL_INCOME). Returns ``None`` otherwise to avoid the
+        ~hundred-ms projection cost on DCF-only runs.
+        """
+        needs_forecast = any(
+            getattr(s.methodology, "type", None) in ("DDM", "RESIDUAL_INCOME")
+            for s in scenario_set.scenarios
+        )
+        if not needs_forecast:
+            return None
+        try:
+            from portfolio_thesis_engine.forecast import ForecastOrchestrator
+
+            return ForecastOrchestrator(state_repo=self.state_repo).run(ticker)
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     def _load_peer_comparison(self, ticker: str):
@@ -124,12 +149,19 @@ class DCFOrchestrator:
         pool = complete or states
         return max(pool, key=lambda s: s.extraction_date)
 
-    def _stage_1_wacc(self, ticker: str, state) -> Decimal:
+    def _stage_1_wacc_result(self, ticker: str, state):
+        """Sprint 4B — return the full :class:`WACCComputation` so
+        callers can access both ``wacc`` and ``cost_of_equity_final``.
+        The scalar-WACC entry point :meth:`_stage_1_wacc` delegates
+        here for backward compat with any direct external caller.
+        """
         inputs = build_generator_inputs_from_state(
             ticker, state, marginal_tax_rate=Decimal("0.165")
         )
-        result = WACCGenerator(reference=self.reference).generate(inputs)
-        return result.wacc
+        return WACCGenerator(reference=self.reference).generate(inputs)
+
+    def _stage_1_wacc(self, ticker: str, state) -> Decimal:
+        return self._stage_1_wacc_result(ticker, state).wacc
 
     def _stage_3_wacc(
         self, state, valuation_profile, stage_1_wacc: Decimal
@@ -171,6 +203,7 @@ class DCFOrchestrator:
         stage_1_wacc: Decimal,
         stage_3_wacc: Decimal,
         valuation_profile,
+        cost_of_equity: Decimal | None = None,
     ) -> PeriodInputs:
         ic = (
             state.analysis.invested_capital_by_period[0]
@@ -179,6 +212,7 @@ class DCFOrchestrator:
         )
         cash = ic.financial_assets if ic is not None else Decimal("0")
         debt = ic.bank_debt if ic is not None else Decimal("0")
+        equity_claims = ic.equity_claims if ic is not None else None
         net_debt = debt - cash  # Negative when net-cash.
         shares = state.identity.shares_outstanding or Decimal("1")
         market_price = _load_market_price_from_wacc_inputs(ticker)
@@ -193,6 +227,8 @@ class DCFOrchestrator:
             industry_median_ev_ebitda=(
                 valuation_profile.terminal_value.cross_check_industry_median
             ),
+            cost_of_equity=cost_of_equity,
+            equity_claims=equity_claims,
         )
 
 

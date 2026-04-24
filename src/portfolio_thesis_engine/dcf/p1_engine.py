@@ -44,7 +44,15 @@ _HUNDRED = Decimal("100")
 
 @dataclass
 class PeriodInputs:
-    """Non-scenario contextual inputs needed by the engine."""
+    """Non-scenario contextual inputs needed by the engine.
+
+    Sprint 4B additions (``cost_of_equity``, ``equity_claims``) support
+    DDM and Residual Income dispatch — the orchestrator pulls the CoE
+    out of the Sprint-3 :class:`WACCGenerator` result and the book-value
+    anchor out of the canonical state's ``InvestedCapital.equity_claims``.
+    Both default to ``None`` so existing DCF / multiple-exit paths need
+    no wiring changes.
+    """
 
     ticker: str
     stage_1_wacc: Decimal
@@ -54,6 +62,8 @@ class PeriodInputs:
     shares_outstanding: Decimal = Decimal("1")
     market_price: Decimal | None = None
     industry_median_ev_ebitda: Decimal | None = None
+    cost_of_equity: Decimal | None = None
+    equity_claims: Decimal | None = None
 
 
 def _resolve_base_drivers(scenario_set: ScenarioSet) -> dict[str, Any]:
