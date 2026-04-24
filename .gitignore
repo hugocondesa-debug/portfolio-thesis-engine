@@ -72,3 +72,7 @@ logs/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Sprint 0 — API service
+api/.env
+.docker/

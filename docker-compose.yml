@@ -1,0 +1,36 @@
+services:
+  pte-api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: pte-api
+    restart: unless-stopped
+
+    # Bind to the Tailscale interface only — the API is never exposed on
+    # the public internet. 100.70.51.18 is dataflow's Tailscale IP.
+    # Override at deploy time if Tailscale assigns a different IP.
+    ports:
+      - "${PTE_API_BIND_HOST:-100.70.51.18}:8000:8000"
+
+    volumes:
+      # Read-write data tree: yaml uploads, version backups, pipeline
+      # logs, forecast snapshots, sqlite registry.
+      - ./data:/data
+      # Read-write workspace mount used when the API spawns `pte`
+      # subprocesses — it needs to update artefacts in data/, but the
+      # source code paths are immutable for the lifetime of the run.
+      - .:/workspace/portfolio-thesis-engine
+
+    environment:
+      PTE_API_USER: ${PTE_API_USER:?PTE_API_USER required}
+      PTE_API_PASSWORD: ${PTE_API_PASSWORD:?PTE_API_PASSWORD required}
+      PTE_API_DATA_ROOT: /data
+      PTE_API_PTE_WORKDIR: /workspace/portfolio-thesis-engine
+      PTE_API_LOG_LEVEL: ${PTE_API_LOG_LEVEL:-INFO}
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

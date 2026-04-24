@@ -24,6 +24,8 @@ dependencies = [
     "rich>=13.7",
     "tenacity>=9.0",
     "yfinance>=0.2.40",
+    "fastapi>=0.136.1",
+    "uvicorn>=0.44.0",
 ]
 
 [dependency-groups]
@@ -73,8 +75,8 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "api/tests"]
+pythonpath = ["src", "."]
 addopts = "-v --cov=portfolio_thesis_engine --cov-report=term-missing"
 asyncio_mode = "auto"
 markers = [
