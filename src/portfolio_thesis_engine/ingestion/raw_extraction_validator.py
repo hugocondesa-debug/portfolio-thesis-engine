@@ -804,6 +804,31 @@ class ExtractionValidator:
     def _check_cf_sections(
         self, cf_data: CashFlowPeriod | None, period: str
     ) -> list[ValidationResult]:
+        """Phase 2 Sprint 4A-alpha.6 — dual-convention CF validation.
+
+        Two IFRS / GAAP conventions coexist for FX-effect handling:
+
+        - **Convention A** (common in IFRS Asia / Europe): ``fx_effect``
+          is declared as its own section carrying a single reconciling
+          subtotal between ``Net change in cash`` and
+          ``Cash at end``. Walking the ``subtotal`` section in
+          isolation fails because the math is
+          ``Net change + Cash begin + fx_effect = Cash end`` — the
+          fx_effect leaf lives in a sibling section.
+        - **Convention B** (US GAAP + many interims): fx effect is
+          either embedded in operating / financing leaves or folded
+          into ``Net change``; the ``subtotal`` section walks without
+          any cross-section reconciling item.
+
+        The pre-analysis detects Convention A by looking for a
+        standalone ``fx_effect`` section with exactly one subtotal
+        line and no leaves. When found, the subtotal value is passed
+        as ``extra_reconciling_value`` into :meth:`_walk_subtotals`
+        for the ``subtotal`` section so the Cash-end check reconciles.
+        Degenerate fx_effect structures (0 or 2+ subtotals) emit
+        ``WARN`` rather than blocking; the analyst sees the shape in
+        the validation report and can reclassify upstream.
+        """
         if cf_data is None or not cf_data.line_items:
             return [
                 ValidationResult(
@@ -813,16 +838,99 @@ class ExtractionValidator:
             ]
         items = _ordered(cf_data.line_items)
         sections = _group_by_section(items)
+
+        # ── Pre-analysis: detect Convention A (standalone fx_effect) ──
+        fx_reconciling_value: Decimal | None = None
+        for section_name, section_items in sections:
+            if section_name != "fx_effect":
+                continue
+            subtotals = [i for i in section_items if i.is_subtotal and i.value is not None]
+            leaves = [i for i in section_items if not i.is_subtotal]
+            if len(subtotals) == 1 and not leaves:
+                fx_reconciling_value = subtotals[0].value
+            break
+
         out: list[ValidationResult] = []
         for section_number, (section_name, section_items) in enumerate(sections, start=1):
-            sub_results = self._walk_subtotals(
-                section_items,
-                period_label=period,
-                check_id_prefix=f"S.CF.{section_name or f'SECTION{section_number}'}",
-                tolerance=_CF_TOL,
-                scope_name=f"CF [{section_name or 'unspecified'}]",
+            # ── fx_effect section: bespoke handling per convention ──
+            if section_name == "fx_effect":
+                subtotals = [
+                    i for i in section_items
+                    if i.is_subtotal and i.value is not None
+                ]
+                leaves = [i for i in section_items if not i.is_subtotal]
+                if len(subtotals) == 1 and not leaves:
+                    out.append(
+                        ValidationResult(
+                            "S.CF.fx_effect.RECONCILING",
+                            "OK",
+                            (
+                                f"CF [fx_effect] {period}: standalone "
+                                f"reconciling subtotal "
+                                f"{subtotals[0].label!r} = "
+                                f"{subtotals[0].value} "
+                                "(Convention A: carried into subtotal-"
+                                "section walking)."
+                            ),
+                            data={
+                                "fx_value": str(subtotals[0].value),
+                                "subtotal_label": subtotals[0].label,
+                            },
+                        )
+                    )
+                elif len(subtotals) == 1 and leaves:
+                    # Unusual: fx_effect declared with component
+                    # leaves — validate the leaves sum to the
+                    # subtotal internally AND still pass the subtotal
+                    # as the reconciling value to the subtotal section.
+                    out.extend(
+                        self._walk_subtotals(
+                            section_items,
+                            period_label=period,
+                            check_id_prefix="S.CF.fx_effect",
+                            tolerance=_CF_TOL,
+                            scope_name="CF [fx_effect]",
+                        )
+                    )
+                else:
+                    out.append(
+                        ValidationResult(
+                            "S.CF.fx_effect.STRUCTURE",
+                            "WARN",
+                            (
+                                f"CF [fx_effect] {period}: unexpected "
+                                f"structure — {len(subtotals)} subtotal(s), "
+                                f"{len(leaves)} leaf (leaves). Expected "
+                                "exactly 1 subtotal for a standalone "
+                                "reconciling section."
+                            ),
+                            data={
+                                "subtotal_count": str(len(subtotals)),
+                                "leaf_count": str(len(leaves)),
+                            },
+                        )
+                    )
+                continue
+
+            # ── subtotal section: inject fx_reconciling_value ──────
+            extra_reconciling = (
+                fx_reconciling_value
+                if section_name == "subtotal"
+                and fx_reconciling_value is not None
+                else None
             )
-            out.extend(sub_results)
+            out.extend(
+                self._walk_subtotals(
+                    section_items,
+                    period_label=period,
+                    check_id_prefix=(
+                        f"S.CF.{section_name or f'SECTION{section_number}'}"
+                    ),
+                    tolerance=_CF_TOL,
+                    scope_name=f"CF [{section_name or 'unspecified'}]",
+                    extra_reconciling_value=extra_reconciling,
+                )
+            )
         return out
 
     # ==================================================================
@@ -836,12 +944,21 @@ class ExtractionValidator:
         check_id_prefix: str,
         tolerance: Decimal,
         scope_name: str,
+        extra_reconciling_value: Decimal | None = None,
     ) -> list[ValidationResult]:
         """Walk ``items`` in declared order, verify each subtotal
         matches the running sum of preceding non-subtotals. Reset
         running sum to the subtotal's reported value afterwards
         (subsequent items build off the new anchor — IS waterfall
         semantics).
+
+        Sprint 4A-alpha.6 — when ``extra_reconciling_value`` is
+        provided, the walker adds it to the running sum **once**,
+        before the final subtotal check (right after the last leaf
+        has been accumulated). This lets the caller inject a
+        cross-section value — e.g. the fx_effect subtotal from a
+        standalone ``fx_effect`` section — so the Cash-end subtotal
+        check reconciles under Convention A.
 
         A subtotal that appears with **no preceding non-subtotal
         item** in this call is a cross-section grand total (e.g. BS
@@ -853,31 +970,98 @@ class ExtractionValidator:
         saw_non_subtotal = False
         results: list[ValidationResult] = []
         subtotal_idx = 0
-        for item in items:
+        reconciling_applied = False
+        # Sprint 4A-alpha.6 — first-in-section subtotals need careful
+        # handling:
+        # * Sections that contain at least one LEAF (non-subtotal
+        #   item) are "verifiable" — the first subtotal can anchor
+        #   its value as the running sum baseline, and subsequent
+        #   leaves accumulate on top before the final subtotal check.
+        #   This is how Convention-A CF subtotal sections verify
+        #   Cash-end = Net-change + Cash-begin + FX.
+        # * Sections that are subtotals-only (memo-reconciliation
+        #   blocks, common in Hong-Kong IFRS filings) stay in the
+        #   Sprint-4A-alpha.5 behaviour: every subtotal is treated as
+        #   a cross-section grand total and skipped, so the walker
+        #   never produces spurious cross-sub comparisons. The
+        #   ``last_checkable_pos`` still marks where the fx
+        #   reconciling value should land when applicable.
+        section_has_leaf = any(
+            not i.is_subtotal and i.value is not None for i in items
+        )
+        last_checkable_pos: int | None = None
+        _simulated_saw_leaf = False
+        for pos, item in enumerate(items):
+            if not item.is_subtotal:
+                if item.value is not None:
+                    _simulated_saw_leaf = True
+                continue
+            if item.value is None:
+                continue
+            if not _simulated_saw_leaf:
+                continue
+            last_checkable_pos = pos
+
+        for idx, item in enumerate(items):
             if item.is_subtotal:
                 if item.value is None:
                     continue
                 if not saw_non_subtotal:
-                    # Cross-section grand total: skip the section walk.
+                    # Cross-section grand total first-in-section. When
+                    # the section has at least one leaf, anchor this
+                    # value so subsequent leaves accumulate on top
+                    # (Convention-A CF subtotal section). When the
+                    # section is subtotals-only (memo reconciliation
+                    # block), leave running_sum untouched so later
+                    # subtotals also get skipped — preserves the
+                    # Sprint-4A-alpha.5 behaviour for that shape.
+                    if section_has_leaf:
+                        running_sum = item.value
                     continue
                 subtotal_idx += 1
-                delta = _pct_delta(running_sum, item.value)
+                # Sprint 4A-alpha.6 — inject extra_reconciling into
+                # the LAST checkable subtotal of this section. The
+                # last checkable subtotal is typically Cash-end,
+                # which under Convention A equals
+                # Net-change + Cash-begin + FX.
+                applied_running_sum = running_sum
+                if (
+                    extra_reconciling_value is not None
+                    and not reconciling_applied
+                    and last_checkable_pos is not None
+                    and idx == last_checkable_pos
+                ):
+                    applied_running_sum = running_sum + extra_reconciling_value
+                    reconciling_applied = True
+                delta = _pct_delta(applied_running_sum, item.value)
                 status: ValidationStatus = "OK" if delta <= tolerance else "FAIL"
+                detail = (
+                    f"{scope_name} {period_label}: "
+                    f"Σ preceding = {applied_running_sum} vs subtotal "
+                    f"{item.label!r} = {item.value} "
+                    f"(Δ = {delta:.4%}; tolerance {tolerance:.1%})."
+                )
+                if applied_running_sum != running_sum:
+                    detail += (
+                        f" Includes cross-section reconciling value "
+                        f"{extra_reconciling_value} "
+                        "(Convention A fx_effect)."
+                    )
                 results.append(
                     ValidationResult(
                         f"{check_id_prefix}.SUB{subtotal_idx}",
                         status,
-                        (
-                            f"{scope_name} {period_label}: "
-                            f"Σ preceding = {running_sum} vs subtotal "
-                            f"{item.label!r} = {item.value} "
-                            f"(Δ = {delta:.4%}; tolerance {tolerance:.1%})."
-                        ),
+                        detail,
                         data={
                             "subtotal_label": item.label,
-                            "computed_sum": str(running_sum),
+                            "computed_sum": str(applied_running_sum),
                             "reported_subtotal": str(item.value),
                             "delta": str(delta),
+                            "extra_reconciling": (
+                                str(extra_reconciling_value)
+                                if applied_running_sum != running_sum
+                                else None
+                            ),
                         },
                     )
                 )
