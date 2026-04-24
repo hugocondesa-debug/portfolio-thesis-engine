@@ -1,0 +1,73 @@
+# Sprint 4A-alpha.5 — leading-indicator sector catalogue.
+# Analyst-curated starter set of indicators per sector taxonomy.
+# Extend this file as new sectors / tickers are analysed.
+
+vintage: "2026-04"
+
+healthcare_services:
+  - name: healthcare_wage_inflation
+    category: LABOR_COSTS
+    relevance: [COGS, PERSONNEL]
+    sensitivity_hint: HIGH
+  - name: medical_consumables_ppi
+    category: COMMODITY
+    relevance: [COGS]
+    sensitivity_hint: MODERATE
+  - name: private_health_insurance_coverage_trend
+    category: DEMAND
+    relevance: [REVENUE]
+    sensitivity_hint: MODERATE
+
+healthcare_services.eye_care:
+  - name: healthcare_wage_inflation
+    category: LABOR_COSTS
+    relevance: [COGS, PERSONNEL]
+  - name: elective_surgery_demand_index
+    category: DEMAND
+    relevance: [REVENUE]
+  - name: ophthalmology_consumables_ppi
+    category: COMMODITY
+    relevance: [COGS]
+
+financials:
+  - name: central_bank_policy_rate
+    category: RATES
+    relevance: [NIM, MARGIN]
+  - name: yield_curve_slope
+    category: RATES
+    relevance: [NIM]
+  - name: credit_spreads
+    category: RATES
+    relevance: [MARGIN, CREDIT_LOSSES]
+
+real_estate_operating:
+  - name: commercial_rent_index
+    category: OTHER
+    relevance: [REVENUE]
+  - name: mortgage_rates
+    category: RATES
+    relevance: [VALUATION, DEMAND]
+
+consumer_discretionary:
+  - name: consumer_confidence_index
+    category: DEMAND
+    relevance: [REVENUE]
+  - name: retail_sales_yoy
+    category: DEMAND
+    relevance: [REVENUE]
+
+cyclical_industrial:
+  - name: gdp_growth
+    category: MACRO
+    relevance: [REVENUE]
+  - name: pmi_manufacturing
+    category: MACRO
+    relevance: [REVENUE, MARGIN]
+
+commodity_producer:
+  - name: commodity_spot_price
+    category: COMMODITY
+    relevance: [REVENUE, MARGIN]
+  - name: currency_vs_usd
+    category: CURRENCY
+    relevance: [REVENUE_TRANSLATION, MARGIN]

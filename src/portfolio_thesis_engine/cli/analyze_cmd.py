@@ -350,6 +350,53 @@ def _roic_attribution_section(ts: CompanyTimeSeries) -> list[str]:
     return lines
 
 
+def _cost_structure_section(ticker: str, ts: Any) -> list[str]:
+    """Sprint 4A-alpha.5 — compact cost-structure + margin-bridge
+    summary in ``pte analyze``. Silent when the analyzer can't find
+    cost-line data in the canonical states."""
+    if ts is None or not getattr(ts, "records", None):
+        return []
+    try:
+        from portfolio_thesis_engine.briefing import CostStructureAnalyzer
+        from portfolio_thesis_engine.storage.yaml_repo import (
+            CompanyStateRepository,
+        )
+
+        repo = CompanyStateRepository()
+        states: dict[str, Any] = {}
+        for r in ts.records:
+            sid = r.source_canonical_state_id
+            if sid not in states:
+                state = repo.get_version(ticker, sid)
+                if state is not None:
+                    states[sid] = state
+        analysis = CostStructureAnalyzer().analyze(
+            ticker=ticker, records=ts.records, states=states
+        )
+    except Exception:
+        return []
+    if not analysis.margin_bridges and not analysis.cost_lines:
+        return []
+    lines = ["[bold yellow]Cost structure[/bold yellow]"]
+    for mb in analysis.margin_bridges:
+        lines.append(
+            f"  {mb.from_period} → {mb.to_period}: "
+            f"{mb.starting_margin * Decimal('100'):.2f}% → "
+            f"{mb.ending_margin * Decimal('100'):.2f}% "
+            f"(Δ {mb.delta_bps:+d} bps)"
+        )
+        if mb.attribution_bps:
+            sorted_attribs = sorted(
+                mb.attribution_bps.items(),
+                key=lambda x: abs(x[1]),
+                reverse=True,
+            )
+            for name, contrib in sorted_attribs[:4]:
+                lines.append(f"    {name}: {contrib:+d} bps")
+            lines.append(f"    residual: {mb.residual_bps:+d} bps")
+    return lines
+
+
 def _reverse_summary_section(
     ticker: str, dcf_result: DCFValuationResult | None
 ) -> list[str]:
@@ -1131,6 +1178,9 @@ def _run_analyze(
         console.print(line)
     # 4e. Market-implied assumptions summary (Sprint 4A-alpha.4)
     for line in _reverse_summary_section(ticker, dcf_result):
+        console.print(line)
+    # 4f. Cost-structure margin bridges (Sprint 4A-alpha.5)
+    for line in _cost_structure_section(ticker, ts):
         console.print(line)
     # 5. Trends
     trends = _trends_table(ts)
