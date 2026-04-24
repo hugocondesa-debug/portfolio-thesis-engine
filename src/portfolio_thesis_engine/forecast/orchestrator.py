@@ -14,11 +14,16 @@ projections + forward ratios. Writes a JSON snapshot to
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from portfolio_thesis_engine.capital import WACCGenerator
+from portfolio_thesis_engine.capital.loaders import (
+    build_generator_inputs_from_state,
+)
 from portfolio_thesis_engine.dcf.scenarios import load_scenarios
 from portfolio_thesis_engine.dcf.schemas import (
     Scenario,
@@ -53,6 +58,7 @@ from portfolio_thesis_engine.forecast.schemas import (
     IncomeStatementYear,
     ThreeStatementProjection,
 )
+from portfolio_thesis_engine.ingestion.wacc_parser import parse_wacc_inputs
 from portfolio_thesis_engine.schemas.company import CanonicalCompanyState
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.storage.base import normalise_ticker
@@ -91,6 +97,24 @@ _CAPEX_LABELS = (
 # the canonical state omits ``identity.shares_outstanding`` (see Risk #3
 # in the sprint plan).
 _EUROEYES_FALLBACK_SHARES = Decimal("320_053_000")
+
+
+@dataclass
+class ForwardWACCContext:
+    """Concrete ``WACCContext`` adapter over :class:`WACCComputation`.
+
+    Bridges the Sprint-3 engine output (CoE final, CoD after-tax,
+    marginal tax rate, blended WACC) into the shape expected by
+    :func:`forecast.forward_wacc.compute_forward_wacc`. When the
+    Sprint-3 engine returns CoD inapplicable (zero-debt company),
+    ``cost_of_debt`` is set to ``Decimal("0")``; forward WACC then
+    drops CoD to zero whenever the projected year also has no debt.
+    """
+
+    cost_of_equity: Decimal
+    cost_of_debt: Decimal
+    tax_rate: Decimal
+    base_wacc: Decimal
 
 
 def _first_line_value(
@@ -137,6 +161,15 @@ class ForecastOrchestrator:
         capital_allocation = load_capital_allocation(ticker) or default_policies()
         base_state = self._extract_base_state(state, scenario_set)
 
+        # Sprint-3 WACCGenerator output (same CoE/CoD for every scenario
+        # because they describe the same company's structural capital
+        # cost). Forward WACC per year is re-weighted from the projected
+        # balance sheet inside _compute_ratios. Market price load lives
+        # at orchestrator level so a single parser call serves all
+        # scenarios.
+        wacc_context = self._build_wacc_context(ticker, state, base_state)
+        market_price = self._load_market_price(ticker)
+
         projections: list[ThreeStatementProjection] = []
         for scenario in scenario_set.scenarios:
             projection = self._project_scenario(
@@ -145,6 +178,8 @@ class ForecastOrchestrator:
                 base_state=base_state,
                 capital_allocation=capital_allocation,
                 years=years,
+                wacc_context=wacc_context,
+                market_price=market_price,
             )
             projections.append(projection)
 
@@ -176,6 +211,64 @@ class ForecastOrchestrator:
             expected_forward_eps_y1=weighted_eps_y1,
             expected_forward_per_y1=expected_per,
         )
+
+    # ------------------------------------------------------------------
+    def _build_wacc_context(
+        self,
+        ticker: str,
+        state: CanonicalCompanyState,
+        base_state: dict[str, Any],
+    ) -> ForwardWACCContext | None:
+        """Return a :class:`ForwardWACCContext` built from the Sprint-3
+        :class:`WACCGenerator`. Returns ``None`` when the generator
+        raises (e.g. no Damodaran industry mapping for the ticker) so
+        :func:`compute_forward_wacc` falls back to its hardcoded base.
+        """
+        tax_rate = base_state.get("tax_rate") or Decimal("0.25")
+        try:
+            inputs = build_generator_inputs_from_state(
+                ticker, state, marginal_tax_rate=tax_rate
+            )
+            result = WACCGenerator().generate(inputs)
+        except Exception:
+            return None
+
+        cod = result.cost_of_debt
+        cod_aftertax = (
+            cod.cost_of_debt_aftertax
+            if cod.is_applicable and cod.cost_of_debt_aftertax is not None
+            else Decimal("0")
+        )
+        return ForwardWACCContext(
+            cost_of_equity=result.cost_of_equity.cost_of_equity_final,
+            cost_of_debt=cod_aftertax,
+            tax_rate=result.cost_of_equity.marginal_tax_rate,
+            base_wacc=result.wacc,
+        )
+
+    # ------------------------------------------------------------------
+    def _load_market_price(self, ticker: str) -> Decimal | None:
+        """Parse ``data/documents/{ticker}/wacc_inputs/wacc_inputs.md``
+        via the Sprint-3 ingestion parser and return ``current_price``.
+
+        Returns ``None`` when the file is missing or the parser raises
+        — callers treat missing price as "display n/a for PER / FCF
+        yield" rather than failing the forecast.
+        """
+        path = (
+            settings.data_dir
+            / "documents"
+            / normalise_ticker(ticker)
+            / "wacc_inputs"
+            / "wacc_inputs.md"
+        )
+        if not path.exists():
+            return None
+        try:
+            parsed = parse_wacc_inputs(path)
+        except Exception:
+            return None
+        return parsed.current_price
 
     # ------------------------------------------------------------------
     def _latest_canonical_state(
@@ -379,6 +472,8 @@ class ForecastOrchestrator:
         base_state: dict[str, Any],
         capital_allocation: ParsedCapitalAllocation,
         years: int,
+        wacc_context: ForwardWACCContext | None = None,
+        market_price: Decimal | None = None,
     ) -> ThreeStatementProjection:
         drivers = self._merge_drivers(base_drivers, scenario.driver_overrides)
         ca = self._scenario_adjusted_capital_allocation(
@@ -476,6 +571,8 @@ class ForecastOrchestrator:
                 "depreciation_rate": depreciation_rate,
                 "tax_rate": tax_rate,
             },
+            wacc_context=wacc_context,
+            market_price=market_price,
         )
 
         warnings_list: list[str] = []
@@ -657,16 +754,24 @@ class ForecastOrchestrator:
         cf_list: list[CashFlowYear],
         base_state: dict[str, Any],
         drivers: dict[str, Any],
+        wacc_context: ForwardWACCContext | None = None,
+        market_price: Decimal | None = None,
     ) -> list[ForwardRatiosYear]:
+        """Compute per-year forward ratios + per-year WACC.
+
+        Sprint 4A-beta.1 — ``wacc_context`` is built once per ticker
+        from the Sprint-3 WACCGenerator output; each projected year
+        re-weights equity/debt from the balance sheet. ``market_price``
+        is parsed once from ``wacc_inputs.md`` upstream (same source
+        the DCF orchestrator uses).
+        """
+        _ = base_state  # Reserved for fair-value hook (Sprint 4B).
         ratios: list[ForwardRatiosYear] = []
-        market_price = _load_market_price(base_state)
-        # Fair value hook reserved for Sprint 4B; stay None for now.
         for idx, is_year in enumerate(is_projections):
             if idx >= len(bs_list) or idx >= len(cf_list):
                 break
             bs_year = bs_list[idx]
             cf_year = cf_list[idx]
-            # EBITDA proxy = operating income + D&A implied.
             da_implied = is_year.revenue * (
                 drivers["depreciation_rate"] / Decimal("10")
             )
@@ -679,16 +784,10 @@ class ForecastOrchestrator:
                 fair_value=None,
                 ebitda_year=ebitda,
             )
-            # Attach a per-year WACC. Cost of equity held flat at 8%
-            # placeholder for Sprint 4A-beta; Sprint 4B will feed from
-            # the Sprint-3 WACCGenerator output.
             wacc = compute_forward_wacc(
                 bs_year=bs_year,
                 is_year=is_year,
-                base_wacc=Decimal("0.08"),
-                cost_of_equity=Decimal("0.08"),
-                cost_of_debt=Decimal("0.05"),
-                tax_rate=drivers["tax_rate"],
+                wacc_context=wacc_context,
             )
             ratio = ratio.model_copy(update={"wacc_applied": wacc})
             ratios.append(ratio)
@@ -798,16 +897,6 @@ def _compute_debt_deltas(
         per_year = base_debt / Decimal(max(years, 1))
         return [-per_year for _ in range(years)]
     return [Decimal("0")] * years
-
-
-def _load_market_price(base_state: dict[str, Any]) -> Decimal | None:
-    """Placeholder market-price accessor. Sprint 4A-alpha already has
-    ``_load_market_price_from_wacc_inputs`` in the DCF orchestrator;
-    the forecast orchestrator reuses the equity bridge inputs when the
-    DCF has been run. Returns None for now — PER shown as 'n/a'.
-    """
-    _ = base_state
-    return None
 
 
 # ----------------------------------------------------------------------

@@ -251,9 +251,12 @@ class TestPartBScenarios:
         sset = load_scenarios("1846.HK")
         assert sset is not None
         assert sset.target_ticker == "1846.HK"
-        # Sprint 4A-alpha.2 expanded to 6 scenarios with per-scenario
-        # methodology.
-        assert len(sset.scenarios) == 6
+        # Sprint 4A-alpha.2 introduced per-scenario methodology with 6
+        # scenarios; Sprint 4A-alpha.6 added ``m_and_a_accelerated`` →
+        # 7 total.
+        assert len(sset.scenarios) == 7
+        names = {s.name for s in sset.scenarios}
+        assert "m_and_a_accelerated" in names
 
     def test_probabilities_sum_to_one_validation(self) -> None:
         # 0.4 + 0.25 + 0.25 + 0.10 = 1.00, valid.

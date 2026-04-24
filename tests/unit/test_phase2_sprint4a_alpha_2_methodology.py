@@ -491,6 +491,9 @@ class TestEuroEyesSixScenarios:
         result = self._result()
         assert result is not None
         names = {v.scenario_name for v in result.scenarios_run}
+        # Sprint 4A-alpha.6 added ``m_and_a_accelerated`` to the original
+        # six. The test name is preserved for git-blame continuity; the
+        # assertion is the canonical 7-scenario set.
         assert names == {
             "base",
             "bull_re_rating",
@@ -498,6 +501,7 @@ class TestEuroEyesSixScenarios:
             "bear_structural",
             "bear_prc_delay",
             "takeover_floor",
+            "m_and_a_accelerated",
         }
 
     def test_euroeyes_scenario_probabilities_sum_one(self) -> None:

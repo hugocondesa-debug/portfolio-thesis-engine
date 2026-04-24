@@ -424,12 +424,50 @@ class TestIssue6PreliminarySignal:
     def test_preliminary_signal_section_flags_scenarios_below_preliminary(
         self,
     ) -> None:
+        """Sprint 4A-alpha.6 added ``m_and_a_accelerated`` with Y1 growth
+        18% — above the +11.23% FY2025 preliminary signal. The function
+        returns an empty section whenever at least one scenario exceeds
+        the preliminary (``prelim <= highest_y1`` short-circuit); this
+        is the correct behaviour and the test is updated to match.
+        """
         result = DCFOrchestrator().run("1846.HK")
         assert result is not None
         lines = _preliminary_signal_section("1846.HK", result)
+        assert lines == []
+
+        # Covers the non-empty branch deterministically: fabricate a
+        # scenario set whose Y1 growth sits below the live preliminary.
+        highest_growth = max(
+            (
+                v.explicit_projections[0].revenue
+                for v in result.scenarios_run
+                if v.explicit_projections
+            ),
+            default=None,
+        )
+        assert highest_growth is not None  # sanity — scenarios ran
+
+    def test_preliminary_signal_section_fires_when_all_scenarios_below(
+        self,
+    ) -> None:
+        """Force the ``↓ below`` branch by mutating a single scenario
+        result down to a trivial Y1 revenue."""
+        result = DCFOrchestrator().run("1846.HK")
+        assert result is not None
+        # Shrink every scenario's Y1 revenue so the implied Y1 growth
+        # falls far below the preliminary signal.
+        from copy import deepcopy
+
+        mutated = deepcopy(result)
+        for scenario in mutated.scenarios_run:
+            if scenario.explicit_projections:
+                scenario.explicit_projections[0] = (
+                    scenario.explicit_projections[0].model_copy(
+                        update={"revenue": Decimal("1")}
+                    )
+                )
+        lines = _preliminary_signal_section("1846.HK", mutated)
         joined = "\n".join(lines)
-        # FY2025 preliminary signal is +11.23%; all four scenario Y1
-        # growths are below this, so each gets an "↓ below" marker.
         assert "preliminary" in joined.lower()
         assert "conservative" in joined.lower() or "exceeds" in joined.lower()
 

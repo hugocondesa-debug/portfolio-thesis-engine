@@ -298,12 +298,20 @@ class TestPartBLeadingIndicators:
         assert loader.load_company("MISSING.XX") is None
 
     def test_loader_returns_set_when_file_present(self) -> None:
-        """EuroEyes starter should load successfully."""
+        """EuroEyes starter should load successfully.
+
+        Sprint 4A-alpha.6 expanded the initial 5-indicator set to 7
+        (added ``private_health_insurance_coverage_germany`` and
+        ``german_consumer_confidence``).
+        """
         loader = LeadingIndicatorsLoader()
         result = loader.load_company("1846.HK")
         assert result is not None
         assert result.target_ticker == "1846.HK"
-        assert len(result.indicators) == 5
+        assert len(result.indicators) == 7
+        names = {i.name for i in result.indicators}
+        assert "private_health_insurance_coverage_germany" in names
+        assert "german_consumer_confidence" in names
 
     def test_sector_default_catalogue_loads(self) -> None:
         loader = LeadingIndicatorsLoader()

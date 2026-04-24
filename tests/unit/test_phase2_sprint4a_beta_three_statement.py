@@ -562,37 +562,61 @@ class TestForwardWACC:
             equity=equity,
         )
 
+    def _ctx(
+        self,
+        coe: Decimal = Decimal("0.09"),
+        cod_aftertax: Decimal = Decimal("0.04"),
+        tax: Decimal = Decimal("0.20"),
+        base: Decimal = Decimal("0.08"),
+    ):
+        """Mini WACCContext — Sprint 4A-beta.1 changed the signature to
+        accept a context protocol; these tests now exercise the same
+        branches via mock contexts."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class _Ctx:
+            cost_of_equity: Decimal
+            cost_of_debt: Decimal
+            tax_rate: Decimal
+            base_wacc: Decimal
+
+        return _Ctx(
+            cost_of_equity=coe,
+            cost_of_debt=cod_aftertax,
+            tax_rate=tax,
+            base_wacc=base,
+        )
+
     def test_P2_S4A_BETA_WACC_01_zero_debt_equals_coe(self):
         wacc = compute_forward_wacc(
             bs_year=self._bs_year(Decimal("1000000"), Decimal("0")),
             is_year=self._is_year(),
-            base_wacc=Decimal("0.08"),
-            cost_of_equity=Decimal("0.09"),
-            cost_of_debt=Decimal("0.05"),
-            tax_rate=Decimal("0.20"),
+            wacc_context=self._ctx(coe=Decimal("0.09")),
         )
         assert wacc == Decimal("0.09")
 
     def test_P2_S4A_BETA_WACC_02_leverage_lowers_wacc(self):
+        # context.cost_of_debt is already after-tax. For parity with the
+        # pre-refactor test (pretax CoD 6%, tax 25% → after-tax 4.5%),
+        # feed cod_aftertax=0.045 directly.
         wacc = compute_forward_wacc(
             bs_year=self._bs_year(Decimal("500000"), Decimal("500000")),
             is_year=self._is_year(),
-            base_wacc=Decimal("0.08"),
-            cost_of_equity=Decimal("0.10"),
-            cost_of_debt=Decimal("0.06"),
-            tax_rate=Decimal("0.25"),
+            wacc_context=self._ctx(
+                coe=Decimal("0.10"),
+                cod_aftertax=Decimal("0.045"),
+                tax=Decimal("0.25"),
+            ),
         )
-        # 0.5 × 10% + 0.5 × 6% × 0.75 = 5% + 2.25% = 7.25%
+        # 0.5 × 10% + 0.5 × 4.5% = 5% + 2.25% = 7.25%
         assert abs(wacc - Decimal("0.0725")) < Decimal("0.0001")
 
     def test_P2_S4A_BETA_WACC_03_degenerate_returns_base(self):
         wacc = compute_forward_wacc(
             bs_year=self._bs_year(Decimal("0"), Decimal("0")),
             is_year=self._is_year(),
-            base_wacc=Decimal("0.08"),
-            cost_of_equity=Decimal("0.10"),
-            cost_of_debt=Decimal("0.06"),
-            tax_rate=Decimal("0.25"),
+            wacc_context=self._ctx(base=Decimal("0.08")),
         )
         assert wacc == Decimal("0.08")
 
