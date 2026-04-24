@@ -78,14 +78,51 @@ Returns the canonical `ScenarioBucket` for the scenario:
 
 ## `ScenarioDriverOverride`
 
-**Sparse overlay on `base_drivers`** — only the fields that differ from the base block are restated. Four fields total:
+**Sparse overlay on `base_drivers`** — only the fields that differ from the base block are restated. Five fields total (one added in v1.1.1 for analyst ergonomics):
 
 | Field | Type | Notes |
 |---|---|---|
 | `current` | `Decimal \| None` | Override for a driver's starting value (`operating_margin.current`, `capex_intensity.current`, ...). |
-| `target_terminal` | `Decimal \| None` | Override for the terminal value a driver fades toward. |
+| `target_terminal` | `Decimal \| None` | Override for the terminal value a driver fades toward. Accepts `target` as an input alias (v1.1.1). |
 | `growth_pattern` | `list[Decimal] \| None` | Revenue-specific — one rate per explicit year. Length must match base's explicit horizon when provided. |
-| `fade_pattern` | `"LINEAR" \| "FRONT_LOADED" \| "BACK_LOADED" \| None` | Shape of the fade curve between `current` and `target_terminal`. |
+| `fade_pattern` | `"LINEAR" \| "FRONT_LOADED" \| "BACK_LOADED" \| None` | **Shape** of the fade curve between `current` and `target_terminal`. |
+| `fade_to_terminal_over_years` | `int \| None` | **Horizon** (1–10) declaring over how many years the fade spans (v1.1.1). Orthogonal to `fade_pattern`, but mutually exclusive: setting both raises. |
+
+### Analyst ergonomics (v1.1.1)
+
+The canonical Pydantic fields are `target_terminal` and `fade_pattern`. Two input-side conveniences are accepted:
+
+| Canonical field | Input convenience | Behaviour |
+|---|---|---|
+| `target_terminal` | `target` | `AliasChoices` — either keyword populates `target_terminal`. Serialisation always emits `target_terminal`. |
+| `fade_pattern` / `fade_to_terminal_over_years` | either, not both | If both are set on the same override block, validation raises (one mechanism of fade specification at a time). |
+
+### Rules
+
+- Aliases are **input-only**. Round-trip serialisation always uses canonical field names.
+- `fade_to_terminal_over_years` must be an integer in `[1, 10]`; out-of-range values raise.
+- Combining `fade_to_terminal_over_years` with `fade_pattern` raises `ValidationError`.
+- `base_drivers` entries remain free-form `dict[str, Any]` — these rules apply **only** to `ScenarioDriverOverride` inside `scenarios[i].driver_overrides`.
+
+### Example using the aliases
+
+```yaml
+driver_overrides:
+  operating_margin:
+    current: 0.1756
+    target: 0.23                    # alias for target_terminal
+    fade_to_terminal_over_years: 3  # integer horizon (orthogonal to fade_pattern)
+```
+
+### Equivalent canonical form
+
+```yaml
+driver_overrides:
+  operating_margin:
+    current: 0.1756
+    target_terminal: 0.23
+    fade_to_terminal_over_years: 3
+```
 
 ### Drift corrections from v1.0 docs
 

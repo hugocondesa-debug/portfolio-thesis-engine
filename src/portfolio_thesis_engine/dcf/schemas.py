@@ -13,7 +13,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import AliasChoices, Field, computed_field, model_validator
 
 from portfolio_thesis_engine.schemas.base import BaseSchema
 from portfolio_thesis_engine.schemas.scenario_bucket import (
@@ -171,12 +171,47 @@ class ValuationProfile(BaseSchema):
 # ----------------------------------------------------------------------
 class ScenarioDriverOverride(BaseSchema):
     """Per-driver override. Fields are sparse — analysts only set the
-    ones that differ from the ``base_drivers`` block."""
+    ones that differ from the ``base_drivers`` block.
+
+    Sprint 4A-alpha.9 — two input-side ergonomics additions:
+
+    - ``target_terminal`` accepts ``target`` as an input alias so
+      analyst-authored YAML can use the shorter keyword. Serialisation
+      is always canonical (``target_terminal``).
+    - ``fade_to_terminal_over_years`` is a new optional integer shorthand
+      (1–10) declaring how many years the fade spans. It is orthogonal
+      to ``fade_pattern`` (which describes the fade **shape** —
+      ``LINEAR`` / ``FRONT_LOADED`` / ``BACK_LOADED``). The analyst may
+      set either one but not both in the same override block; the
+      validator raises when both are present.
+    """
 
     current: Decimal | None = None
-    target_terminal: Decimal | None = None
+    target_terminal: Decimal | None = Field(
+        default=None,
+        validation_alias=AliasChoices("target_terminal", "target"),
+    )
     growth_pattern: list[Decimal] | None = None
     fade_pattern: _FadeShape | None = None
+    fade_to_terminal_over_years: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_fade_inputs(self) -> "ScenarioDriverOverride":
+        if self.fade_to_terminal_over_years is None:
+            return self
+        n = self.fade_to_terminal_over_years
+        if n < 1 or n > 10:
+            raise ValueError(
+                f"fade_to_terminal_over_years must be between 1 and 10 "
+                f"(got {n})"
+            )
+        if self.fade_pattern is not None:
+            raise ValueError(
+                "Cannot specify both fade_to_terminal_over_years and "
+                "fade_pattern on the same driver override. Use either "
+                "the integer horizon or the shape descriptor."
+            )
+        return self
 
 
 # ----------------------------------------------------------------------
