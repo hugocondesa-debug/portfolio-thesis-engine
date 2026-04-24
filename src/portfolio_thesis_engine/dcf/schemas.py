@@ -13,9 +13,13 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, computed_field, model_validator
 
 from portfolio_thesis_engine.schemas.base import BaseSchema
+from portfolio_thesis_engine.schemas.scenario_bucket import (
+    ScenarioBucket,
+    infer_bucket_from_name,
+)
 
 
 class DCFProfile(StrEnum):
@@ -345,6 +349,11 @@ class Scenario(BaseSchema):
     name: str
     probability: Decimal
     rationale: str = ""
+    # Sprint 4A-alpha.8 — optional explicit bucket assignment (v1.1
+    # schema addition). When absent, ``resolved_bucket`` infers from
+    # ``name`` prefix so all v1.0 yamls continue to validate without
+    # modification.
+    bucket: ScenarioBucket | None = None
     # Sprint 4A-alpha.2 — per-scenario methodology config. Optional at
     # the schema level (defaults to DCF_3_STAGE) so scenarios.yaml
     # files from before the migration still load.
@@ -353,6 +362,18 @@ class Scenario(BaseSchema):
         default_factory=dict
     )
     valuation_overrides: dict[str, Any] = Field(default_factory=dict)
+
+    @computed_field
+    @property
+    def resolved_bucket(self) -> ScenarioBucket:
+        """Return the canonical :class:`ScenarioBucket` — explicit
+        ``bucket`` field wins, else inferred from ``name`` via
+        :func:`infer_bucket_from_name`. See the inference table in the
+        helper's docstring.
+        """
+        if self.bucket is not None:
+            return self.bucket
+        return infer_bucket_from_name(self.name)
 
 
 class TerminalMultipleScenario(BaseSchema):

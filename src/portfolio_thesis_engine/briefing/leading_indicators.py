@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from portfolio_thesis_engine.schemas.base import BaseSchema
+from portfolio_thesis_engine.schemas.scenario_bucket import ScenarioBucket
 from portfolio_thesis_engine.shared.config import settings
 from portfolio_thesis_engine.storage.base import normalise_ticker
 
@@ -81,8 +82,25 @@ class LeadingIndicator(BaseSchema):
     sensitivity: IndicatorSensitivity = Field(default_factory=IndicatorSensitivity)
     current_environment: IndicatorEnvironment | None = None
     scenario_relevance: list[str] = Field(default_factory=list)
+    """Sprint 4A-alpha.8 — accepts **both** generic :class:`ScenarioBucket`
+    values (``BASE``/``BULL``/``BEAR``/``TAIL``) and specific scenario
+    names (``bull_operational``, ``bear_prc_delay``, ...). Bucket values
+    are canonically uppercase; specific names are lowercase by
+    convention. See :mod:`validation.scenario_cross_reference` for the
+    runtime expansion + cross-validation helpers.
+    """
     source_evidence: list[int] = Field(default_factory=list)
     confidence: _Confidence = "MEDIUM"
+
+    @field_validator("scenario_relevance")
+    @classmethod
+    def _normalise_scenario_relevance(cls, value: list[str]) -> list[str]:
+        """Pass-through today — validator reserved for future
+        normalisation (e.g. case-folding buckets, trimming whitespace).
+        Kept as a structural hook so downstream enforcement (warnings
+        on unknown references) can land without another schema change.
+        """
+        return value
 
 
 class LeadingIndicatorsSet(BaseSchema):
