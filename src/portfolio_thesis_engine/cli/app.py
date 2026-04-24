@@ -8,6 +8,7 @@ from portfolio_thesis_engine.cli.analyze_cmd import analyze
 from portfolio_thesis_engine.cli.audit_extraction_cmd import audit_extraction
 from portfolio_thesis_engine.cli.briefing_cmd import briefing
 from portfolio_thesis_engine.cli.cross_check_cmd import cross_check
+from portfolio_thesis_engine.cli.forecast_cmd import forecast
 from portfolio_thesis_engine.cli.generate_overrides_cmd import generate_overrides
 from portfolio_thesis_engine.cli.health_cmd import health_check
 from portfolio_thesis_engine.cli.historicals_cmd import historicals
@@ -44,6 +45,7 @@ app.command("peers")(peers)
 app.command("valuation")(valuation)
 app.command("reverse")(reverse)
 app.command("briefing")(briefing)
+app.command("forecast")(forecast)
 
 
 if __name__ == "__main__":  # pragma: no cover
