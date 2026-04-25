@@ -1,5 +1,5 @@
 import type { CanonicalState } from "@/lib/types/canonical";
-import type { ValuationSnapshot, ValuationScenario } from "@/lib/types/valuation";
+import type { ScenarioResult, ValuationSnapshot } from "@/lib/types/valuation";
 import { formatCurrency, formatPercent, parseDecimal } from "@/lib/utils/format";
 import { SectionShell } from "./section-shell";
 
@@ -8,26 +8,32 @@ interface Props {
   canonical: CanonicalState;
 }
 
+/**
+ * Sprint 1A.1 — reads E[V] / range from ``valuation.weighted``; per-scenario
+ * fair value from ``scenario.targets.dcf_fcff_per_share``; converts the
+ * percent-coded probability / IRR / upside strings (e.g. ``"25"`` ≡ 25%)
+ * into fractions before passing to ``formatPercent``.
+ */
 export function ValuationSummary({ valuation, canonical }: Props) {
-  const currency = valuation.market.currency || canonical.identity.reporting_currency;
-  const weighted = valuation.weighted;
-  const upside = weighted.upside_pct;
-  const upsideNum = parseDecimal(upside);
+  const currency =
+    valuation.market.currency ?? canonical.identity.reporting_currency;
+  const w = valuation.weighted;
+  const upsideFraction = parseDecimal(w.upside_pct) / 100;
 
   return (
     <SectionShell
       title="Valuation Summary"
-      subtitle="Probability-weighted expected value across scenarios"
+      subtitle={`Probability-weighted across ${valuation.scenarios.length} scenarios · method ${w.expected_value_method_used}`}
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Metric
           label="E[V] per share"
-          value={formatCurrency(weighted.expected_value, { currency, decimals: 2 })}
+          value={formatCurrency(w.expected_value, { currency, decimals: 2 })}
           highlight
         />
         <Metric
-          label={`P25 — P75 range (${weighted.expected_value_method_used})`}
-          value={`${formatCurrency(weighted.fair_value_range_low, { currency, decimals: 2 })} — ${formatCurrency(weighted.fair_value_range_high, { currency, decimals: 2 })}`}
+          label="P25 — P75 range"
+          value={`${formatCurrency(w.fair_value_range_low, { currency, decimals: 2 })} — ${formatCurrency(w.fair_value_range_high, { currency, decimals: 2 })}`}
         />
         <Metric
           label="Market price"
@@ -36,11 +42,11 @@ export function ValuationSummary({ valuation, canonical }: Props) {
         />
         <Metric
           label="Upside"
-          value={formatPercent(upside)}
+          value={formatPercent(upsideFraction, 2)}
           tone={
-            Number.isNaN(upsideNum) || upsideNum === 0
+            Number.isNaN(upsideFraction) || upsideFraction === 0
               ? "neutral"
-              : upsideNum > 0
+              : upsideFraction > 0
                 ? "positive"
                 : "negative"
           }
@@ -53,6 +59,17 @@ export function ValuationSummary({ valuation, canonical }: Props) {
         </h3>
         <ScenariosTable scenarios={valuation.scenarios} currency={currency} />
       </div>
+
+      {w.weighted_irr_3y ? (
+        <div className="mt-6 rounded-md bg-muted/40 p-3 text-sm">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Probability-weighted IRR (3y):
+          </span>{" "}
+          <span className="font-mono tabular-nums">
+            {formatPercent(parseDecimal(w.weighted_irr_3y) / 100, 2)}
+          </span>
+        </div>
+      ) : null}
     </SectionShell>
   );
 }
@@ -61,7 +78,7 @@ function ScenariosTable({
   scenarios,
   currency,
 }: {
-  scenarios: ValuationScenario[];
+  scenarios: ScenarioResult[];
   currency: string;
 }) {
   const sorted = [...scenarios].sort(
@@ -74,7 +91,7 @@ function ScenariosTable({
         <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-3 py-2">Scenario</th>
-            <th className="px-3 py-2 w-1/3">Probability</th>
+            <th className="px-3 py-2 w-1/4">Probability</th>
             <th className="px-3 py-2 text-right">Fair value</th>
             <th className="px-3 py-2 text-right">IRR (3y)</th>
             <th className="px-3 py-2 text-right">IRR (5y)</th>
@@ -83,43 +100,52 @@ function ScenariosTable({
         </thead>
         <tbody>
           {sorted.map((s) => {
-            const probPct = parseDecimal(s.probability);
-            const probDisplay = Number.isNaN(probPct)
-              ? "—"
-              : `${(probPct > 1.5 ? probPct : probPct * 100).toFixed(0)}%`;
-            const probWidth = Number.isNaN(probPct)
-              ? 0
-              : probPct > 1.5
-                ? probPct
-                : probPct * 100;
-            const fvps = s.equity_bridge?.fair_value_per_share ?? s.targets?.fair_value_per_share ?? null;
+            const probFraction = parseDecimal(s.probability) / 100;
+            const upsideFraction =
+              s.upside_pct !== null ? parseDecimal(s.upside_pct) / 100 : null;
+            const irr3yFraction =
+              s.irr_3y !== null ? parseDecimal(s.irr_3y) / 100 : null;
+            const irr5yFraction =
+              s.irr_5y !== null ? parseDecimal(s.irr_5y) / 100 : null;
+
             return (
               <tr key={s.label} className="border-t border-border">
-                <td className="px-3 py-2 font-mono text-xs">{s.label}</td>
+                <td className="px-3 py-2 font-mono">{s.label}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted">
                       <div
                         className="h-full bg-primary"
-                        style={{ width: `${Math.min(probWidth, 100)}%` }}
+                        style={{
+                          width: `${Math.min(probFraction * 100, 100)}%`,
+                        }}
                       />
                     </div>
                     <span className="font-mono tabular-nums text-xs text-muted-foreground">
-                      {probDisplay}
+                      {(probFraction * 100).toFixed(0)}%
                     </span>
                   </div>
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {formatCurrency(fvps, { currency, decimals: 2 })}
+                  {formatCurrency(s.targets.dcf_fcff_per_share, {
+                    currency,
+                    decimals: 2,
+                  })}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {formatPercent(s.irr_3y)}
+                  {irr3yFraction !== null
+                    ? formatPercent(irr3yFraction, 2)
+                    : "—"}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {formatPercent(s.irr_5y)}
+                  {irr5yFraction !== null
+                    ? formatPercent(irr5yFraction, 2)
+                    : "—"}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {formatPercent(s.upside_pct)}
+                  {upsideFraction !== null
+                    ? formatPercent(upsideFraction, 2)
+                    : "—"}
                 </td>
               </tr>
             );

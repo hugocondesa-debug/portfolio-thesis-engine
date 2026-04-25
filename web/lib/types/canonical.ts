@@ -5,7 +5,16 @@
  * mirrors the **on-the-wire** shape (label-keyed line arrays, period dicts
  * with `year/quarter/label`) — not the optimistic per-period dictionaries
  * the original Sprint 1A spec assumed.
+ *
+ * Sprint 1A.1 — added :type:`AuditStatus` literal + :func:`resolveAuditStatus`
+ * helper. The Sprint 1A.1 spec assumed ``canonical.audit_status`` lives at
+ * the top level; the live API actually exposes it under
+ * ``canonical.methodology.audit_status``. The helper hides that detail.
  */
+
+import type { DecimalString } from "./api";
+
+export type AuditStatus = "audited" | "preliminary" | "unaudited" | "reviewed";
 
 export interface CanonicalState {
   extraction_id: string;
@@ -21,6 +30,47 @@ export interface CanonicalState {
   methodology: MethodologyMetadata;
   narrative_context: NarrativeContext | null;
   source_documents: string[];
+  /** Optional fast-path — Sprint 4B.1 backend may surface these top-level. */
+  audit_status?: AuditStatus | null;
+  preliminary?: boolean | null;
+  fiscal_year?: number | null;
+}
+
+/**
+ * Returns the canonical audit status. Prefers the (future) top-level field
+ * so the helper stays correct once the backend lifts it; falls back to
+ * ``methodology.audit_status`` (current shape); defaults to ``"audited"``.
+ */
+export function resolveAuditStatus(canonical: CanonicalState): AuditStatus {
+  if (
+    canonical.audit_status === "audited"
+    || canonical.audit_status === "preliminary"
+    || canonical.audit_status === "unaudited"
+    || canonical.audit_status === "reviewed"
+  ) {
+    return canonical.audit_status;
+  }
+  const fromMethodology = canonical.methodology?.audit_status?.toLowerCase();
+  if (
+    fromMethodology === "audited"
+    || fromMethodology === "preliminary"
+    || fromMethodology === "unaudited"
+    || fromMethodology === "reviewed"
+  ) {
+    return fromMethodology;
+  }
+  return "audited";
+}
+
+/**
+ * Latest canonical period label (e.g. ``"FY2024"``). Reads
+ * ``reclassified_statements[0]`` because the backend writes statements
+ * ordered newest-first.
+ */
+export function resolveLatestPeriodLabel(
+  canonical: CanonicalState,
+): string {
+  return canonical.reclassified_statements?.[0]?.period.label ?? "—";
 }
 
 export interface CompanyIdentity {
@@ -35,8 +85,8 @@ export interface CompanyIdentity {
   fiscal_year_end_month: number;
   country_domicile: string;
   exchange: string;
-  shares_outstanding: string | null;
-  market_contexts: string[];
+  shares_outstanding: DecimalString | null;
+  market_contexts: unknown[];
 }
 
 export interface FiscalPeriod {

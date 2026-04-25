@@ -1,10 +1,15 @@
 /**
- * Valuation snapshot shape returned by `/api/tickers/{ticker}/valuation`.
+ * Valuation snapshot shape returned by ``/api/tickers/{ticker}/valuation``.
  *
- * Source-of-truth: PTE `ValuationSnapshot` (analyst-facing snapshot — not the
- * intermediate `DCFValuation` produced by the engine). This shape is the one
- * persisted to disk and re-served by the API layer.
+ * Sprint 1A.1 — corrected to match the real PTE schema rather than the
+ * Sprint 1A spec assumptions. The headline E[V] lives in ``weighted``;
+ * per-scenario fair value lives in ``scenario.targets.dcf_fcff_per_share``;
+ * percent-coded fields (``probability``, ``upside_pct``, ``irr_*``) are
+ * **strings expressing units of 1%** (e.g. ``"25"`` ≡ 25%, ``"7.795"`` for
+ * E[V] is HK$7.795 — only IRR / probability / upside are percentages).
  */
+
+import type { DecimalString } from "./api";
 
 export interface ValuationSnapshot {
   version: number;
@@ -18,113 +23,125 @@ export interface ValuationSnapshot {
   valuation_date: string;
   based_on_extraction_id: string;
   based_on_extraction_date: string;
+
   market: ValuationMarket;
-  scenarios: ValuationScenario[];
-  weighted: WeightedSummary;
-  reverse: Record<string, unknown>;
-  cross_checks: Record<string, unknown>;
+  scenarios: ScenarioResult[];
+  weighted: WeightedValuation;
+
+  reverse: Record<string, unknown> | null;
+  cross_checks: Record<string, unknown> | null;
   eps_bridge: unknown | null;
   catalysts: unknown[];
-  factor_exposures: unknown | null;
+  factor_exposures: unknown[];
   scenario_response: unknown | null;
-  sensitivities: unknown | null;
+  sensitivities: unknown[];
+
   conviction: ConvictionScores;
-  guardrails: unknown[];
+  guardrails: GuardrailsResult | unknown[];
   forecast_system_version: string | null;
   source_documents: string[];
-  total_api_cost_usd: string | null;
+  total_api_cost_usd: DecimalString | null;
 }
 
 export interface ValuationMarket {
-  price: string;
+  price: DecimalString;
   price_date: string;
-  shares_outstanding: string;
-  market_cap: string;
-  cost_of_equity: string;
-  wacc: string;
+  shares_outstanding: DecimalString;
+  market_cap: DecimalString;
+  cost_of_equity: DecimalString;
+  wacc: DecimalString;
   currency: string;
 }
 
-export interface ValuationScenario {
+export interface WeightedValuation {
+  expected_value: DecimalString;
+  expected_value_method_used: string;
+  fair_value_range_low: DecimalString;
+  fair_value_range_high: DecimalString;
+  upside_pct: DecimalString;
+  asymmetry_ratio: DecimalString;
+  weighted_irr_3y: DecimalString | null;
+  weighted_irr_5y: DecimalString | null;
+}
+
+export interface ScenarioResult {
+  /** Scenario name — ``"bear" | "base" | "bull" | ...``. */
   label: string;
   description: string | null;
-  probability: string;
+  /** Percent units stored as a string. ``"25"`` ≡ 25%. */
+  probability: DecimalString;
   horizon_years: number | null;
   drivers: ScenarioDrivers;
-  targets: ScenarioTargets | null;
-  irr_3y: string | null;
-  irr_5y: string | null;
-  irr_decomposition: unknown | null;
-  upside_pct: string | null;
-  survival_conditions: string[];
-  kill_signals: string[];
-  projection: unknown | null;
-  terminal: ScenarioTerminal | null;
-  enterprise_value_breakdown: EnterpriseValueBreakdown | null;
-  equity_bridge: EquityBridge | null;
-  sensitivity_grids: unknown | null;
+  targets: ScenarioTargets;
+  /** Percent units. ``"17.67"`` ≡ 17.67%. ``null`` when not applicable. */
+  irr_3y: DecimalString | null;
+  irr_5y: DecimalString | null;
+  irr_decomposition: IRRDecomposition | null;
+  /** Percent units. ``"62.96"`` ≡ 62.96%. */
+  upside_pct: DecimalString | null;
+  survival_conditions: unknown[];
+  kill_signals: unknown[];
+  projection: ScenarioProjectionYear[] | null;
 }
 
 export interface ScenarioDrivers {
-  revenue_growth?: string | string[] | null;
-  operating_margin?: string | null;
-  fade_pattern?: string | string[] | null;
-  reinvestment_rate?: string | null;
-  // Free-form driver bag — analyst yamls evolve.
-  [key: string]: unknown;
+  revenue_cagr: DecimalString | null;
+  terminal_growth: DecimalString | null;
+  terminal_margin: DecimalString | null;
+  terminal_roic: DecimalString | null;
+  terminal_wacc: DecimalString | null;
+  terminal_roe: DecimalString | null;
+  terminal_payout: DecimalString | null;
+  terminal_nim: DecimalString | null;
+  terminal_cor_bps: DecimalString | null;
+  terminal_cost_income: DecimalString | null;
+  terminal_cet1: DecimalString | null;
+  custom_drivers: Record<string, DecimalString>;
 }
 
 export interface ScenarioTargets {
-  fair_value_per_share: string | null;
-  enterprise_value: string | null;
-  equity_value: string | null;
-  multiple_at_exit: string | null;
-  [key: string]: unknown;
+  equity_value: DecimalString | null;
+  /** Per-share fair value — what the headline UI quotes. */
+  dcf_fcff_per_share: DecimalString | null;
 }
 
-export interface ScenarioTerminal {
-  method: string;
-  growth_rate: string | null;
-  exit_multiple: string | null;
-  exit_metric: string | null;
-  terminal_value: string | null;
-  [key: string]: unknown;
+export interface IRRDecomposition {
+  /** Percent units. */
+  fundamental: DecimalString | null;
+  rerating: DecimalString | null;
+  dividend: DecimalString | null;
 }
 
-export interface EnterpriseValueBreakdown {
-  pv_explicit: string | null;
-  pv_terminal: string | null;
-  enterprise_value: string;
-  [key: string]: unknown;
-}
-
-export interface EquityBridge {
-  enterprise_value: string;
-  net_debt: string | null;
-  non_operating_assets: string | null;
-  equity_value: string;
-  shares_outstanding: string | null;
-  fair_value_per_share: string | null;
-  [key: string]: unknown;
-}
-
-export interface WeightedSummary {
-  expected_value: string;
-  expected_value_method_used: string;
-  fair_value_range_low: string;
-  fair_value_range_high: string;
-  upside_pct: string | null;
-  asymmetry_ratio: string | null;
-  weighted_irr_3y: string | null;
-  weighted_irr_5y: string | null;
+export interface ScenarioProjectionYear {
+  year: number;
+  revenue: DecimalString | null;
+  operating_margin_reported: DecimalString | null;
+  operating_margin_sustainable: DecimalString | null;
+  operating_margin_used: DecimalString | null;
+  ebit: DecimalString | null;
+  amort_for_ebita: DecimalString | null;
+  ebita: DecimalString | null;
+  nopat: DecimalString | null;
+  depreciation: DecimalString | null;
+  capex: DecimalString | null;
+  wc_change: DecimalString | null;
+  fcff: DecimalString | null;
+  discount_factor: DecimalString | null;
+  pv_fcff: DecimalString | null;
 }
 
 export interface ConvictionScores {
-  forecast: string;
-  valuation: string;
-  asymmetry: string;
-  timing_risk: string;
-  liquidity_risk: string;
-  governance_risk: string;
-  [key: string]: string;
+  forecast: ConvictionLevel;
+  valuation: ConvictionLevel;
+  asymmetry: ConvictionLevel;
+  timing_risk: ConvictionLevel;
+  liquidity_risk: ConvictionLevel;
+  governance_risk: ConvictionLevel;
+}
+
+export type ConvictionLevel = "low" | "medium" | "high";
+
+export interface GuardrailsResult {
+  categories: Record<string, unknown>;
+  overall: "PASS" | "WARN" | "FAIL";
 }

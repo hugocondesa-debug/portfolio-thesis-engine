@@ -6,6 +6,12 @@
  * lib/utils/format.ts for display only.
  */
 
+/**
+ * String-encoded Decimal from the Python backend. Preserves arbitrary
+ * precision; treat as opaque outside the format helpers.
+ */
+export type DecimalString = string;
+
 export interface HealthResponse {
   status: string;
   version: string;

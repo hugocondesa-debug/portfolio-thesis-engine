@@ -36,11 +36,13 @@ describe("formatCurrency", () => {
 });
 
 describe("formatPercent", () => {
-  it("treats decimal ratios", () => {
+  it("treats decimal ratios as fractions", () => {
     expect(formatPercent("0.105")).toBe("10.50%");
   });
-  it("treats explicit pct values", () => {
-    expect(formatPercent("136.05")).toMatch(/136\.05%/);
+  it("treats >1 fractions as fractions, not implicit percent", () => {
+    // Sprint 1A.1 — caller is responsible for dividing API percent strings
+    // by 100. A fraction of 1.9415 means 194.15% (not 1.94%).
+    expect(formatPercent("1.9415")).toBe("194.15%");
   });
   it("returns em-dash for null", () => {
     expect(formatPercent(null)).toBe("—");

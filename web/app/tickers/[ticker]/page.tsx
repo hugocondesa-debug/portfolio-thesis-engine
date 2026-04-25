@@ -56,7 +56,12 @@ export default async function TickerPage({ params }: PageProps) {
         </div>
 
         {/* 1 — Identity */}
-        <IdentityHeader detail={detail} canonical={canonical} ficha={ficha} />
+        <IdentityHeader
+          detail={detail}
+          canonical={canonical}
+          ficha={ficha}
+          valuation={valuation}
+        />
 
         {/* 2 — Valuation Summary */}
         {valuation ? (

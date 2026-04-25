@@ -1,72 +1,38 @@
 import type { ValuationSnapshot } from "@/lib/types/valuation";
-import { formatPercent, formatMultiple } from "@/lib/utils/format";
-import { SectionShell, EmptySectionNote } from "./section-shell";
+import { SectionShell } from "./section-shell";
 
-/**
- * The PTE valuation snapshot keeps reverse-DCF outputs in a free-form
- * ``reverse`` block (today an empty object for most tickers). We render
- * whatever metrics are present and fall back to an empty-state note
- * otherwise — Sprint 1B is responsible for adding a richer layout once
- * the API ships a structured payload.
- */
 interface Props {
   valuation: ValuationSnapshot;
 }
 
+/**
+ * Sprint 1A.1 — guards against ``valuation.reverse === null`` (current
+ * production state) instead of treating an empty object as data. Sprint 1B
+ * will lay out the structured payload when ``pte reverse`` populates it.
+ */
 export function ReverseDCF({ valuation }: Props) {
   const reverse = valuation.reverse;
-  const entries = reverse ? Object.entries(reverse) : [];
+  const populated = reverse !== null && Object.keys(reverse).length > 0;
 
   return (
     <SectionShell
       title="Reverse DCF"
       subtitle="Market-implied assumptions vs base scenario"
+      className={populated ? undefined : "border-dashed"}
     >
-      {entries.length === 0 ? (
-        <EmptySectionNote message="No reverse-DCF block in the latest valuation snapshot. Run `pte reverse` to populate." />
+      {!populated ? (
+        <p className="text-sm text-muted-foreground">
+          No reverse-DCF block in the latest valuation snapshot. Run{" "}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+            pte reverse {valuation.ticker}
+          </code>{" "}
+          to populate; Sprint 1B will render the structured breakdown.
+        </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {entries.map(([key, value]) => (
-            <ImpliedMetric
-              key={key}
-              label={prettifyKey(key)}
-              value={formatReverseValue(key, value)}
-            />
-          ))}
-        </div>
+        <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
+          {JSON.stringify(reverse, null, 2)}
+        </pre>
       )}
     </SectionShell>
-  );
-}
-
-function prettifyKey(key: string): string {
-  return key
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatReverseValue(key: string, value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "number" || typeof value === "string") {
-    if (key.includes("multiple")) return formatMultiple(value);
-    if (key.includes("growth") || key.includes("margin") || key.includes("rate")) {
-      return formatPercent(value);
-    }
-    return String(value);
-  }
-  return JSON.stringify(value);
-}
-
-function ImpliedMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border p-4">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 font-mono text-xl font-semibold tabular-nums">
-        {value}
-      </div>
-    </div>
   );
 }

@@ -19,4 +19,16 @@ describe("EconomicBalanceSheet", () => {
     render(<EconomicBalanceSheet canonical={canonicalFixture} />);
     expect(screen.getByText(/Period FY2024/)).toBeInTheDocument();
   });
+
+  it("surfaces the cross-check residual identity message", () => {
+    render(<EconomicBalanceSheet canonical={canonicalFixture} />);
+    expect(
+      screen.getByText(/Identity holds when residual ≈ 0/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders net debt with negative-cash framing", () => {
+    render(<EconomicBalanceSheet canonical={canonicalFixture} />);
+    expect(screen.getByText(/Net debt/)).toBeInTheDocument();
+  });
 });

@@ -1,6 +1,11 @@
 /**
- * Hand-rolled fixtures matching the on-the-wire shapes. Keep them
- * compact — the goal is component coverage, not full payload realism.
+ * Hand-rolled fixtures matching the real on-the-wire shapes (Sprint 1A.1).
+ *
+ * Numbers track the live EuroEyes FY2024 audited snapshot:
+ *   - E[V] HK$7.80, range HK$4.76 — HK$11.31, upside 194.15%
+ *   - 3 scenarios (bear/base/bull), probabilities 25 / 50 / 25
+ *   - WACC 8.12%, CoE 8.12%
+ *   - audit_status surfaces from canonical.methodology.audit_status
  */
 
 import type { TickerDetail, TickerSummary, YamlListItem } from "@/lib/types/api";
@@ -10,8 +15,14 @@ import type {
   ReclassifiedStatements,
 } from "@/lib/types/canonical";
 import type { Ficha } from "@/lib/types/ficha";
-import type { ValuationSnapshot } from "@/lib/types/valuation";
+import type {
+  ScenarioDrivers,
+  ValuationSnapshot,
+} from "@/lib/types/valuation";
 
+// ----------------------------------------------------------------------
+// Ticker summary / detail
+// ----------------------------------------------------------------------
 export const tickerSummaryFixture: TickerSummary = {
   ticker: "1846.HK",
   name: "EuroEyes International Eye Clinic Limited",
@@ -23,8 +34,8 @@ export const tickerSummaryFixture: TickerSummary = {
   has_valuation: true,
   has_forecast: true,
   has_ficha: true,
-  latest_extraction_at: "2026-04-24T21:16:44Z",
-  latest_valuation_at: "2026-04-24T21:16:44Z",
+  latest_extraction_at: "2026-04-25T16:18:04Z",
+  latest_valuation_at: "2026-04-25T16:18:04Z",
   latest_forecast_at: "2026-04-24T14:20:15Z",
 };
 
@@ -41,6 +52,9 @@ export const tickerDetailFixture: TickerDetail = {
   ficha_path: null,
 };
 
+// ----------------------------------------------------------------------
+// Canonical state
+// ----------------------------------------------------------------------
 export const identityFixture: CompanyIdentity = {
   ticker: "1846.HK",
   isin: null,
@@ -57,7 +71,7 @@ export const identityFixture: CompanyIdentity = {
   market_contexts: [],
 };
 
-const statementYear2024: ReclassifiedStatements = {
+const fy2024Statement: ReclassifiedStatements = {
   period: { year: 2024, quarter: null, label: "FY2024" },
   income_statement: [
     { label: "Revenue", value: "715682000", is_adjusted: false, adjustment_note: null, source: null },
@@ -79,7 +93,7 @@ const statementYear2024: ReclassifiedStatements = {
   checksum_notes: [],
 };
 
-const statementYear2023: ReclassifiedStatements = {
+const fy2023Statement: ReclassifiedStatements = {
   period: { year: 2023, quarter: null, label: "FY2023" },
   income_statement: [
     { label: "Revenue", value: "714289000", is_adjusted: false, adjustment_note: null, source: null },
@@ -102,11 +116,11 @@ const statementYear2023: ReclassifiedStatements = {
 };
 
 export const canonicalFixture: CanonicalState = {
-  extraction_id: "1846-HK_FY2024_2026",
-  extraction_date: "2026-04-24T21:16:44Z",
+  extraction_id: "1846-HK_FY2024_20260425161804",
+  extraction_date: "2026-04-25T16:18:04Z",
   as_of_date: "2024-12-31",
   identity: identityFixture,
-  reclassified_statements: [statementYear2024, statementYear2023],
+  reclassified_statements: [fy2024Statement, fy2023Statement],
   adjustments: {
     module_a_taxes: [],
     module_b_provisions: [],
@@ -124,14 +138,16 @@ export const canonicalFixture: CanonicalState = {
     invested_capital_by_period: [
       {
         period: { year: 2024, quarter: null, label: "FY2024" },
-        operating_assets: "2200000000",
-        operating_liabilities: "350000000",
-        invested_capital: "1850000000",
-        financial_assets: "650000000",
-        financial_liabilities: "0",
+        operating_assets: "946203000",
+        operating_liabilities: "155288000",
+        invested_capital: "790915000",
+        financial_assets: "653232000",
+        financial_liabilities: "318433000",
         bank_debt: "0",
-        equity_claims: "2500000000",
-        nci_claims: "0",
+        lease_liabilities: "318433000",
+        operating_working_capital: "-23948000",
+        equity_claims: "1092965000",
+        nci_claims: "32749000",
         cross_check_residual: "0",
       },
     ],
@@ -183,91 +199,116 @@ export const canonicalFixture: CanonicalState = {
   source_documents: [],
 };
 
+// Convenience for audit-status tests — variant of the canonical fixture
+// whose methodology declares preliminary status.
+export const canonicalPreliminaryFixture: CanonicalState = {
+  ...canonicalFixture,
+  methodology: { ...canonicalFixture.methodology, audit_status: "preliminary" },
+};
+
+// ----------------------------------------------------------------------
+// Valuation — real shape, FY2024 audited, 3-scenario
+// ----------------------------------------------------------------------
+const emptyDrivers: ScenarioDrivers = {
+  revenue_cagr: null,
+  terminal_growth: null,
+  terminal_margin: null,
+  terminal_roic: null,
+  terminal_wacc: null,
+  terminal_roe: null,
+  terminal_payout: null,
+  terminal_nim: null,
+  terminal_cor_bps: null,
+  terminal_cost_income: null,
+  terminal_cet1: null,
+  custom_drivers: {},
+};
+
 export const valuationFixture: ValuationSnapshot = {
   version: 1,
-  created_at: "2026-04-24T21:16:44Z",
-  created_by: "system",
+  created_at: "2026-04-25T16:18:04Z",
+  created_by: "phase1.5.9",
   previous_version: null,
-  snapshot_id: "1846-HK_20260424T211644Z",
+  snapshot_id: "1846-HK_20260425T161804Z",
   ticker: "1846.HK",
   company_name: "EuroEyes International Eye Clinic Limited",
   profile: "P1",
-  valuation_date: "2026-04-24",
-  based_on_extraction_id: "1846-HK_FY2024_2026",
-  based_on_extraction_date: "2026-04-24T21:16:44Z",
+  valuation_date: "2026-04-25T16:18:04Z",
+  based_on_extraction_id: "1846-HK_FY2024_20260425161804",
+  based_on_extraction_date: "2026-04-25T16:18:04Z",
   market: {
     price: "2.65",
     price_date: "2026-02-10",
     shares_outstanding: "331885000",
-    market_cap: "846680668",
-    cost_of_equity: "0.0812",
-    wacc: "0.0812",
+    market_cap: "879494250",
+    cost_of_equity: "8.12",
+    wacc: "8.12",
     currency: "HKD",
   },
   scenarios: [
     {
-      label: "base",
-      description: "Mid-case",
-      probability: "0.32",
-      horizon_years: 5,
-      drivers: { revenue_growth: "0.08", operating_margin: "0.18" },
-      targets: { fair_value_per_share: "8.85", enterprise_value: null, equity_value: null, multiple_at_exit: null },
-      irr_3y: "0.27",
+      label: "bear",
+      description: "Bear case",
+      probability: "25",
+      horizon_years: 3,
+      drivers: { ...emptyDrivers, revenue_cagr: "2.0", terminal_growth: "1.5", terminal_margin: "10.0" },
+      targets: { equity_value: "1570619152", dcf_fcff_per_share: "4.76" },
+      irr_3y: "17.68",
       irr_5y: null,
-      irr_decomposition: null,
-      upside_pct: "234",
+      irr_decomposition: { fundamental: "2.00", rerating: "15.68", dividend: "0" },
+      upside_pct: "62.96",
       survival_conditions: [],
       kill_signals: [],
-      projection: null,
-      terminal: null,
-      enterprise_value_breakdown: null,
-      equity_bridge: {
-        enterprise_value: "2900000000",
-        net_debt: "-650000000",
-        non_operating_assets: "0",
-        equity_value: "2937000000",
-        shares_outstanding: "331885000",
-        fair_value_per_share: "8.85",
-      },
-      sensitivity_grids: null,
+      projection: [],
     },
     {
-      label: "bull_operational",
-      description: "Bull case",
-      probability: "0.15",
+      label: "base",
+      description: "Base case",
+      probability: "50",
       horizon_years: 5,
-      drivers: { revenue_growth: "0.12" },
-      targets: { fair_value_per_share: "12.84", enterprise_value: null, equity_value: null, multiple_at_exit: null },
-      irr_3y: "0.45",
+      drivers: { ...emptyDrivers, revenue_cagr: "8.0", terminal_growth: "2.5", terminal_margin: "16.0" },
+      targets: { equity_value: "2587766250", dcf_fcff_per_share: "7.80" },
+      irr_3y: "27.22",
       irr_5y: null,
-      irr_decomposition: null,
-      upside_pct: "384",
+      irr_decomposition: { fundamental: "8.00", rerating: "19.22", dividend: "0" },
+      upside_pct: "194.34",
       survival_conditions: [],
       kill_signals: [],
-      projection: null,
-      terminal: null,
-      enterprise_value_breakdown: null,
-      equity_bridge: null,
-      sensitivity_grids: null,
+      projection: [],
+    },
+    {
+      label: "bull",
+      description: "Bull case",
+      probability: "25",
+      horizon_years: 5,
+      drivers: { ...emptyDrivers, revenue_cagr: "13.0", terminal_growth: "3.0", terminal_margin: "22.0" },
+      targets: { equity_value: "3753687850", dcf_fcff_per_share: "11.31" },
+      irr_3y: "62.45",
+      irr_5y: null,
+      irr_decomposition: { fundamental: "13.00", rerating: "49.45", dividend: "0" },
+      upside_pct: "326.79",
+      survival_conditions: [],
+      kill_signals: [],
+      projection: [],
     },
   ],
   weighted: {
-    expected_value: "8.63",
+    expected_value: "7.80",
     expected_value_method_used: "DCF_FCFF",
-    fair_value_range_low: "5.50",
-    fair_value_range_high: "10.20",
-    upside_pct: "225",
+    fair_value_range_low: "4.76",
+    fair_value_range_high: "11.31",
+    upside_pct: "194.15",
     asymmetry_ratio: "999",
-    weighted_irr_3y: "0.27",
+    weighted_irr_3y: "37.32",
     weighted_irr_5y: null,
   },
-  reverse: {},
-  cross_checks: {},
+  reverse: null,
+  cross_checks: null,
   eps_bridge: null,
   catalysts: [],
-  factor_exposures: null,
+  factor_exposures: [],
   scenario_response: null,
-  sensitivities: null,
+  sensitivities: [],
   conviction: {
     forecast: "medium",
     valuation: "medium",
@@ -276,22 +317,31 @@ export const valuationFixture: ValuationSnapshot = {
     liquidity_risk: "medium",
     governance_risk: "medium",
   },
-  guardrails: [],
-  forecast_system_version: "0.9.5",
+  guardrails: { categories: {}, overall: "PASS" },
+  forecast_system_version: "phase1.5.9",
   source_documents: [],
   total_api_cost_usd: null,
 };
 
+// Convenience: valuation with reverse populated (for the populated-state branch).
+export const valuationWithReverseFixture: ValuationSnapshot = {
+  ...valuationFixture,
+  reverse: { implied_revenue_growth: "0.12", implied_margin: "0.20" },
+};
+
+// ----------------------------------------------------------------------
+// Ficha
+// ----------------------------------------------------------------------
 export const fichaFixture: Ficha = {
   version: 1,
-  created_at: "2026-04-24T21:16:44Z",
+  created_at: "2026-04-25T16:18:04Z",
   created_by: "system",
   previous_version: null,
   ticker: "1846.HK",
   identity: identityFixture,
   thesis: "Net-cash compounding M&A platform; market underprices European roll-up.",
-  current_extraction_id: "1846-HK_FY2024_2026",
-  current_valuation_snapshot_id: "1846-HK_20260424T211644Z",
+  current_extraction_id: "1846-HK_FY2024_20260425161804",
+  current_valuation_snapshot_id: "1846-HK_20260425T161804Z",
   position: null,
   conviction: {
     forecast: "medium",
@@ -320,6 +370,9 @@ export const fichaFixture: Ficha = {
   narrative_summary: null,
 };
 
+// ----------------------------------------------------------------------
+// Yamls
+// ----------------------------------------------------------------------
 export const yamlListFixture: YamlListItem[] = [
   {
     name: "scenarios",

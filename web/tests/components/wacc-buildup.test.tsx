@@ -4,20 +4,28 @@ import { WaccBuildup } from "@/components/sections/wacc-buildup";
 import { canonicalFixture, valuationFixture } from "@/tests/fixtures";
 
 describe("WaccBuildup", () => {
-  it("renders cost of equity and WACC", () => {
+  it("renders cost of equity and WACC headlines from market block", () => {
     render(
       <WaccBuildup valuation={valuationFixture} canonical={canonicalFixture} />,
     );
     expect(screen.getByText("Cost of equity")).toBeInTheDocument();
     expect(screen.getByText("WACC")).toBeInTheDocument();
-    // Both values come from market.cost_of_equity / wacc → 8.12%
-    expect(screen.getAllByText(/8\.12%/).length).toBeGreaterThan(0);
+    // valuation.market.{cost_of_equity, wacc} = "8.12" → divided by 100 → 8.12%
+    expect(screen.getAllByText(/8\.12%/).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("links the analyst to pte analyze for the geographic mix", () => {
+  it("renders the reporting currency", () => {
     render(
       <WaccBuildup valuation={valuationFixture} canonical={canonicalFixture} />,
     );
-    expect(screen.getByText(/pte analyze/)).toBeInTheDocument();
+    // valuation.market.currency = "HKD" — appears as the third metric.
+    expect(screen.getAllByText("HKD").length).toBeGreaterThan(0);
+  });
+
+  it("explains that geographic mix is deferred to Sprint 1B", () => {
+    render(
+      <WaccBuildup valuation={valuationFixture} canonical={canonicalFixture} />,
+    );
+    expect(screen.getByText(/Sprint 1B/)).toBeInTheDocument();
   });
 });

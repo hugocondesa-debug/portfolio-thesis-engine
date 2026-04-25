@@ -59,6 +59,13 @@ export function formatNumber(
   }).format(num);
 }
 
+/**
+ * Format a fraction as a percentage. Always treats the input as a fraction
+ * (``0.105`` → ``"10.50%"``, ``1.9415`` → ``"194.15%"``). For PTE percent-
+ * coded API strings (``"25"`` ≡ 25%), divide by 100 in the caller before
+ * passing the value here. Sprint 1A.1 dropped the earlier value-magnitude
+ * heuristic because it second-guessed legitimate 100%+ upsides.
+ */
 export function formatPercent(
   value: string | number | null | undefined,
   decimals: number = 2,
@@ -67,16 +74,11 @@ export function formatPercent(
   const num = typeof value === "string" ? parseDecimal(value) : value;
   if (Number.isNaN(num)) return "—";
 
-  // The valuation/weighted block stores upside_pct as `136.05` (already %).
-  // Heuristic: values with abs(num) > 1.5 are treated as percentage points;
-  // smaller values as a decimal ratio (0.105 → 10.5%). This mirrors the
-  // PTE convention where ratios use 0–1 and explicit percentages exceed it.
-  const asRatio = Math.abs(num) <= 1.5 ? num : num / 100;
   return new Intl.NumberFormat("en-US", {
     style: "percent",
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(asRatio);
+  }).format(num);
 }
 
 export function formatMultiple(
