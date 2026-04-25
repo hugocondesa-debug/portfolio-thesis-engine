@@ -114,4 +114,50 @@ describe("IdentityHeader", () => {
     // No market-price block because valuation is null.
     expect(screen.queryByText(/Market price/)).not.toBeInTheDocument();
   });
+
+  // Sprint 1B.1 — conviction grid and guardrails badge.
+  describe("Sprint 1B.1 conviction grid + guardrails", () => {
+    it("renders the conviction grid with 6 dimensions when ficha is present", () => {
+      render(
+        <IdentityHeader
+          detail={tickerDetailFixture}
+          canonical={canonicalFixture}
+          ficha={fichaFixture}
+          valuation={valuationFixture}
+        />,
+      );
+      expect(screen.getByText("Conviction scores")).toBeInTheDocument();
+      expect(screen.getByText("Forecast")).toBeInTheDocument();
+      expect(screen.getByText("Valuation")).toBeInTheDocument();
+      expect(screen.getByText("Asymmetry")).toBeInTheDocument();
+      expect(screen.getByText("Timing")).toBeInTheDocument();
+      expect(screen.getByText("Liquidity")).toBeInTheDocument();
+      expect(screen.getByText("Governance")).toBeInTheDocument();
+    });
+
+    it("renders the conviction grid using valuation.conviction when ficha is null", () => {
+      render(
+        <IdentityHeader
+          detail={tickerDetailFixture}
+          canonical={canonicalFixture}
+          ficha={null}
+          valuation={valuationFixture}
+        />,
+      );
+      expect(screen.getByText("Conviction scores")).toBeInTheDocument();
+    });
+
+    it("renders the guardrails badge when valuation guardrails carry an overall status", () => {
+      render(
+        <IdentityHeader
+          detail={tickerDetailFixture}
+          canonical={canonicalFixture}
+          ficha={null}
+          valuation={valuationFixture}
+        />,
+      );
+      // valuationFixture.guardrails.overall = "PASS"
+      expect(screen.getByText(/Guardrails: PASS/)).toBeInTheDocument();
+    });
+  });
 });

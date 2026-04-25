@@ -6,7 +6,7 @@ import type {
   ReclassifiedStatements,
   StatementLine,
 } from "@/lib/types/canonical";
-import { formatCurrency } from "@/lib/utils/format";
+import { formatCurrency, parseDecimal } from "@/lib/utils/format";
 
 type StatementTab = "is" | "bs" | "cf";
 
@@ -18,37 +18,36 @@ interface Props {
  * Section 4 — historical financials browser.
  *
  * The PTE canonical state stores three statements as **arrays of label /
- * value records** under each `reclassified_statements[].(income|balance|
- * cash_flow)`. We pivot that into a label-rows × period-columns grid
- * here so the analyst sees a familiar accountancy table. Periods are
- * ordered chronologically using ``period.year`` (and ``quarter`` when
- * present) to keep the most recent year on the right.
+ * value records** under each ``reclassified_statements[].(income_statement|
+ * balance_sheet|cash_flow)``. Sprint 1B.1 rewrites this section to:
+ *
+ * - keep periods in the engine's newest-first order (FY2024, FY2023, …),
+ * - pivot line items into a label-rows × period-columns grid via a label
+ *   map so the same accounting line aligns across periods,
+ * - group BS / CF rows by their ``category`` field
+ *   (``current_assets``/``operating``/etc.) — the IS preserves schema order
+ *   because that order encodes the build-up (revenue → costs → operating
+ *   profit → below-line),
+ * - surface the per-period checksum status (``is_checksum_pass``,
+ *   ``bs_checksum_pass``, ``cf_checksum_pass``) as badges,
+ * - flag adjusted line items with a hover tooltip carrying the adjustment
+ *   note,
+ * - compute a YoY % against the preceding column when 2+ periods exist.
  */
 export function HistoricalFinancials({ canonical }: Props) {
   const [tab, setTab] = useState<StatementTab>("is");
   const [showAdjustedOnly, setShowAdjustedOnly] = useState(false);
 
-  const statements = useMemo(
-    () => orderedStatements(canonical.reclassified_statements),
-    [canonical.reclassified_statements],
-  );
+  const statements = canonical.reclassified_statements;
   const periods = statements.map((s) => s.period.label);
   const currency = canonical.identity.reporting_currency;
 
-  const linesByLabel = useMemo(
-    () => buildLineMatrix(statements, tab),
-    [statements, tab],
-  );
-
-  const filteredLabels = showAdjustedOnly
-    ? linesByLabel.labels.filter((label) =>
-        statements.some((s) =>
-          pickStatement(s, tab).some(
-            (line) => line.label === label && line.is_adjusted,
-          ),
-        ),
-      )
-    : linesByLabel.labels;
+  const checksums = statements.map((s) => ({
+    period: s.period.label,
+    is: s.is_checksum_pass,
+    bs: s.bs_checksum_pass,
+    cf: s.cf_checksum_pass,
+  }));
 
   return (
     <section className="rounded-md border border-border bg-card p-6">
@@ -86,11 +85,31 @@ export function HistoricalFinancials({ canonical }: Props) {
         </TabButton>
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-2 text-xs">
+        {checksums.map((c) => {
+          const pass = tab === "is" ? c.is : tab === "bs" ? c.bs : c.cf;
+          return (
+            <span
+              key={c.period}
+              className={`rounded border px-2 py-0.5 font-mono ${
+                pass
+                  ? "border-positive/30 bg-positive/10 text-positive"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {c.period}: checksum {pass ? "PASS" : "FAIL"}
+            </span>
+          );
+        })}
+      </div>
+
       <FinancialTable
-        labels={filteredLabels}
+        statements={statements}
+        accessor={(s) => pickStatement(s, tab)}
         periods={periods}
-        matrix={linesByLabel.matrix}
         currency={currency}
+        showAdjustedOnly={showAdjustedOnly}
+        groupBy={tab === "is" ? "schema_order" : "category"}
       />
     </section>
   );
@@ -116,24 +135,95 @@ function TabButton({
   );
 }
 
-function FinancialTable({
-  labels,
-  periods,
-  matrix,
-  currency,
-}: {
-  labels: string[];
+interface FinancialRow {
+  label: string;
+  category: string | null;
+  values: Record<string, StatementLine | null>;
+  anyAdjusted: boolean;
+}
+
+interface FinancialTableProps {
+  statements: ReclassifiedStatements[];
+  accessor: (s: ReclassifiedStatements) => StatementLine[];
   periods: string[];
-  matrix: Map<string, Map<string, StatementLine>>;
   currency: string;
-}) {
-  if (labels.length === 0) {
+  showAdjustedOnly: boolean;
+  groupBy: "category" | "schema_order";
+}
+
+function FinancialTable({
+  statements,
+  accessor,
+  periods,
+  currency,
+  showAdjustedOnly,
+  groupBy,
+}: FinancialTableProps) {
+  const rows = useMemo(() => {
+    const labelMap = new Map<string, FinancialRow>();
+    const orderedLabels: string[] = [];
+
+    statements.forEach((stmt) => {
+      const items = accessor(stmt);
+      items.forEach((item) => {
+        let entry = labelMap.get(item.label);
+        if (!entry) {
+          const values: Record<string, StatementLine | null> = {};
+          periods.forEach((p) => {
+            values[p] = null;
+          });
+          entry = {
+            label: item.label,
+            category: item.category ?? null,
+            values,
+            anyAdjusted: false,
+          };
+          labelMap.set(item.label, entry);
+          orderedLabels.push(item.label);
+        }
+        entry.values[stmt.period.label] = item;
+        if (item.is_adjusted) entry.anyAdjusted = true;
+        if (!entry.category && item.category) entry.category = item.category;
+      });
+    });
+
+    return orderedLabels
+      .map((label) => labelMap.get(label))
+      .filter((row): row is FinancialRow => row !== undefined);
+  }, [statements, accessor, periods]);
+
+  const filteredRows = showAdjustedOnly
+    ? rows.filter((row) => row.anyAdjusted)
+    : rows;
+
+  const grouped = useMemo(() => {
+    if (groupBy === "category") {
+      const groupOrder: string[] = [];
+      const groups = new Map<string, FinancialRow[]>();
+      filteredRows.forEach((row) => {
+        const cat = row.category ?? "Other";
+        if (!groups.has(cat)) {
+          groups.set(cat, []);
+          groupOrder.push(cat);
+        }
+        groups.get(cat)!.push(row);
+      });
+      return groupOrder.map((cat) => ({
+        category: cat,
+        items: groups.get(cat)!,
+      }));
+    }
+    return [{ category: "", items: filteredRows }];
+  }, [filteredRows, groupBy]);
+
+  if (filteredRows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
         No line items to display for this view.
       </p>
     );
   }
+
   return (
     <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full text-sm">
@@ -147,63 +237,167 @@ function FinancialTable({
                 {p}
               </th>
             ))}
+            {periods.length >= 2 ? (
+              <th className="px-3 py-2 text-right font-mono">YoY %</th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
-          {labels.map((label) => {
-            const rowMap = matrix.get(label);
-            const isSubtotal = label.toLowerCase().includes("total")
-              || label.toLowerCase().startsWith("net ")
-              || label.toLowerCase().includes("operating profit")
-              || label.toLowerCase().includes("gross profit");
-            return (
-              <tr
-                key={label}
-                className={`border-t border-border ${isSubtotal ? "bg-muted/20 font-semibold" : ""}`}
-              >
-                <td className="sticky left-0 bg-card px-3 py-2">{label}</td>
-                {periods.map((p) => {
-                  const line = rowMap?.get(p);
-                  const value = line?.value;
-                  const adjusted = line?.is_adjusted ?? false;
-                  return (
-                    <td
-                      key={p}
-                      className="px-3 py-2 text-right font-mono tabular-nums"
-                      title={
-                        adjusted
-                          ? line?.adjustment_note ?? "Adjusted line"
-                          : undefined
-                      }
-                    >
-                      {value === undefined || value === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span className={adjusted ? "underline decoration-dotted" : ""}>
-                          {formatCurrency(value, { currency, compact: true })}
-                        </span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
+          {grouped.map((group, groupIdx) => (
+            <FinancialGroup
+              key={`${groupIdx}-${group.category}`}
+              category={group.category}
+              items={group.items}
+              periods={periods}
+              currency={currency}
+              colCount={periods.length + (periods.length >= 2 ? 2 : 1)}
+            />
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-function orderedStatements(
-  statements: ReclassifiedStatements[],
-): ReclassifiedStatements[] {
-  return [...statements].sort((a, b) => {
-    if (a.period.year !== b.period.year) return a.period.year - b.period.year;
-    const aq = a.period.quarter ?? 0;
-    const bq = b.period.quarter ?? 0;
-    return aq - bq;
+function FinancialGroup({
+  category,
+  items,
+  periods,
+  currency,
+  colCount,
+}: {
+  category: string;
+  items: FinancialRow[];
+  periods: string[];
+  currency: string;
+  colCount: number;
+}) {
+  return (
+    <>
+      {category ? (
+        <tr className="bg-muted/40">
+          <td
+            colSpan={colCount}
+            className="sticky left-0 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground"
+          >
+            {category}
+          </td>
+        </tr>
+      ) : null}
+      {items.map((row) => (
+        <FinancialRowView
+          key={`${category}-${row.label}`}
+          row={row}
+          periods={periods}
+          currency={currency}
+        />
+      ))}
+    </>
+  );
+}
+
+function FinancialRowView({
+  row,
+  periods,
+  currency,
+}: {
+  row: FinancialRow;
+  periods: string[];
+  currency: string;
+}) {
+  const numericValues = periods.map((p) => {
+    const item = row.values[p];
+    return item ? parseDecimal(item.value) : null;
   });
+
+  // Periods are newest-first per backend convention. YoY = (latest − prior) / |prior|.
+  const yoy =
+    numericValues.length >= 2 &&
+    numericValues[0] !== null &&
+    numericValues[1] !== null &&
+    !Number.isNaN(numericValues[0]) &&
+    !Number.isNaN(numericValues[1]) &&
+    numericValues[1] !== 0
+      ? (numericValues[0]! - numericValues[1]!) / Math.abs(numericValues[1]!)
+      : null;
+
+  const adjustmentNote =
+    Object.values(row.values).find(
+      (v) => v?.is_adjusted && v.adjustment_note,
+    )?.adjustment_note ?? null;
+
+  const isSubtotal =
+    row.label.toLowerCase().includes("total") ||
+    row.label.toLowerCase().startsWith("net ") ||
+    row.label.toLowerCase().includes("operating profit") ||
+    row.label.toLowerCase().includes("gross profit");
+
+  return (
+    <tr
+      className={`border-t border-border hover:bg-muted/10 ${isSubtotal ? "bg-muted/20 font-semibold" : ""}`}
+    >
+      <td className="sticky left-0 bg-card px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span>{row.label}</span>
+          {row.anyAdjusted ? <AdjustedMarker note={adjustmentNote} /> : null}
+        </div>
+      </td>
+      {periods.map((p) => {
+        const item = row.values[p];
+        return (
+          <td
+            key={p}
+            className="px-3 py-2 text-right font-mono tabular-nums"
+            title={
+              item?.is_adjusted
+                ? item.adjustment_note ?? "Adjusted line"
+                : undefined
+            }
+          >
+            {item ? (
+              <span
+                className={item.is_adjusted ? "underline decoration-dotted" : ""}
+              >
+                {formatCurrency(item.value, { currency, compact: true })}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </td>
+        );
+      })}
+      {periods.length >= 2 ? (
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">
+          {yoy === null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <span
+              className={
+                yoy > 0
+                  ? "text-positive"
+                  : yoy < 0
+                    ? "text-negative"
+                    : "text-muted-foreground"
+              }
+            >
+              {(yoy * 100).toFixed(1)}%
+            </span>
+          )}
+        </td>
+      ) : null}
+    </tr>
+  );
+}
+
+function AdjustedMarker({ note }: { note: string | null }) {
+  return (
+    <span
+      className="rounded bg-amber-500/20 px-1 text-xs font-mono text-amber-700 dark:text-amber-400"
+      title={note ?? "Adjusted by Module D"}
+    >
+      adj
+    </span>
+  );
 }
 
 function pickStatement(
@@ -213,38 +407,4 @@ function pickStatement(
   if (tab === "is") return statement.income_statement;
   if (tab === "bs") return statement.balance_sheet;
   return statement.cash_flow;
-}
-
-interface LineMatrix {
-  labels: string[];
-  matrix: Map<string, Map<string, StatementLine>>;
-}
-
-function buildLineMatrix(
-  statements: ReclassifiedStatements[],
-  tab: StatementTab,
-): LineMatrix {
-  // Preserve label order from the most recent period (rightmost column).
-  const orderedLabels: string[] = [];
-  const seen = new Set<string>();
-  const matrix = new Map<string, Map<string, StatementLine>>();
-
-  // Walk newest → oldest so the canonical row order follows the latest filing.
-  const newestFirst = [...statements].reverse();
-  for (const stmt of newestFirst) {
-    for (const line of pickStatement(stmt, tab)) {
-      if (!seen.has(line.label)) {
-        seen.add(line.label);
-        orderedLabels.push(line.label);
-      }
-      let row = matrix.get(line.label);
-      if (!row) {
-        row = new Map();
-        matrix.set(line.label, row);
-      }
-      row.set(stmt.period.label, line);
-    }
-  }
-
-  return { labels: orderedLabels, matrix };
 }

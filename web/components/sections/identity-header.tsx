@@ -6,7 +6,11 @@ import {
   type CanonicalState,
 } from "@/lib/types/canonical";
 import type { Ficha } from "@/lib/types/ficha";
-import type { ValuationSnapshot } from "@/lib/types/valuation";
+import type {
+  ConvictionLevel,
+  GuardrailsResult,
+  ValuationSnapshot,
+} from "@/lib/types/valuation";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils/format";
 
 interface Props {
@@ -14,6 +18,15 @@ interface Props {
   canonical: CanonicalState;
   ficha: Ficha | null;
   valuation: ValuationSnapshot | null;
+}
+
+interface ConvictionDisplay {
+  forecast: ConvictionLevel;
+  valuation: ConvictionLevel;
+  asymmetry: ConvictionLevel;
+  timing_risk: ConvictionLevel;
+  liquidity_risk: ConvictionLevel;
+  governance_risk: ConvictionLevel;
 }
 
 export function IdentityHeader({ detail, canonical, ficha, valuation }: Props) {
@@ -32,16 +45,20 @@ export function IdentityHeader({ detail, canonical, ficha, valuation }: Props) {
   const auditStatus = resolveAuditStatus(canonical);
   const currentPeriod = resolveLatestPeriodLabel(canonical);
 
+  const guardrails = resolveGuardrails(valuation?.guardrails);
+  const conviction = resolveConviction(ficha, valuation);
+
   return (
     <section className="rounded-md border border-border bg-card p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex-1">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="font-mono text-2xl font-semibold tracking-tight">
               {detail.ticker}
             </h1>
             <AuditBadge status={auditStatus} />
             <PeriodBadge period={currentPeriod} />
+            {guardrails ? <GuardrailBadge overall={guardrails.overall} /> : null}
           </div>
           <p className="mt-1 text-base text-muted-foreground">
             {identity.name}
@@ -97,6 +114,15 @@ export function IdentityHeader({ detail, canonical, ficha, valuation }: Props) {
         />
       </dl>
 
+      {conviction ? (
+        <div className="mt-6">
+          <h3 className="mb-3 font-mono text-xs font-semibold uppercase text-muted-foreground">
+            Conviction scores
+          </h3>
+          <ConvictionGrid conviction={conviction} />
+        </div>
+      ) : null}
+
       {ficha?.thesis ? (
         <div className="mt-6 rounded-md bg-muted/40 p-4 text-sm">
           <h3 className="mb-1 font-mono text-xs font-semibold uppercase text-muted-foreground">
@@ -106,6 +132,50 @@ export function IdentityHeader({ detail, canonical, ficha, valuation }: Props) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ConvictionGrid({ conviction }: { conviction: ConvictionDisplay }) {
+  const dimensions: Array<[string, ConvictionLevel, string]> = [
+    ["Forecast", conviction.forecast, "Confidence in projection assumptions"],
+    ["Valuation", conviction.valuation, "Confidence in valuation methodology"],
+    ["Asymmetry", conviction.asymmetry, "Reward/risk balance"],
+    ["Timing", conviction.timing_risk, "Catalyst timing risk"],
+    ["Liquidity", conviction.liquidity_risk, "Trading liquidity risk"],
+    ["Governance", conviction.governance_risk, "Management quality risk"],
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+      {dimensions.map(([label, level, hint]) => (
+        <ConvictionPill key={label} label={label} level={level} hint={hint} />
+      ))}
+    </div>
+  );
+}
+
+function ConvictionPill({
+  label,
+  level,
+  hint,
+}: {
+  label: string;
+  level: ConvictionLevel;
+  hint: string;
+}) {
+  const styles: Record<ConvictionLevel, string> = {
+    high: "bg-positive/10 text-positive border-positive/30",
+    medium: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+    low: "bg-destructive/10 text-destructive border-destructive/30",
+  };
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 text-sm ${styles[level]}`}
+      title={hint}
+    >
+      <div className="text-xs uppercase tracking-wide opacity-70">{label}</div>
+      <div className="mt-0.5 font-mono text-sm font-semibold">{level}</div>
+    </div>
   );
 }
 
@@ -133,6 +203,26 @@ function PeriodBadge({ period }: { period: string }) {
   );
 }
 
+function GuardrailBadge({
+  overall,
+}: {
+  overall: GuardrailsResult["overall"];
+}) {
+  const styles: Record<GuardrailsResult["overall"], string> = {
+    PASS: "bg-positive/10 text-positive border-positive/30",
+    WARN: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+    FAIL: "bg-destructive/10 text-destructive border-destructive/30",
+  };
+  return (
+    <span
+      className={`rounded border px-2 py-0.5 font-mono text-xs uppercase tracking-wide ${styles[overall]}`}
+      title="Pipeline guardrails overall status"
+    >
+      Guardrails: {overall}
+    </span>
+  );
+}
+
 function DataRow({
   label,
   value,
@@ -150,4 +240,54 @@ function DataRow({
       <dd className={mono ? "font-mono text-sm" : "text-sm"}>{value}</dd>
     </div>
   );
+}
+
+/**
+ * The valuation snapshot's ``guardrails`` field is typed as
+ * ``GuardrailsResult | unknown[]`` because legacy snapshots stored it as an
+ * empty list. Narrow to the structured form when possible; otherwise return
+ * null so the badge is hidden gracefully.
+ */
+function resolveGuardrails(
+  guardrails: ValuationSnapshot["guardrails"] | undefined,
+): GuardrailsResult | null {
+  if (!guardrails || Array.isArray(guardrails)) return null;
+  if (typeof guardrails !== "object") return null;
+  const overall = (guardrails as { overall?: unknown }).overall;
+  if (overall !== "PASS" && overall !== "WARN" && overall !== "FAIL") {
+    return null;
+  }
+  return guardrails as GuardrailsResult;
+}
+
+/**
+ * Conviction may live on ficha (string fields) or valuation (literal levels).
+ * Normalise both to the strict ``ConvictionLevel`` triplet expected by the
+ * grid; unrecognised values fall back to ``"medium"``.
+ */
+function resolveConviction(
+  ficha: Ficha | null,
+  valuation: ValuationSnapshot | null,
+): ConvictionDisplay | null {
+  const source = ficha?.conviction ?? valuation?.conviction ?? null;
+  if (!source) return null;
+  return {
+    forecast: normaliseLevel(source.forecast),
+    valuation: normaliseLevel(source.valuation),
+    asymmetry: normaliseLevel(source.asymmetry),
+    timing_risk: normaliseLevel(source.timing_risk),
+    liquidity_risk: normaliseLevel(source.liquidity_risk),
+    governance_risk: normaliseLevel(source.governance_risk),
+  };
+}
+
+function normaliseLevel(value: unknown): ConvictionLevel {
+  if (value === "high" || value === "medium" || value === "low") return value;
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (lower === "high" || lower === "medium" || lower === "low") {
+      return lower;
+    }
+  }
+  return "medium";
 }

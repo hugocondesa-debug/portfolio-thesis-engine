@@ -85,4 +85,64 @@ describe("ValuationSummary", () => {
     );
     expect(screen.getByText(/method DCF_FCFF/)).toBeInTheDocument();
   });
+
+  // Sprint 1B.1 — scenario drawer, asymmetry ∞ display, weighted IRR (3y).
+  describe("Sprint 1B.1 expansion", () => {
+    it("renders asymmetry as ∞ when asymmetry_ratio ≥ 999", () => {
+      render(
+        <ValuationSummary
+          valuation={valuationFixture}
+          canonical={canonicalFixture}
+        />,
+      );
+      // Fixture has asymmetry_ratio = "999" → "∞"
+      expect(screen.getByText("∞")).toBeInTheDocument();
+      expect(screen.getByText("Asymmetry ratio")).toBeInTheDocument();
+    });
+
+    it("renders the weighted IRR (3y) headline", () => {
+      render(
+        <ValuationSummary
+          valuation={valuationFixture}
+          canonical={canonicalFixture}
+        />,
+      );
+      // weighted.weighted_irr_3y = "37.32" → 37.32%
+      expect(screen.getByText("Weighted IRR (3y)")).toBeInTheDocument();
+      expect(screen.getByText(/37\.32%/)).toBeInTheDocument();
+    });
+
+    it("renders driver tables inside scenario drawers", () => {
+      render(
+        <ValuationSummary
+          valuation={valuationFixture}
+          canonical={canonicalFixture}
+        />,
+      );
+      // Drivers labels are rendered in the (collapsed by default) drawer markup.
+      expect(screen.getAllByText("Drivers").length).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText("Revenue CAGR").length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText("Terminal margin").length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it("renders IRR (3y) decomposition rows inside scenario drawers", () => {
+      render(
+        <ValuationSummary
+          valuation={valuationFixture}
+          canonical={canonicalFixture}
+        />,
+      );
+      expect(
+        screen.getAllByText(/IRR \(3y\) decomposition/).length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText("Fundamental").length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Re-rating").length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

@@ -137,6 +137,13 @@ export interface NopatBridge {
   operating_income: string | null;
   operating_income_sustainable: string | null;
   non_recurring_operating_items: string;
+  /**
+   * Module D non-recurring item classifications. Each entry shows the
+   * operational vs recurring categorisation, the action taken (include /
+   * exclude / review), and the rule that matched.
+   */
+  non_recurring_items_detail: NonRecurringItem[];
+  operational_adjustments_detail?: NonRecurringItem[];
   depreciation: string;
   amortisation: string;
   operating_taxes: string;
@@ -146,6 +153,27 @@ export interface NopatBridge {
   financial_expense: string;
   non_operating_items: string;
   reported_net_income: string;
+}
+
+export interface NonRecurringItem {
+  label: string;
+  value: string;
+  operational_classification:
+    | "operational"
+    | "non_operational"
+    | "ambiguous"
+    | string;
+  recurrence_classification:
+    | "recurring"
+    | "non_recurring"
+    | "ambiguous"
+    | string;
+  action: "include" | "exclude" | "review" | string;
+  matched_rule: string;
+  rationale: string;
+  confidence: "low" | "medium" | "high" | string;
+  source_page: number | null;
+  needs_multi_year_validation: boolean;
 }
 
 export interface KeyRatios {

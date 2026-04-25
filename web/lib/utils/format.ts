@@ -91,6 +91,25 @@ export function formatMultiple(
   return `${num.toFixed(decimals)}×`;
 }
 
+/**
+ * Format a value that is ALREADY in percent units (``"16.18"`` → ``"16.18%"``).
+ *
+ * Use this for canonical-analysis ratios such as ``ratios_by_period[i].roic``
+ * which the backend stores as percentage strings without scaling. The Sprint
+ * 1A AnalyticalLayer mistakenly piped these through :func:`formatPercent`,
+ * which assumes a fraction input and scales by 100 — producing the 1,617.74%
+ * "100x" bug fixed in Sprint 1B.1.
+ */
+export function formatPercentDirect(
+  value: string | number | null | undefined,
+  decimals: number = 2,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const num = typeof value === "string" ? parseDecimal(value) : value;
+  if (Number.isNaN(num)) return "—";
+  return `${num.toFixed(decimals)}%`;
+}
+
 export function formatDate(
   value: string | null | undefined,
   options?: Intl.DateTimeFormatOptions,

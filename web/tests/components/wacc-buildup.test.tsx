@@ -22,10 +22,13 @@ describe("WaccBuildup", () => {
     expect(screen.getAllByText("HKD").length).toBeGreaterThan(0);
   });
 
-  it("explains that geographic mix is deferred to Sprint 1B", () => {
+  it("explains that geographic mix is deferred to Sprint 4B.1", () => {
     render(
       <WaccBuildup valuation={valuationFixture} canonical={canonicalFixture} />,
     );
-    expect(screen.getByText(/Sprint 1B/)).toBeInTheDocument();
+    expect(screen.getByText(/Sprint 4B\.1/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Geographic mix when company operates/i),
+    ).toBeInTheDocument();
   });
 });
