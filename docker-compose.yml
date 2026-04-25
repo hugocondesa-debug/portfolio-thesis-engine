@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: api/Dockerfile
     container_name: pte-api
+    env_file:
+      - api/.env
     restart: unless-stopped
 
     # Bind to the Tailscale interface only — the API is never exposed on
@@ -34,3 +36,27 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # Sprint 1A — Next.js frontend served on the Tailscale interface only.
+  # Reaches the API via the internal compose network (pte-api:8000); the
+  # browser hits this container at http://100.70.51.18:3000.
+  pte-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: pte-web
+    restart: unless-stopped
+    ports:
+      - "${PTE_API_BIND_HOST:-100.70.51.18}:3000:3000"
+    environment:
+      PTE_API_URL: http://pte-api:8000
+      NODE_ENV: production
+    depends_on:
+      pte-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

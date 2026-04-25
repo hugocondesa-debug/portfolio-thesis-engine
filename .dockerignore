@@ -1,0 +1,9 @@
+
+# Don't copy host .venv into container build
+.venv/
+
+# Frontend artifacts (Sprint 1A)
+web/node_modules/
+web/.next/
+web/out/
+web/coverage/

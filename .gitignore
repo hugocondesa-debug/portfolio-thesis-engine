@@ -76,3 +76,6 @@ logs/
 # Sprint 0 — API service
 api/.env
 .docker/
+
+# Sprint 1A — keep web/lib/ tracked despite generic 'lib/' rule above
+!web/lib/

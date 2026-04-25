@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Project metadata for dependency resolution.
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 COPY api/ ./api/
 
