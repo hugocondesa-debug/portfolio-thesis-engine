@@ -39,3 +39,20 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Sprint 1C — flash highlight when traceability cross-link scrolls a row
+ * into view; pulses the row background then fades back to transparent. */
+@layer utilities {
+  .highlight-row {
+    animation: pulse-highlight 2s ease-out;
+  }
+
+  @keyframes pulse-highlight {
+    0% {
+      background-color: hsl(var(--primary) / 0.3);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+}

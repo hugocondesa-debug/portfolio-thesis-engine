@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import type {
   CanonicalState,
   NonRecurringItem,
   NopatBridge,
 } from "@/lib/types/canonical";
+import { TraceableValue } from "@/components/traceability/traceable-value";
 import { formatCurrency, parseDecimal } from "@/lib/utils/format";
 import { EmptySectionNote, SectionShell } from "./section-shell";
 
@@ -48,23 +50,68 @@ export function EconomicBalanceSheet({ canonical }: Props) {
               <div className="space-y-2 text-sm">
                 <Row
                   label="Operating assets"
-                  value={formatCurrency(latest.operating_assets, {
-                    currency,
-                    compact: true,
-                  })}
+                  value={
+                    <TraceableValue
+                      source={{
+                        root: "canonical",
+                        logical: `canonical.analysis.invested_capital_by_period[${latest.period.label}].operating_assets`,
+                        field: "operating_assets",
+                        period: latest.period.label,
+                        label: `Operating assets (${latest.period.label})`,
+                        value: latest.operating_assets,
+                        format: "currency",
+                      }}
+                    >
+                      {formatCurrency(latest.operating_assets, {
+                        currency,
+                        compact: true,
+                      })}
+                    </TraceableValue>
+                  }
                 />
                 <Row
                   label="Operating liabilities (non-financial)"
-                  value={`(${formatCurrency(latest.operating_liabilities, { currency, compact: true })})`}
+                  value={
+                    <TraceableValue
+                      source={{
+                        root: "canonical",
+                        logical: `canonical.analysis.invested_capital_by_period[${latest.period.label}].operating_liabilities`,
+                        field: "operating_liabilities",
+                        period: latest.period.label,
+                        label: `Operating liabilities (${latest.period.label})`,
+                        value: latest.operating_liabilities,
+                        format: "currency",
+                      }}
+                    >
+                      ({formatCurrency(latest.operating_liabilities, {
+                        currency,
+                        compact: true,
+                      })})
+                    </TraceableValue>
+                  }
                   negative
                 />
                 <Divider />
                 <Row
                   label="Invested capital"
-                  value={formatCurrency(latest.invested_capital, {
-                    currency,
-                    compact: true,
-                  })}
+                  value={
+                    <TraceableValue
+                      source={{
+                        root: "canonical",
+                        logical: `canonical.analysis.invested_capital_by_period[${latest.period.label}].invested_capital`,
+                        field: "invested_capital",
+                        period: latest.period.label,
+                        label: `Invested capital (${latest.period.label})`,
+                        value: latest.invested_capital,
+                        format: "currency",
+                      }}
+                    >
+                      {formatCurrency(latest.invested_capital, {
+                        currency,
+                        compact: true,
+                      })}
+                    </TraceableValue>
+                  }
                   emphasize
                 />
                 {latest.operating_working_capital !== undefined ? (
@@ -179,36 +226,92 @@ function NopatBridgeView({
         <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <BridgeMetric
             label="EBITDA"
-            value={formatCurrency(bridge.ebitda, { currency, compact: true })}
+            value={
+              <TraceableValue
+                source={{
+                  root: "canonical",
+                  logical: `canonical.analysis.nopat_bridge_by_period[${bridge.period.label}].ebitda`,
+                  field: "ebitda",
+                  period: bridge.period.label,
+                  label: `EBITDA (${bridge.period.label})`,
+                  value: bridge.ebitda,
+                  format: "currency",
+                }}
+              >
+                {formatCurrency(bridge.ebitda, { currency, compact: true })}
+              </TraceableValue>
+            }
           />
           <BridgeMetric
             label="EBITA"
             value={
-              bridge.ebita
-                ? formatCurrency(bridge.ebita, { currency, compact: true })
-                : "—"
+              bridge.ebita ? (
+                <TraceableValue
+                  source={{
+                    root: "canonical",
+                    logical: `canonical.analysis.nopat_bridge_by_period[${bridge.period.label}].ebita`,
+                    field: "ebita",
+                    period: bridge.period.label,
+                    label: `EBITA (${bridge.period.label})`,
+                    value: bridge.ebita,
+                    format: "currency",
+                  }}
+                >
+                  {formatCurrency(bridge.ebita, { currency, compact: true })}
+                </TraceableValue>
+              ) : (
+                "—"
+              )
             }
           />
           <BridgeMetric
             label="Operating income"
             value={
-              bridge.operating_income
-                ? formatCurrency(bridge.operating_income, {
+              bridge.operating_income ? (
+                <TraceableValue
+                  source={{
+                    root: "canonical",
+                    logical: `canonical.analysis.nopat_bridge_by_period[${bridge.period.label}].operating_income`,
+                    field: "operating_income",
+                    period: bridge.period.label,
+                    label: `Operating income (${bridge.period.label})`,
+                    value: bridge.operating_income,
+                    format: "currency",
+                  }}
+                >
+                  {formatCurrency(bridge.operating_income, {
                     currency,
                     compact: true,
-                  })
-                : "—"
+                  })}
+                </TraceableValue>
+              ) : (
+                "—"
+              )
             }
           />
           <BridgeMetric
             label="OI sustainable"
             value={
-              bridge.operating_income_sustainable
-                ? formatCurrency(bridge.operating_income_sustainable, {
+              bridge.operating_income_sustainable ? (
+                <TraceableValue
+                  source={{
+                    root: "canonical",
+                    logical: `canonical.analysis.nopat_bridge_by_period[${bridge.period.label}].operating_income_sustainable`,
+                    field: "operating_income_sustainable",
+                    period: bridge.period.label,
+                    label: `OI sustainable (${bridge.period.label})`,
+                    value: bridge.operating_income_sustainable,
+                    format: "currency",
+                  }}
+                >
+                  {formatCurrency(bridge.operating_income_sustainable, {
                     currency,
                     compact: true,
-                  })
-                : "—"
+                  })}
+                </TraceableValue>
+              ) : (
+                "—"
+              )
             }
             highlight
           />
@@ -295,7 +398,7 @@ function BridgeMetric({
   highlight = false,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   highlight?: boolean;
 }) {
   return (
@@ -342,7 +445,7 @@ function Row({
   tone = "neutral",
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   emphasize?: boolean;
   negative?: boolean;
   note?: boolean;

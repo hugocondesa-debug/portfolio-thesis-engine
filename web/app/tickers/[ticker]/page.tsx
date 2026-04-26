@@ -2,8 +2,10 @@ import Link from "next/link";
 import {
   getCanonical,
   getCapitalAllocation,
+  getCrossCheckLog,
   getFicha,
   getForecast,
+  getPeers,
   getTicker,
   getValuation,
 } from "@/lib/api/endpoints";
@@ -19,6 +21,12 @@ import { CostStructure } from "@/components/sections/cost-structure";
 import { ForecastDetail } from "@/components/sections/forecast-detail";
 import { ScenariosDetail } from "@/components/sections/scenarios-detail";
 import { CapitalAllocationSection } from "@/components/sections/capital-allocation";
+import { PeersComparison } from "@/components/sections/peers-comparison";
+import { LeadingIndicators } from "@/components/sections/leading-indicators";
+import { CrossCheckDetail } from "@/components/sections/cross-check-detail";
+import { AuditProvenance } from "@/components/sections/audit-provenance";
+import { TraceabilityProvider } from "@/lib/traceability/context";
+import { SourcePanel } from "@/components/traceability/source-panel";
 
 interface PageProps {
   params: Promise<{ ticker: string }>;
@@ -35,15 +43,18 @@ export default async function TickerPage({ params }: PageProps) {
   ]);
 
   // Optional artefacts — sections render placeholders when absent.
-  const [valuation, forecast, ficha, capitalAllocation] = await Promise.all([
-    getValuation(ticker).catch(() => null),
-    getForecast(ticker).catch(() => null),
-    getFicha(ticker).catch(() => null),
-    getCapitalAllocation(ticker).catch(() => null),
-  ]);
+  const [valuation, forecast, ficha, capitalAllocation, peers, crossCheck] =
+    await Promise.all([
+      getValuation(ticker).catch(() => null),
+      getForecast(ticker).catch(() => null),
+      getFicha(ticker).catch(() => null),
+      getCapitalAllocation(ticker).catch(() => null),
+      getPeers(ticker).catch(() => null),
+      getCrossCheckLog(ticker).catch(() => null),
+    ]);
 
   return (
-    <>
+    <TraceabilityProvider canonical={canonical}>
       <Header />
 
       <main className="mx-auto max-w-screen-2xl space-y-6 px-3 py-4 md:px-6 md:py-6">
@@ -63,38 +74,54 @@ export default async function TickerPage({ params }: PageProps) {
         </div>
 
         {/* 1 — Identity */}
-        <IdentityHeader
-          detail={detail}
-          canonical={canonical}
-          ficha={ficha}
-          valuation={valuation}
-        />
+        <div id="section-identity">
+          <IdentityHeader
+            detail={detail}
+            canonical={canonical}
+            ficha={ficha}
+            valuation={valuation}
+          />
+        </div>
 
         {/* 2 — Valuation Summary */}
-        {valuation ? (
-          <ValuationSummary valuation={valuation} canonical={canonical} />
-        ) : (
-          <EmptySection
-            title="Valuation Summary"
-            message="No valuation snapshot yet. Run `pte valuation`."
-          />
-        )}
+        <div id="section-valuation-summary">
+          {valuation ? (
+            <ValuationSummary valuation={valuation} canonical={canonical} />
+          ) : (
+            <EmptySection
+              title="Valuation Summary"
+              message="No valuation snapshot yet. Run `pte valuation`."
+            />
+          )}
+        </div>
 
         {/* 3 — Reverse DCF */}
-        {valuation ? <ReverseDCF valuation={valuation} /> : null}
+        {valuation ? (
+          <div id="section-reverse-dcf">
+            <ReverseDCF valuation={valuation} />
+          </div>
+        ) : null}
 
         {/* 4 — Historical Financials */}
-        <HistoricalFinancials canonical={canonical} />
+        <div id="section-historical-financials">
+          <HistoricalFinancials canonical={canonical} />
+        </div>
 
         {/* 5 — Economic Balance Sheet */}
-        <EconomicBalanceSheet canonical={canonical} />
+        <div id="section-economic-bs">
+          <EconomicBalanceSheet canonical={canonical} />
+        </div>
 
-        {/* 6 — Analytical Layer (DuPont + ratio trends) */}
-        <AnalyticalLayer canonical={canonical} />
+        {/* 6 — Analytical Layer */}
+        <div id="section-analytical-layer">
+          <AnalyticalLayer canonical={canonical} />
+        </div>
 
         {/* 7 — WACC Build-up */}
         {valuation ? (
-          <WaccBuildup valuation={valuation} canonical={canonical} />
+          <div id="section-wacc">
+            <WaccBuildup valuation={valuation} canonical={canonical} />
+          </div>
         ) : (
           <EmptySection
             title="WACC Build-up"
@@ -103,26 +130,61 @@ export default async function TickerPage({ params }: PageProps) {
         )}
 
         {/* 8 — Cost Structure */}
-        <CostStructure canonical={canonical} />
+        <div id="section-cost-structure">
+          <CostStructure canonical={canonical} />
+        </div>
 
-        {/* 9 — Three-Statement Forecast Detail */}
-        <ForecastDetail
-          forecast={forecast}
-          valuation={valuation}
-          canonical={canonical}
-        />
+        {/* 9 — Forecast Detail */}
+        <div id="section-forecast">
+          <ForecastDetail
+            forecast={forecast}
+            valuation={valuation}
+            canonical={canonical}
+          />
+        </div>
 
         {/* 10 — Scenarios Detail */}
-        <ScenariosDetail valuation={valuation} canonical={canonical} />
+        <div id="section-scenarios">
+          <ScenariosDetail valuation={valuation} canonical={canonical} />
+        </div>
 
         {/* 11 — Capital Allocation */}
-        <CapitalAllocationSection
-          capitalAllocation={capitalAllocation}
-          forecast={forecast}
-          canonical={canonical}
-        />
+        <div id="section-capital-allocation">
+          <CapitalAllocationSection
+            capitalAllocation={capitalAllocation}
+            forecast={forecast}
+            canonical={canonical}
+          />
+        </div>
+
+        {/* 13 — Peers Comparison (Sprint 1C) */}
+        <div id="section-peers">
+          <PeersComparison peers={peers} canonical={canonical} />
+        </div>
+
+        {/* 14 — Leading Indicators (Sprint 1C) */}
+        <div id="section-leading-indicators">
+          <LeadingIndicators valuation={valuation} canonical={canonical} />
+        </div>
+
+        {/* 15 — Cross-check & Guardrails (Sprint 1C) */}
+        <div id="section-cross-check">
+          <CrossCheckDetail
+            crossCheck={crossCheck}
+            valuation={valuation}
+            canonical={canonical}
+          />
+        </div>
+
+        {/* 16 — Audit / Provenance (Sprint 1C) */}
+        <div id="section-audit">
+          <AuditProvenance canonical={canonical} valuation={valuation} />
+        </div>
       </main>
-    </>
+
+      {/* Global drilldown drawer (Sprint 1C). */}
+      <SourcePanel />
+    </TraceabilityProvider>
   );
 }
 

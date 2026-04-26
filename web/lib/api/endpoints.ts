@@ -15,8 +15,10 @@ import type {
 } from "@/lib/types/api";
 import type { CanonicalState } from "@/lib/types/canonical";
 import type { CapitalAllocation } from "@/lib/types/capital-allocation";
+import type { CrossCheckResponse } from "@/lib/types/cross-check";
 import type { Ficha } from "@/lib/types/ficha";
 import type { ForecastResult } from "@/lib/types/forecast";
+import type { PeersResponse } from "@/lib/types/peers";
 import type { ValuationSnapshot } from "@/lib/types/valuation";
 
 const enc = encodeURIComponent;
@@ -44,8 +46,39 @@ export const getFicha = (ticker: string): Promise<Ficha> =>
 export const getCrossCheck = (ticker: string): Promise<unknown> =>
   serverFetch<unknown>(`/api/tickers/${enc(ticker)}/cross-check`);
 
-export const getPeers = (ticker: string): Promise<unknown> =>
-  serverFetch<unknown>(`/api/tickers/${enc(ticker)}/peers`);
+/**
+ * Sprint 1C — typed alternative to ``getCrossCheck`` (which kept its
+ * ``Promise<unknown>`` signature for backwards compatibility). Returns
+ * ``null`` on any error so callers can render the empty state.
+ */
+export async function getCrossCheckLog(
+  ticker: string,
+): Promise<CrossCheckResponse | null> {
+  try {
+    return await serverFetch<CrossCheckResponse>(
+      `/api/tickers/${enc(ticker)}/cross-check`,
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sprint 1C — fully-typed peers fetcher. Returns ``null`` when the YAML
+ * is missing or the endpoint errors so the section can render the empty
+ * configuration prompt.
+ */
+export async function getPeers(
+  ticker: string,
+): Promise<PeersResponse | null> {
+  try {
+    return await serverFetch<PeersResponse>(
+      `/api/tickers/${enc(ticker)}/peers`,
+    );
+  } catch {
+    return null;
+  }
+}
 
 // --- Yamls -----------------------------------------------------------
 export const listYamls = (ticker: string): Promise<YamlListItem[]> =>

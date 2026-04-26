@@ -1,4 +1,5 @@
 import type { CanonicalState } from "@/lib/types/canonical";
+import { TraceableValue } from "@/components/traceability/traceable-value";
 import {
   formatMultiple,
   formatPercentDirect,
@@ -56,22 +57,30 @@ export function AnalyticalLayer({ canonical }: Props) {
                   label="Operating margin (reported)"
                   values={ratios.map((r) => r.operating_margin)}
                   format="percent_direct"
+                  fieldName="operating_margin"
+                  periods={periods}
                 />
                 <RatioRow
                   label="Operating margin (sustainable)"
                   values={ratios.map((r) => r.sustainable_operating_margin)}
                   format="percent_direct"
                   indent
+                  fieldName="sustainable_operating_margin"
+                  periods={periods}
                 />
                 <RatioRow
                   label="EBITDA margin"
                   values={ratios.map((r) => r.ebitda_margin)}
                   format="percent_direct"
+                  fieldName="ebitda_margin"
+                  periods={periods}
                 />
                 <RatioRow
                   label="Return on sales (ROS)"
                   values={ratios.map((r) => r.ros)}
                   format="percent_direct"
+                  fieldName="ros"
+                  periods={periods}
                 />
 
                 <CategoryRow
@@ -83,24 +92,32 @@ export function AnalyticalLayer({ canonical }: Props) {
                   values={ratios.map((r) => r.roic)}
                   format="percent_direct"
                   emphasize
+                  fieldName="roic"
+                  periods={periods}
                 />
                 <RatioRow
                   label="ROIC (reported)"
                   values={ratios.map((r) => r.roic_reported)}
                   format="percent_direct"
                   indent
+                  fieldName="roic_reported"
+                  periods={periods}
                 />
                 <RatioRow
                   label="ROIC (lease-adjusted)"
                   values={ratios.map((r) => r.roic_adj_leases)}
                   format="percent_direct"
                   indent
+                  fieldName="roic_adj_leases"
+                  periods={periods}
                 />
                 <RatioRow
                   label="ROE"
                   values={ratios.map((r) => r.roe)}
                   format="percent_direct"
                   emphasize
+                  fieldName="roe"
+                  periods={periods}
                 />
 
                 <CategoryRow label="Leverage" cols={periods.length + 1} />
@@ -108,11 +125,15 @@ export function AnalyticalLayer({ canonical }: Props) {
                   label="Net debt / EBITDA"
                   values={ratios.map((r) => r.net_debt_ebitda)}
                   format="multiple"
+                  fieldName="net_debt_ebitda"
+                  periods={periods}
                 />
                 <RatioRow
                   label="Capex / Revenue"
                   values={ratios.map((r) => r.capex_revenue)}
                   format="percent_direct"
+                  fieldName="capex_revenue"
+                  periods={periods}
                 />
 
                 <CategoryRow
@@ -123,16 +144,22 @@ export function AnalyticalLayer({ canonical }: Props) {
                   label="DSO (days sales outstanding)"
                   values={ratios.map((r) => r.dso)}
                   format="days"
+                  fieldName="dso"
+                  periods={periods}
                 />
                 <RatioRow
                   label="DPO (days payable outstanding)"
                   values={ratios.map((r) => r.dpo)}
                   format="days"
+                  fieldName="dpo"
+                  periods={periods}
                 />
                 <RatioRow
                   label="DIO (days inventory outstanding)"
                   values={ratios.map((r) => r.dio)}
                   format="days"
+                  fieldName="dio"
+                  periods={periods}
                 />
               </tbody>
             </table>
@@ -176,16 +203,21 @@ function RatioRow({
   format,
   emphasize = false,
   indent = false,
+  fieldName,
+  periods,
 }: {
   label: string;
   values: (string | null)[];
   format: "percent_direct" | "multiple" | "days";
   emphasize?: boolean;
   indent?: boolean;
+  fieldName: string;
+  periods: string[];
 }) {
   return (
     <tr
       className={`border-t border-border ${emphasize ? "bg-muted/20 font-semibold" : ""}`}
+      data-row-label={label}
     >
       <td
         className={`sticky left-0 bg-card px-3 py-2 ${indent ? "pl-8" : ""}`}
@@ -194,7 +226,28 @@ function RatioRow({
       </td>
       {values.map((v, i) => (
         <td key={i} className="px-3 py-2 text-right font-mono tabular-nums">
-          {renderRatio(v, format)}
+          {v === null ? (
+            "—"
+          ) : (
+            <TraceableValue
+              source={{
+                root: "canonical",
+                logical: `canonical.analysis.ratios_by_period[${periods[i]}].${fieldName}`,
+                field: fieldName,
+                period: periods[i],
+                label: `${label} (${periods[i]})`,
+                value: v,
+                format:
+                  format === "percent_direct"
+                    ? "percent_direct"
+                    : format === "multiple"
+                      ? "multiple"
+                      : "number",
+              }}
+            >
+              {renderRatio(v, format)}
+            </TraceableValue>
+          )}
         </td>
       ))}
     </tr>

@@ -6,7 +6,54 @@ import type {
   ReclassifiedStatements,
   StatementLine,
 } from "@/lib/types/canonical";
+import { TraceableValue } from "@/components/traceability/traceable-value";
 import { formatCurrency, parseDecimal } from "@/lib/utils/format";
+
+type StatementSlot = "is" | "bs" | "cf";
+
+const STATEMENT_PATH_KEY: Record<StatementSlot, string> = {
+  is: "income_statement",
+  bs: "balance_sheet",
+  cf: "cash_flow",
+};
+
+/**
+ * Best-effort mapping from a human-readable statement line label to a
+ * canonical field name. Drives the traceability chain — when a label maps
+ * to a known field the panel resolves Module A/B/C adjustments; otherwise
+ * the chain is empty (correct: raw extracted line, no Module D
+ * involvement).
+ */
+function labelToFieldName(label: string): string {
+  const normalized = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const map: Record<string, string> = {
+    operating_profit: "operating_income",
+    operating_loss: "operating_income",
+    operating_income: "operating_income",
+    earnings_before_interest_and_tax: "operating_income",
+    ebit: "operating_income",
+    ebitda: "ebitda",
+    revenue: "revenue",
+    total_revenue: "revenue",
+    sales: "revenue",
+    turnover: "revenue",
+    cost_of_sales: "cost_of_revenue",
+    cost_of_services: "cost_of_revenue",
+    cost_of_revenue: "cost_of_revenue",
+    gross_profit: "gross_profit",
+    net_profit: "net_income",
+    net_loss: "net_income",
+    net_income: "net_income",
+    profit_for_the_year: "net_income",
+    profit_for_the_period: "net_income",
+  };
+
+  return map[normalized] ?? normalized;
+}
 
 type StatementTab = "is" | "bs" | "cf";
 
@@ -110,6 +157,7 @@ export function HistoricalFinancials({ canonical }: Props) {
         currency={currency}
         showAdjustedOnly={showAdjustedOnly}
         groupBy={tab === "is" ? "schema_order" : "category"}
+        statementType={tab}
       />
     </section>
   );
@@ -149,6 +197,7 @@ interface FinancialTableProps {
   currency: string;
   showAdjustedOnly: boolean;
   groupBy: "category" | "schema_order";
+  statementType: StatementSlot;
 }
 
 function FinancialTable({
@@ -158,6 +207,7 @@ function FinancialTable({
   currency,
   showAdjustedOnly,
   groupBy,
+  statementType,
 }: FinancialTableProps) {
   const rows = useMemo(() => {
     const labelMap = new Map<string, FinancialRow>();
@@ -251,6 +301,7 @@ function FinancialTable({
               periods={periods}
               currency={currency}
               colCount={periods.length + (periods.length >= 2 ? 2 : 1)}
+              statementType={statementType}
             />
           ))}
         </tbody>
@@ -265,12 +316,14 @@ function FinancialGroup({
   periods,
   currency,
   colCount,
+  statementType,
 }: {
   category: string;
   items: FinancialRow[];
   periods: string[];
   currency: string;
   colCount: number;
+  statementType: StatementSlot;
 }) {
   return (
     <>
@@ -290,6 +343,7 @@ function FinancialGroup({
           row={row}
           periods={periods}
           currency={currency}
+          statementType={statementType}
         />
       ))}
     </>
@@ -300,11 +354,15 @@ function FinancialRowView({
   row,
   periods,
   currency,
+  statementType,
 }: {
   row: FinancialRow;
   periods: string[];
   currency: string;
+  statementType: StatementSlot;
 }) {
+  const fieldName = labelToFieldName(row.label);
+  const slotKey = STATEMENT_PATH_KEY[statementType];
   const numericValues = periods.map((p) => {
     const item = row.values[p];
     return item ? parseDecimal(item.value) : null;
@@ -335,6 +393,7 @@ function FinancialRowView({
   return (
     <tr
       className={`border-t border-border hover:bg-muted/10 ${isSubtotal ? "bg-muted/20 font-semibold" : ""}`}
+      data-row-label={row.label}
     >
       <td className="sticky left-0 bg-card px-3 py-2">
         <div className="flex items-center gap-2">
@@ -355,11 +414,22 @@ function FinancialRowView({
             }
           >
             {item ? (
-              <span
-                className={item.is_adjusted ? "underline decoration-dotted" : ""}
+              <TraceableValue
+                source={{
+                  root: "canonical",
+                  logical: `canonical.reclassified_statements[${p}].${slotKey}["${row.label}"]`,
+                  field: fieldName,
+                  period: p,
+                  label: `${row.label} (${p})`,
+                  value: item.value,
+                  format: "currency",
+                }}
+                className={
+                  item.is_adjusted ? "underline decoration-dotted" : ""
+                }
               >
                 {formatCurrency(item.value, { currency, compact: true })}
-              </span>
+              </TraceableValue>
             ) : (
               <span className="text-muted-foreground">—</span>
             )}

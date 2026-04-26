@@ -10,18 +10,24 @@
 
 import type { TickerDetail, TickerSummary, YamlListItem } from "@/lib/types/api";
 import type {
+  AdjustmentsByModule,
+} from "@/lib/types/adjustments";
+import type {
   CanonicalState,
   CompanyIdentity,
   ReclassifiedStatements,
 } from "@/lib/types/canonical";
 import type { CapitalAllocation } from "@/lib/types/capital-allocation";
+import type { CrossCheckResponse } from "@/lib/types/cross-check";
 import type { Ficha } from "@/lib/types/ficha";
 import type {
   ForecastResult,
   ThreeStatementProjection,
 } from "@/lib/types/forecast";
+import type { PeersResponse } from "@/lib/types/peers";
 import type {
   ScenarioDrivers,
+  SensitivityGrid,
   ValuationSnapshot,
 } from "@/lib/types/valuation";
 
@@ -611,4 +617,161 @@ export const capitalAllocationFixture: CapitalAllocation = {
     ],
     net_financial_position_notes: "Net cash positive every period.",
   },
+};
+
+// ----------------------------------------------------------------------
+// Peers (Sprint 1C)
+// ----------------------------------------------------------------------
+export const peersFixture: PeersResponse = {
+  ticker: "1846.HK",
+  yaml: {
+    target_ticker: "1846.HK",
+    discovery_method: "USER_MANUAL",
+    fmp_sector: "Healthcare",
+    fmp_industry: "Medical Care Facilities",
+    peers: [
+      {
+        ticker: "EYE",
+        name: "National Vision Holdings",
+        country: "US",
+        listing_currency: "USD",
+        source: "USER_OVERRIDE",
+        rationale: "US optical retail — comparable services revenue model",
+        included: true,
+      },
+      {
+        ticker: "EEIQ",
+        name: "Elite Education Group",
+        country: "US",
+        listing_currency: "USD",
+        source: "USER_OVERRIDE",
+        rationale: "Small-cap PRC healthcare education",
+        included: false,
+      },
+      {
+        ticker: "1177.HK",
+        name: "Sino Biopharmaceutical",
+        country: "HK",
+        listing_currency: "HKD",
+        source: "USER_OVERRIDE",
+        rationale: "HK-listed healthcare",
+        included: true,
+      },
+    ],
+    min_peers_regression: 5,
+    max_peers_display: 20,
+  },
+  sqlite_peers: [],
+};
+
+// ----------------------------------------------------------------------
+// Cross-check (Sprint 1C) — max_delta_pct is stored as fraction
+// (``"0.1033"`` ≡ 10.33%).
+// ----------------------------------------------------------------------
+export const crossCheckFixture: CrossCheckResponse = {
+  ticker: "1846.HK",
+  period: "FY2024",
+  metrics: [
+    {
+      metric: "revenue",
+      extracted_value: "715682000",
+      fmp_value: null,
+      yfinance_value: "715682000.0",
+      max_delta_pct: "0.0",
+      status: "PASS",
+      notes: "Δ=0.00% (threshold PASS<2.0%, WARN<10.0%)",
+    },
+    {
+      metric: "operating_income",
+      extracted_value: "115779000",
+      fmp_value: null,
+      yfinance_value: "103808000.0",
+      max_delta_pct: "0.1033952616623049084894497275",
+      status: "WARN",
+      notes: "Δ=10.34% (threshold PASS<5.0%, WARN<15.0%)",
+    },
+    {
+      metric: "net_income",
+      extracted_value: "82285000",
+      fmp_value: null,
+      yfinance_value: "82285000.0",
+      max_delta_pct: "0.0",
+      status: "PASS",
+      notes: "Δ=0.00%",
+    },
+  ],
+  overall_status: "WARN",
+  blocking: false,
+  generated_at: "2026-04-25T16:18:04Z",
+  log_path: "data/logs/cross_check/1846-HK_20260425_161804.json",
+  provider_errors: null,
+};
+
+// ----------------------------------------------------------------------
+// Sensitivities (Sprint 1C)
+// ----------------------------------------------------------------------
+export const sensitivityGridFixture: SensitivityGrid = {
+  scenario_label: "base",
+  axis_x: "wacc",
+  axis_y: "terminal_growth",
+  x_values: ["7.62", "8.12", "8.62"],
+  y_values: ["2.25", "2.5", "2.75"],
+  target_per_share: [
+    ["7.92", "7.32", "6.81"],
+    ["8.21", "7.55", "7.01"],
+    ["8.52", "7.81", "7.22"],
+  ],
+};
+
+export const sensitivitiesFixture: SensitivityGrid[] = [
+  sensitivityGridFixture,
+  { ...sensitivityGridFixture, scenario_label: "bull" },
+];
+
+// ----------------------------------------------------------------------
+// Adjustments (Sprint 1C) — proper Adjustment[] modules + special-shape
+// ones empty for unit tests.
+// ----------------------------------------------------------------------
+export const adjustmentsFixture: AdjustmentsByModule = {
+  module_a_taxes: [
+    {
+      module: "A.1",
+      description: "Operating tax rate",
+      amount: "33.295",
+      affected_periods: [{ year: 2024, quarter: null, label: "FY2024" }],
+      rationale: "Rate used for NOPAT.",
+      source: {
+        document: "notes['Income tax expense']",
+        page: null,
+        confidence: "REPORTED",
+        url: null,
+        accessed: null,
+      },
+    },
+  ],
+  module_b_provisions: [
+    {
+      module: "B.2.goodwill_impairment",
+      description: "Goodwill impairment",
+      amount: "-11000000",
+      affected_periods: [{ year: 2024, quarter: null, label: "FY2024" }],
+      rationale: "Goodwill impairment is one-off.",
+      source: {
+        document: "notes['Goodwill']",
+        page: null,
+        confidence: "REPORTED",
+        url: null,
+        accessed: null,
+      },
+    },
+  ],
+  module_c_leases: [],
+  module_d_pensions: [],
+  module_d_note_decompositions: {},
+  module_d_coverage: null,
+  module_e_sbc: [],
+  module_f_capitalize: [],
+  patches: [],
+  decision_log: [],
+  estimates_log: [],
 };

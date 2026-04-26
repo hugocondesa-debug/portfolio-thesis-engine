@@ -34,7 +34,7 @@ export interface ValuationSnapshot {
   catalysts: unknown[];
   factor_exposures: unknown[];
   scenario_response: unknown | null;
-  sensitivities: unknown[];
+  sensitivities: SensitivityGrid[];
 
   conviction: ConvictionScores;
   guardrails: GuardrailsResult | unknown[];
@@ -144,4 +144,22 @@ export type ConvictionLevel = "low" | "medium" | "high";
 export interface GuardrailsResult {
   categories: Record<string, unknown>;
   overall: "PASS" | "WARN" | "FAIL";
+}
+
+/**
+ * Sensitivity grid — Sprint 1C replaces the prior ``unknown[]`` typing
+ * with a structured shape. The engine emits a 3×3 (or n×m) matrix of
+ * per-share fair values varied across two parameters; visualised as a
+ * heatmap in Section 14.
+ */
+export interface SensitivityGrid {
+  scenario_label: string;
+  axis_x: string;
+  axis_y: string;
+  /** Tick labels on the x-axis (3 values for a 3×3 grid). */
+  x_values: DecimalString[];
+  /** Tick labels on the y-axis. */
+  y_values: DecimalString[];
+  /** Matrix indexed ``[y_idx][x_idx]``. */
+  target_per_share: DecimalString[][];
 }
