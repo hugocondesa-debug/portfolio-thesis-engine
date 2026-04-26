@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
   getCanonical,
+  getCapitalAllocation,
   getFicha,
+  getForecast,
   getTicker,
   getValuation,
 } from "@/lib/api/endpoints";
@@ -14,6 +16,9 @@ import { EconomicBalanceSheet } from "@/components/sections/economic-balance-she
 import { AnalyticalLayer } from "@/components/sections/analytical-layer";
 import { WaccBuildup } from "@/components/sections/wacc-buildup";
 import { CostStructure } from "@/components/sections/cost-structure";
+import { ForecastDetail } from "@/components/sections/forecast-detail";
+import { ScenariosDetail } from "@/components/sections/scenarios-detail";
+import { CapitalAllocationSection } from "@/components/sections/capital-allocation";
 
 interface PageProps {
   params: Promise<{ ticker: string }>;
@@ -30,16 +35,18 @@ export default async function TickerPage({ params }: PageProps) {
   ]);
 
   // Optional artefacts — sections render placeholders when absent.
-  const [valuation, ficha] = await Promise.all([
+  const [valuation, forecast, ficha, capitalAllocation] = await Promise.all([
     getValuation(ticker).catch(() => null),
+    getForecast(ticker).catch(() => null),
     getFicha(ticker).catch(() => null),
+    getCapitalAllocation(ticker).catch(() => null),
   ]);
 
   return (
     <>
       <Header />
 
-      <main className="mx-auto max-w-screen-2xl space-y-6 px-6 py-6">
+      <main className="mx-auto max-w-screen-2xl space-y-6 px-3 py-4 md:px-6 md:py-6">
         <div className="flex items-center justify-between">
           <Link
             href="/"
@@ -97,6 +104,23 @@ export default async function TickerPage({ params }: PageProps) {
 
         {/* 8 — Cost Structure */}
         <CostStructure canonical={canonical} />
+
+        {/* 9 — Three-Statement Forecast Detail */}
+        <ForecastDetail
+          forecast={forecast}
+          valuation={valuation}
+          canonical={canonical}
+        />
+
+        {/* 10 — Scenarios Detail */}
+        <ScenariosDetail valuation={valuation} canonical={canonical} />
+
+        {/* 11 — Capital Allocation */}
+        <CapitalAllocationSection
+          capitalAllocation={capitalAllocation}
+          forecast={forecast}
+          canonical={canonical}
+        />
       </main>
     </>
   );

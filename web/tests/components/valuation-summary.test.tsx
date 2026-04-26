@@ -34,9 +34,11 @@ describe("ValuationSummary", () => {
         canonical={canonicalFixture}
       />,
     );
-    expect(screen.getByText("bear")).toBeInTheDocument();
-    expect(screen.getByText("base")).toBeInTheDocument();
-    expect(screen.getByText("bull")).toBeInTheDocument();
+    // Sprint 1B.2 — labels render in both mobile-stacked and desktop-grid
+    // layouts, so each appears at least twice.
+    expect(screen.getAllByText("bear").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("base").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("bull").length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders the probability-weighted upside in percent units", () => {

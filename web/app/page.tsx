@@ -8,8 +8,8 @@ export default async function HomePage() {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-screen-2xl px-6 py-8">
-        <div className="mb-6 flex items-baseline justify-between">
+      <main className="mx-auto max-w-screen-2xl px-3 py-4 md:px-6 md:py-8">
+        <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
           <h1 className="font-mono text-2xl font-semibold tracking-tight">
             Tickers
           </h1>

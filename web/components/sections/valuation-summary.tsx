@@ -138,7 +138,47 @@ function ScenarioRow({
   return (
     <details className="overflow-hidden rounded-md border border-border bg-card">
       <summary className="cursor-pointer list-none px-3 py-2 hover:bg-muted/30">
-        <div className="grid grid-cols-12 items-center gap-3 text-sm">
+        {/* Mobile: stacked rows (≤768px) */}
+        <div className="space-y-1.5 text-sm md:hidden">
+          <div className="flex items-center justify-between">
+            <span className="font-mono">{scenario.label}</span>
+            <span className="font-mono tabular-nums text-xs text-muted-foreground">
+              {(probFraction * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded bg-muted">
+            <div
+              className="h-full bg-primary"
+              style={{ width: `${Math.min(probFraction * 100, 100)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Fair value</span>
+            <span className="font-mono tabular-nums">
+              {formatCurrency(scenario.targets.dcf_fcff_per_share, {
+                currency,
+                decimals: 2,
+              })}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">IRR (3y / 5y)</span>
+            <span className="font-mono tabular-nums">
+              {irr3yFraction !== null ? formatPercent(irr3yFraction, 1) : "—"}
+              {" / "}
+              {irr5yFraction !== null ? formatPercent(irr5yFraction, 1) : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Upside</span>
+            <span className="font-mono tabular-nums">
+              {upsideFraction !== null ? formatPercent(upsideFraction, 2) : "—"}
+            </span>
+          </div>
+        </div>
+
+        {/* Desktop: 12-col grid (≥768px) */}
+        <div className="hidden md:grid grid-cols-12 items-center gap-3 text-sm">
           <div className="col-span-2 font-mono">{scenario.label}</div>
           <div className="col-span-3">
             <div className="flex items-center gap-2">

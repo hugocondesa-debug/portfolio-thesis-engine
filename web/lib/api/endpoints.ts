@@ -4,6 +4,8 @@
  * goes through the proxy routes under ``app/api/`` instead.
  */
 
+import yaml from "js-yaml";
+
 import { serverFetch } from "./server";
 import type {
   TickerDetail,
@@ -12,6 +14,7 @@ import type {
   YamlVersion,
 } from "@/lib/types/api";
 import type { CanonicalState } from "@/lib/types/canonical";
+import type { CapitalAllocation } from "@/lib/types/capital-allocation";
 import type { Ficha } from "@/lib/types/ficha";
 import type { ForecastResult } from "@/lib/types/forecast";
 import type { ValuationSnapshot } from "@/lib/types/valuation";
@@ -61,3 +64,31 @@ export const listYamlVersions = (
   serverFetch<YamlVersion[]>(
     `/api/tickers/${enc(ticker)}/yamls/${enc(name)}/versions`,
   );
+
+/**
+ * Fetches and parses ``capital_allocation.yaml`` for a ticker.
+ *
+ * Sprint 1B.2 — backend is frozen so we re-use the generic yaml proxy
+ * endpoint and parse the YAML in the frontend with ``js-yaml``. We pass
+ * ``JSON_SCHEMA`` so ISO date strings stay strings (the default schema
+ * would convert them to ``Date`` objects, which downstream components
+ * don't expect).
+ *
+ * Returns ``null`` on any error (404 when the YAML doesn't exist, parse
+ * errors, etc.) so callers can fall back to the empty-state UI.
+ */
+export async function getCapitalAllocation(
+  ticker: string,
+): Promise<CapitalAllocation | null> {
+  try {
+    const yamlText = await serverFetch<string>(
+      `/api/tickers/${enc(ticker)}/yamls/capital_allocation`,
+    );
+    if (!yamlText || typeof yamlText !== "string") return null;
+    const parsed = yaml.load(yamlText, { schema: yaml.JSON_SCHEMA });
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as CapitalAllocation;
+  } catch {
+    return null;
+  }
+}

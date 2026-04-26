@@ -14,7 +14,12 @@ import type {
   CompanyIdentity,
   ReclassifiedStatements,
 } from "@/lib/types/canonical";
+import type { CapitalAllocation } from "@/lib/types/capital-allocation";
 import type { Ficha } from "@/lib/types/ficha";
+import type {
+  ForecastResult,
+  ThreeStatementProjection,
+} from "@/lib/types/forecast";
 import type {
   ScenarioDrivers,
   ValuationSnapshot,
@@ -426,3 +431,184 @@ export const yamlListFixture: YamlListItem[] = [
     versions_count: 0,
   },
 ];
+
+// ----------------------------------------------------------------------
+// Forecast (Sprint 1B.2)
+// ----------------------------------------------------------------------
+// Forecast values arrive from the API as JSON numbers (the endpoint returns
+// dict[str, Any] without Pydantic coercion). Ratios are FRACTIONS — pipe
+// through formatPercent (multiplies by 100), not formatPercentDirect.
+export const baseProjectionFixture: ThreeStatementProjection = {
+  scenario_name: "base",
+  scenario_probability: 0.32,
+  base_year_label: "FY2024",
+  projection_years: 5,
+  income_statement: [
+    {
+      year: 1,
+      revenue: 787250200,
+      revenue_growth_rate: 0.10,
+      operating_margin: 0.1756,
+      operating_income: 138241135.12,
+      interest_expense: 0,
+      interest_income: 0,
+      pre_tax_income: 138241135.12,
+      tax_rate: 0.16,
+      tax_expense: 22118582,
+      net_income: 116122553,
+      shares_outstanding: 331885000,
+      eps: 0.35,
+    },
+  ],
+  balance_sheet: [
+    {
+      year: 1,
+      ppe_net: 450000000,
+      goodwill: 200000000,
+      working_capital_net: 100000000,
+      cash: 700000000,
+      total_assets: 1900000000,
+      debt: 0,
+      equity: 1200000000,
+    },
+  ],
+  cash_flow: [
+    {
+      year: 1,
+      cfo: 180000000,
+      cfi: -90000000,
+      cff: -30000000,
+      capex: 85000000,
+      ma_deployment: 5000000,
+      dividends_paid: 12000000,
+      buybacks_executed: 0,
+      debt_issued: 0,
+      debt_repaid: 0,
+      net_interest: 0,
+      fx_effect: 0,
+      net_change_cash: 60000000,
+    },
+  ],
+  forward_ratios: [
+    {
+      year: 1,
+      per_at_market_price: null,
+      per_at_fair_value: null,
+      fcf_yield_at_market: null,
+      ev_ebitda: null,
+      roic: 0.1224,
+      roe: 0.0967,
+      debt_to_ebitda: 0,
+      wacc_applied: 0.0812,
+    },
+  ],
+  solver_convergence: {
+    iterations: 2,
+    final_residual: 0.0,
+    converged: true,
+  },
+  warnings: [],
+};
+
+export const forecastFixture: ForecastResult = {
+  ticker: "1846.HK",
+  generated_at: "2026-04-25T16:18:04Z",
+  projections: [baseProjectionFixture],
+  probability_weighted_ev: 7.80,
+  expected_forward_eps_y1: 0.35,
+  expected_forward_per_y1: 7.5,
+};
+
+// ----------------------------------------------------------------------
+// Capital allocation (Sprint 1B.2)
+// ----------------------------------------------------------------------
+export const capitalAllocationFixture: CapitalAllocation = {
+  target_ticker: "1846.HK",
+  company_name: "EuroEyes International Eye Clinic Limited",
+  last_updated: "2026-04-24",
+  generated_by: "Claude.ai Project (analyst reviewed)",
+  source_documents: ["AR 2024 audited", "Interim H1 2025 reviewed"],
+  evidence_sources: [
+    {
+      category: "DIVIDEND",
+      document: "AR 2024",
+      location: "Chairman's Statement; Note 14 Dividends",
+      disclosure: "FY2024 final dividend HK$0.0297/share (~HK$9.52M)",
+      date: "2025-05-15",
+    },
+    {
+      category: "BUYBACK",
+      document: "Interim H1 2025",
+      location: "Note on share capital",
+      disclosure: "5.21M shares repurchased Jan 2025 at avg HK$3.52",
+      date: "2025-01-15",
+    },
+  ],
+  policies: {
+    dividend_policy: {
+      type: "PAYOUT_RATIO",
+      payout_ratio: 0.115,
+      growth_with_ni: true,
+      rationale: "Progressive dividend growth tracked across FY2023-H1 2025.",
+      confidence: "MEDIUM",
+      evidence_refs: [0],
+    },
+    buyback_policy: {
+      type: "CONDITIONAL",
+      condition: "NEW_MANDATE_APPROVED",
+      annual_amount_if_condition_met: 20000000,
+      rationale: "January 2025 execution demonstrated capacity.",
+      confidence: "MEDIUM",
+      evidence_refs: [1],
+    },
+    debt_policy: {
+      type: "MAINTAIN_ZERO",
+      current_debt: 0,
+      rationale: "Zero long-term borrowings maintained consistently.",
+      confidence: "HIGH",
+      evidence_refs: [],
+    },
+    ma_policy: {
+      type: "OPPORTUNISTIC",
+      annual_deployment_target: 50000000,
+      timing_uncertainty: "MEDIUM",
+      geography_focus: ["Europe", "Hong Kong"],
+      funding_source: "CASH",
+      rationale: "Goodwill progression evidences active programme.",
+      confidence: "MEDIUM",
+      evidence_refs: [],
+    },
+    share_issuance_policy: {
+      type: "ZERO",
+      annual_dilution_rate: 0.0,
+      rationale: "No material primary equity issuance observed.",
+      confidence: "HIGH",
+      evidence_refs: [],
+    },
+  },
+  historical_context: {
+    recent_dividends_paid: [
+      { year: 2024, type: "final", amount_per_share: 0.0297, total: 9520000 },
+      { year: 2023, type: "final", amount_per_share: 0.0245, total: 7840000 },
+    ],
+    recent_buybacks_executed: [
+      {
+        program: "January 2025 Mandate Execution",
+        shares_bought: 5211000,
+        avg_price: 3.52,
+        price_range: "HK$3.28-3.85",
+        total: 18330000,
+        cancelled: true,
+        cancellation_date: "2025-02-28",
+      },
+    ],
+    debt_history: "Zero long-term borrowings maintained.",
+    ma_history: "Goodwill progression evidences active M&A.",
+    capital_structure_notes: "Net cash represents ~80% of market cap.",
+    cash_evolution: [
+      { period: "FY2020", cash: 761960000, net_cash: 761960000 },
+      { period: "FY2024", cash: 653232000, net_cash: 653232000 },
+    ],
+    net_financial_position_notes: "Net cash positive every period.",
+  },
+};

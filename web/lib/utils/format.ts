@@ -7,8 +7,13 @@
  * the browser — that lives on the Python side.
  */
 
-export function parseDecimal(value: string | null | undefined): number {
+export function parseDecimal(
+  value: string | number | null | undefined,
+): number {
   if (value === null || value === undefined) return Number.NaN;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : Number.NaN;
+  }
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
