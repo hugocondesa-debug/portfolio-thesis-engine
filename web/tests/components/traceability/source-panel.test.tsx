@@ -3,12 +3,18 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { TraceabilityProvider } from "@/lib/traceability/context";
 import { SourcePanel } from "@/components/traceability/source-panel";
 import { TraceableValue } from "@/components/traceability/traceable-value";
+import type { CanonicalState } from "@/lib/types/canonical";
 import { adjustmentsFixture, canonicalFixture } from "@/tests/fixtures";
 
 describe("SourcePanel + TraceableValue (Sprint 1C)", () => {
+  // Cast through unknown — ``AdjustmentsByModule.module_d_note_decompositions``
+  // is intentionally widened to ``Record<string, unknown>`` (the on-the-wire
+  // dict shape), whereas ``CanonicalState`` keeps the stricter
+  // ``Record<string, LineDecomposition>`` from the Sprint 1A type. The
+  // fixture's empty object ``{}`` is value-compatible with both.
   const canonical = {
     ...canonicalFixture,
-    adjustments: adjustmentsFixture,
+    adjustments: adjustmentsFixture as unknown as CanonicalState["adjustments"],
   };
 
   it("opens the panel when a TraceableValue is clicked", () => {

@@ -96,9 +96,7 @@ export function SourcePanel() {
 
         <div className="space-y-6 p-4">
           <Section title="Source path">
-            <code className="block break-words rounded bg-muted p-2 font-mono text-xs">
-              {selectedSource.logical}
-            </code>
+            <SourcePathDisplay logical={selectedSource.logical} />
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <span className="rounded bg-muted px-1.5 py-0.5 font-mono">
                 root: {selectedSource.root}
@@ -289,6 +287,18 @@ function CrossLinkButton({
   );
 }
 
+// Sprint QA — explanatory tooltips for the confidence vocabulary.
+const CONFIDENCE_DESCRIPTIONS: Record<TraceabilityConfidence, string> = {
+  REPORTED:
+    "Value taken directly from the source document without modification.",
+  ESTIMATED:
+    "Value computed using estimation methodology where direct figures are unavailable.",
+  INFERRED:
+    "Value derived from indirect signals; manual review recommended.",
+  DERIVED:
+    "Value computed from REPORTED inputs through a documented formula.",
+};
+
 function ConfidenceBadge({ level }: { level: TraceabilityConfidence }) {
   const styles: Record<TraceabilityConfidence, string> = {
     REPORTED: "border-positive/30 bg-positive/10 text-positive",
@@ -299,8 +309,57 @@ function ConfidenceBadge({ level }: { level: TraceabilityConfidence }) {
   return (
     <span
       className={`rounded border px-1.5 py-0.5 font-mono text-xs ${styles[level]}`}
+      title={CONFIDENCE_DESCRIPTIONS[level]}
     >
       {level}
     </span>
+  );
+}
+
+/**
+ * Source path display with copy-to-clipboard. ``navigator.clipboard``
+ * requires a secure context (HTTPS or localhost); on plain HTTP through
+ * Tailscale the API is undefined — we fall back to a manual select via
+ * ``document.execCommand`` and silently no-op if neither works.
+ */
+function SourcePathDisplay({ logical }: { logical: string }) {
+  const handleCopy = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(logical).catch(() => {
+        /* ignored — copy is best-effort */
+      });
+      return;
+    }
+    if (typeof document === "undefined") return;
+    // Fallback for non-secure contexts.
+    const textarea = document.createElement("textarea");
+    textarea.value = logical;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+    } catch {
+      /* swallow */
+    }
+    document.body.removeChild(textarea);
+  };
+
+  return (
+    <div className="flex items-start gap-2">
+      <code className="block flex-1 break-words rounded bg-muted p-2 font-mono text-xs">
+        {logical}
+      </code>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="shrink-0 rounded border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
+        aria-label="Copy source path"
+        title="Copy to clipboard"
+      >
+        Copy
+      </button>
+    </div>
   );
 }

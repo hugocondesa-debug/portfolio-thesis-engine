@@ -97,7 +97,7 @@ export function HistoricalFinancials({ canonical }: Props) {
   }));
 
   return (
-    <section className="rounded-md border border-border bg-card p-6">
+    <section className="rounded-md border border-border bg-card p-4 md:p-6">
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h2 className="font-mono text-sm font-semibold uppercase tracking-wide text-muted-foreground">

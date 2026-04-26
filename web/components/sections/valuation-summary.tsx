@@ -1,11 +1,12 @@
 import type { CanonicalState } from "@/lib/types/canonical";
 import type { ScenarioResult, ValuationSnapshot } from "@/lib/types/valuation";
+import { Metric } from "@/components/primitives/metric";
+import { SectionShell } from "@/components/primitives/section-shell";
 import {
   formatCurrency,
   formatPercent,
   parseDecimal,
 } from "@/lib/utils/format";
-import { SectionShell } from "./section-shell";
 
 interface Props {
   valuation: ValuationSnapshot;
@@ -345,38 +346,3 @@ function BreakdownRow({
   );
 }
 
-function Metric({
-  label,
-  value,
-  subtitle,
-  highlight = false,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  subtitle?: string;
-  highlight?: boolean;
-  tone?: "positive" | "negative" | "neutral";
-}) {
-  const toneClass = {
-    positive: "text-positive",
-    negative: "text-negative",
-    neutral: "",
-  }[tone];
-
-  return (
-    <div className="rounded-md border border-border bg-card p-4">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={`mt-1 font-mono tabular-nums ${highlight ? "text-2xl font-semibold" : "text-lg"} ${toneClass}`}
-      >
-        {value}
-      </div>
-      {subtitle ? (
-        <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
-      ) : null}
-    </div>
-  );
-}

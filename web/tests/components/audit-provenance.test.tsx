@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { AuditProvenance } from "@/components/sections/audit-provenance";
+import type { CanonicalState } from "@/lib/types/canonical";
 import {
   adjustmentsFixture,
   canonicalFixture,
@@ -8,9 +9,13 @@ import {
 } from "@/tests/fixtures";
 
 describe("AuditProvenance (Sprint 1C)", () => {
+  // Cast through unknown — the audit fixture's empty
+  // ``module_d_note_decompositions`` dict is value-compatible with the
+  // stricter ``Record<string, LineDecomposition>`` declared on
+  // :class:`CanonicalState`. Sprint QA isolates the mismatch in tests.
   const canonicalWithAdjustments = {
     ...canonicalFixture,
-    adjustments: adjustmentsFixture,
+    adjustments: adjustmentsFixture as unknown as CanonicalState["adjustments"],
   };
 
   it("renders the pipeline trace summary with extraction id", () => {

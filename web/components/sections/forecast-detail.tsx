@@ -19,7 +19,8 @@ import {
   formatPercent,
   parseDecimal,
 } from "@/lib/utils/format";
-import { SectionShell } from "./section-shell";
+import { DataField } from "@/components/primitives/data-field";
+import { SectionShell } from "@/components/primitives/section-shell";
 
 interface Props {
   forecast: ForecastResult | null;
@@ -786,13 +787,9 @@ function ProbabilitySumIndicator({
   );
 }
 
+// Sprint QA — uses the DataField primitive. We render through a tiny
+// wrapper that keeps the existing call-sites' API (label + value props)
+// while letting DataField own the markup.
 function SummaryMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-0.5 font-mono text-base tabular-nums">{value}</div>
-    </div>
-  );
+  return <DataField label={label} value={value} mono />;
 }

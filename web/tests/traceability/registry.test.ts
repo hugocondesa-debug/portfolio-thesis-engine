@@ -7,6 +7,7 @@ import {
   resolveFormula,
   resolveTraceability,
 } from "@/lib/traceability/registry";
+import type { CanonicalState } from "@/lib/types/canonical";
 import { adjustmentsFixture, canonicalFixture } from "@/tests/fixtures";
 
 describe("traceability registry (Sprint 1C)", () => {
@@ -91,7 +92,8 @@ describe("traceability registry (Sprint 1C)", () => {
   it("resolveTraceability returns full resolution for ROIC", () => {
     const canonical = {
       ...canonicalFixture,
-      adjustments: adjustmentsFixture,
+      adjustments:
+        adjustmentsFixture as unknown as CanonicalState["adjustments"],
     };
     const source = buildSourcePath({
       root: "canonical",

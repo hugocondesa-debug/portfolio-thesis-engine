@@ -348,6 +348,19 @@ function AdjustmentEntry({
   );
 }
 
+// Sprint QA — same explanatory tooltips as the source panel, kept in
+// sync via this local copy (the audit accordion uses the narrower
+// ``ConfidenceLevel`` triplet — no DERIVED — because raw adjustments are
+// always one of the three reported origins).
+const CONFIDENCE_DESCRIPTIONS: Record<ConfidenceLevel, string> = {
+  REPORTED:
+    "Value taken directly from the source document without modification.",
+  ESTIMATED:
+    "Value computed using estimation methodology where direct figures are unavailable.",
+  INFERRED:
+    "Value derived from indirect signals; manual review recommended.",
+};
+
 function ConfidenceBadge({ confidence }: { confidence: ConfidenceLevel }) {
   const styles: Record<ConfidenceLevel, string> = {
     REPORTED: "border-positive/30 bg-positive/10 text-positive",
@@ -357,6 +370,7 @@ function ConfidenceBadge({ confidence }: { confidence: ConfidenceLevel }) {
   return (
     <span
       className={`rounded border px-1.5 py-0.5 font-mono text-xs ${styles[confidence]}`}
+      title={CONFIDENCE_DESCRIPTIONS[confidence]}
     >
       {confidence}
     </span>
